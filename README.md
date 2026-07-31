@@ -1,132 +1,48 @@
-# Gladys external integration — JavaScript template
+# gladys-denon-avr
 
-Official starter template for building an **external integration** for
-[Gladys Assistant](https://gladysassistant.com) with the JavaScript SDK
-[`@gladysassistant/integration-sdk`](https://github.com/GladysAssistant/integration-sdk-js).
+External integration for [Gladys Assistant](https://gladysassistant.com) to control a Denon or
+Marantz AV receiver: power, volume, mute and input source. Built on the JavaScript SDK
+[`@gladysassistant/integration-sdk`](https://github.com/GladysAssistant/integration-sdk-js), from
+the official [`integration-template-js`](https://github.com/GladysAssistant/integration-template-js).
 
-> Fork it, add the GitHub topic `gladys-assistant-integration`, push a
-> multi-arch image, bump the version — that's publishing. No account, no review.
+Talks the "AVR Control" protocol shared by (almost) the whole Denon/Marantz networked receiver
+lineup (Telnet, TCP port 23) — not hardcoded to a specific model.
 
-## What this template demonstrates
+## What it does
 
-This is **not** a 40-line hello-world: it deliberately shows several **device
-types** so you can copy the one closest to your hardware. Everything lives in
-the [`src/devices/`](./src/devices) folder (one file per device type), and every
-place where you would talk to your real hardware / cloud API is marked with a
-`DO THE WORK` comment and a `logger` call.
-
-| Device                 | Type illustrated                                                         | SDK hooks used                              |
-| ---------------------- | ------------------------------------------------------------------------ | ------------------------------------------- |
-| Weather station        | Read-only sensors (temperature + humidity), **real data** via Open-Meteo | `onPoll`, `publishStates`, `onAction`       |
-| Living room switch     | Binary actuator (ON/OFF)                                                 | `onSetValue`, `publishState`                |
-| Living room light      | Dimmable light (on/off **+** brightness), `identify` action target       | `onSetValue` per feature, `identify`        |
-| Office plug            | Mixed: actuator **+** power metering, transport badge **+ degraded**     | `onSetValue`, `onPoll`, `publishTransports` |
-| Entrance motion sensor | Push / event-driven sensor                                               | `startPush`, `publishState`                 |
-| Entrance camera        | Camera images: periodic snapshot **+** on-demand fresh capture           | `publishCameraImage`, `onGetImage`          |
-
-The wiring (connection, auth, reconnection, dispatch) is in
-[`index.js`](./index.js) — you rarely need to touch it.
+- **Discovery**: SSDP/UPnP, mediated by the Gladys core (`network_discovery: ["ssdp"]` in the
+  manifest) — receivers are found automatically on the LAN, whether powered on or in standby
+  (Network Standby required). A manual IP fallback is available in the Configuration screen for
+  networks that block multicast.
+- **Power / Volume / Mute**: controllable features (`TELEVISION` category), fed in real time by
+  the Telnet session the receiver itself pushes state changes to — no polling.
+- **Input source**: a read-only status feature (shows the exact code the receiver reports) plus
+  a **Select input** manifest action with the standard Denon/Marantz source codes, since the
+  Gladys front-end's rendering of a generic `TELEVISION.SOURCE` control isn't reliable enough
+  yet to be the only path (see the design notes in
+  [`src/devices/avr.js`](./src/devices/avr.js)).
+- **Test connection** action: on-demand query + a summary of the receiver's current state.
 
 ## Project structure
 
 ```
 .
-├─ index.js                          # SDK bootstrap + event wiring (no device logic)
+├─ index.js                          # SDK bootstrap + event wiring (no protocol logic)
 ├─ src/
-│  ├─ devices/                       # ← one file per device type (edit these)
-│  │  ├─ index.js                    #   registry: list your devices here
-│  │  ├─ weatherStation.js           #   read-only sensors (poll)
-│  │  ├─ switchDevice.js             #   binary actuator
-│  │  ├─ light.js                    #   dimmable light (on/off + brightness)
-│  │  ├─ plug.js                     #   actuator + power metering + transport badge
-│  │  ├─ motionSensor.js             #   push / event-driven sensor
-│  │  └─ camera.js                   #   camera images (push + pull)
-│  ├─ weather.js                     # example real "driver" (Open-Meteo)
+│  ├─ devices/
+│  │  ├─ avr.js                      # discovery payloads, Telnet connection registry, onSetValue, actions
+│  │  └─ index.js                    # composes SSDP discovery + the manual host fallback
+│  ├─ denon/
+│  │  ├─ protocol.js                 # PURE: parse Telnet lines <-> feature values, build commands
+│  │  ├─ telnet.js                   # raw net.Socket client: line framing, reconnect w/ backoff
+│  │  └─ discovery.js                # SSDP scan + UPnP description.xml parsing
 │  └─ config.js                      # config defaults + normalization
 ├─ docs/
-│  ├─ en.md                          # user documentation (re-hosted by Gladys,
-│  └─ fr.md                          #   linked from the Configuration screen)
-├─ gladys-assistant-integration.json # manifest (name, config schema, image…)
-├─ Dockerfile                        # Node 24 Alpine, read-only rootfs ready
-├─ .github/workflows/release.yml     # UI-driven release: bump + tag + build
-├─ .github/workflows/build.yml       # multi-arch build (git tag or called by release)
+│  ├─ en.md / fr.md                  # user documentation (re-hosted by Gladys)
+├─ gladys-assistant-integration.json # manifest
+├─ Dockerfile                        # Node 24 Alpine
 └─ cover.png                         # catalog cover, 800×534 px, ≤150 KB
 ```
-
-To add a device type, create a new file in `src/devices/` following the same
-shape as the existing ones, then register it in `src/devices/index.js`. Business
-logic (the device modules) and utilities (`weather.js`, `config.js`) are kept
-separate so the parts you edit stay small.
-
-The plumbing you would otherwise copy into every integration comes straight
-from the SDK (v0.9.0+):
-
-- `logger` / `createLogger({ name })` — leveled console logger (`LOG_LEVEL`
-  env var), with named/child loggers per module. Since SDK v0.4 the SDK also
-  logs its own connection lifecycle (under the `gladys-sdk` name), so
-  connectivity problems show up in `docker logs` without extra code;
-- `DEVICE_FEATURE_CATEGORIES`, `DEVICE_FEATURE_TYPES`, `DEVICE_FEATURE_UNITS`
-  — the standard Gladys categories / types / units, no manual string copying;
-- `gladys.externalIds(type, platformId)` — builds the unique, stable device
-  and feature external ids;
-- `gladys.handleShutdown(cleanup)` — graceful SIGTERM/SIGINT handling;
-- `gladys.setConnectionStatus(connected, message?)` — application-level
-  connection status shown in the Configuration screen (the template reports it
-  after every (re)initialization);
-- `gladys.onAction(key, cb)` — handler of a manifest `actions` button: the
-  template declares a `test_weather` action (manifest `actions` field) and the
-  weather station blueprint implements it, returning the multi-language
-  message displayed under the button;
-- `gladys.publishCameraImage(externalId, image)` / `gladys.onGetImage(cb)`
-  (SDK v0.5) — the camera image channel: push a periodic snapshot and answer
-  on-demand capture requests with an `image/jpg;base64,...` string (≤ 150 KB,
-  max 12 images/minute per device). Dedicated channel: images never go through
-  the states history. See [`src/devices/camera.js`](./src/devices/camera.js);
-- `gladys.publishTransports(entries)` + `DEVICE_TRANSPORTS` (SDK v0.5) — the
-  per-device cloud/local transport badge for dual-channel devices. The
-  manifest declares `"transports": ["local", "cloud"]`, so the Configuration
-  screen shows a standard "Prefer the local connection" toggle whose value
-  arrives as the reserved, read-only config key `GLADYS_PREFER_LOCAL`
-  (boolean, default `true`). The demo plug applies the preference and reports
-  its effective transport. Since SDK v0.7 an entry can also flag a
-  **degraded** state (`{ degraded: true, message }`) — "it works, but not in
-  the nominal mode": the demo plug uses it when local is preferred but the
-  LAN session is refused, so the cloud fallback shows an orange dot with the
-  reason instead of a silently normal badge. See
-  [`src/devices/plug.js`](./src/devices/plug.js);
-- dynamic device selects (SDK v0.7) — a manifest `select` field can replace
-  its static `options` with `"source": "devices"`: the Configuration screen
-  fills it with the integration's own created devices and the handler
-  receives the chosen `external_id`. The template's `identify` action uses it
-  to make the chosen device signal itself — the answer to "act on THIS
-  device" without asking the user to copy an identifier;
-- `section` config blocks + the Documentation link (SDK v0.8) — purely
-  presentational intro blocks in the manifest `config_schema` (title,
-  plain-text description, https links) for the onboarding guidance a compact
-  form cannot carry; they store no value. For the long step-by-step, the
-  Configuration screen shows a permanent **Documentation** link to the repo's
-  [`docs/en.md`](./docs/en.md) / [`docs/fr.md`](./docs/fr.md), re-hosted by
-  Gladys.
-
-The SDK offers more for integrations that need it — OAuth2 cloud flows
-(`onOAuthAuthorizeUrl` / `onOAuthCallback` + an `oauth2` config field),
-sub-containers (`getContainers`, `startContainer`… + the manifest `containers`
-field), mediated network discovery (`scanNetwork` + the manifest
-`network_discovery` field, for UDP-broadcast / mDNS / SSDP scans from the
-core — including the active query/response variant `udp-active-broadcast`,
-SDK v0.7, where the integration forges the discovery request and the core
-broadcasts it), communication channels (manifest `type: "communication"`:
-bidirectional Telegram-like bots linked by code — SDK v0.6,
-`publishMessage` / `onSendMessage` / `linkContact` — and, since SDK v0.9,
-send-only notification channels — `messaging: { receive: false }` plus a
-manifest `contact_schema` describing the per-user credentials that
-`onSendMessage(contact, message)` receives), and incoming webhooks relayed
-by Gladys Plus (SDK v0.9: manifest `webhooks` field +
-`getWebhooks` / `onWebhook` / `onWebhookUpdated`, for cloud services that
-push their events Netatmo-style — the demo weather API only supports
-polling, so the template does not declare any). See the
-[SDK README](https://github.com/GladysAssistant/integration-sdk-js) for those
-patterns; this template stays focused on devices.
 
 ## Run it locally
 
@@ -134,88 +50,43 @@ patterns; this template stays focused on devices.
 npm install
 GLADYS_HOST_API_URL="http://localhost:1443" \
 GLADYS_INTEGRATION_TOKEN="<token>" \
-GLADYS_INTEGRATION_SELECTOR="demo-devices-template" \
+GLADYS_INTEGRATION_SELECTOR="denon-avr" \
 LOG_LEVEL=debug \
 npm start
 ```
 
-The three `GLADYS_*` variables are injected by the Gladys supervisor when the
-integration runs inside its sandboxed container. The SDK reads them
-automatically.
-
 ## Quality checks
 
-The template ships with the tooling every integration should keep. The same
-three checks run automatically on every push and pull request (see
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml)):
-
 ```bash
-npm run format:check   # Prettier: is everything formatted?
-npm run format         # Prettier: format everything in place
-npm run lint           # ESLint: catch real mistakes (unused vars, dead code…)
-npm test               # Unit tests, via the built-in `node --test` runner
+npm run format:check   # Prettier
+npm run format          # Prettier, write
+npm run lint             # ESLint
+npm test                 # node --test
 ```
 
-Tests live in [`test/`](test/) and use Node's native test runner — no extra
-test framework to install. Add a `*.test.js` file next to the ones already
-there and it is picked up automatically.
+`protocol.js` and `telnet.js`/`discovery.js` are unit-tested without a real receiver: pure
+parsing/building functions, a local fake Telnet server (`net.createServer`), and a mocked
+`fetch`/`scanNetwork`. See [`test/`](./test).
 
 ## Validate before publishing
-
-Before you tag a release, you can check that your integration passes the store
-validation **locally**, without waiting for the hourly indexer. Run the store's
-validator against your integration directory:
 
 ```bash
 npx github:GladysAssistant/integration-store .
 ```
 
-It runs the exact same checks as the store indexer — manifest JSON & schema,
-Docker image availability (main and sub-containers), cover image (format,
-dimensions, size) and the code rules — and reports **every** problem at once so
-you can fix them in a single pass. It exits `0` when the integration is valid,
-`1` otherwise. A few things can only be confirmed once the repository is public
-(public repo, the `gladys-assistant-integration` topic, and the manifest sitting
-at the root of the default branch), and the tool tells you which ones. See the
-[integration store](https://github.com/GladysAssistant/integration-store) for
-details.
+## Publish
 
-## Publish in 5 steps
+Add the GitHub topic `gladys-assistant-integration`, then **Actions → Release → Run workflow**
+(bumps `package.json` + the manifest, tags, builds the multi-arch image). See the
+[integration-template-js README](https://github.com/GladysAssistant/integration-template-js) for
+the full publishing flow — unchanged from the template.
 
-1. **Fork** this template (or use _Use this template_ on GitHub).
-2. **Edit** the files in `src/devices/` and `gladys-assistant-integration.json` for your
-   devices, and replace `docker_image` / `cover_image` with your own.
-3. **Add the GitHub topic** `gladys-assistant-integration` to your repo.
-4. **Release from the GitHub UI**: open **Actions → Release → Run workflow**,
-   pick `patch`, `minor` or `major`. The workflow bumps the version everywhere
-   (`package.json` + manifest `version`/`docker_image`), pushes the `vX.Y.Z`
-   tag, and builds the `linux/amd64` + `linux/arm64` image to `ghcr.io`
-   (`:X.Y.Z` and `:latest`). No local tag, no manual version edit.
-5. The decentralized indexer picks up the new manifest `version` and Gladys
-   offers a one-click install / update.
+## v1 scope
 
-> Prefer the terminal? `git tag v1.0.0 && git push --tags` still works — the
-> hand-pushed tag triggers the same multi-arch build. This path only publishes
-> the Docker tags, though: it does **not** touch `package.json`,
-> `package-lock.json` or the manifest. Bump `version` (and `docker_image`) in
-> `gladys-assistant-integration.json` and commit it **before** tagging, or the
-> indexer will keep serving the old version. The Release workflow above does
-> all of this for you.
-
-Full documentation: <https://gladysassistant.com> (integrations developer guide).
-
-## Notes
-
-- Requires **Node.js ≥ 20** (uses the built-in global `fetch`; no HTTP dep).
-- All external identifiers are prefixed with `ext:<selector>:` — always build
-  them with `gladys.externalIds(type, platformId)` (or the lower-level
-  `gladys.externalId(suffix)`); the server rejects anything else. Derive
-  `platformId` from the unique id the external platform gives you (serial,
-  cloud id, MAC…), never from a hard-coded label.
-- `has_feedback: true` features should publish the state **confirmed by the
-  device**; the template publishes the requested value for simplicity.
-- Replace `cover.png` with your own 800×534 px image (≤150 KB, PNG or JPEG)
-  before publishing. The bundled one is a plain gradient placeholder.
+Power, volume, mute, input source (status + selection), SSDP discovery. Deliberately out of
+scope for now: sound/surround mode, multi-zone, HEOS "now playing" metadata, and an HTTP
+fallback control channel — see the design notes at the top of
+[`src/devices/avr.js`](./src/devices/avr.js) and [`src/denon/discovery.js`](./src/denon/discovery.js).
 
 ## License
 

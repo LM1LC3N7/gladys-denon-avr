@@ -1,99 +1,130 @@
 {
   "manifest_version": 1,
   "type": "device",
-  "name": "Demo Devices Template",
+  "name": "Denon / Marantz AVR",
   "description": {
-    "en": "Starter template showing sensors, a switch, a dimmable light and a smart plug.",
-    "fr": "Template de démarrage : capteurs, interrupteur, lampe variable et prise connectée."
+    "en": "Control a Denon or Marantz AV receiver: power, volume, mute, source — auto-discovered, no cloud.",
+    "fr": "Contrôlez un ampli Denon ou Marantz : alimentation, volume, muet, source — découverte automatique."
   },
   "version": "1.0.0",
-  "docker_image": "ghcr.io/gladysassistant/integration-template-js:1.0.0",
+  "docker_image": "ghcr.io/lm1lc3n7/gladys-denon-avr:1.0.0",
   "gladys_version": ">=4.62.0",
-  "cover_image": "https://raw.githubusercontent.com/GladysAssistant/integration-template-js/master/cover.png",
-  "transports": ["local", "cloud"],
+  "cover_image": "https://raw.githubusercontent.com/lm1lc3n7/gladys-denon-avr/master/cover.png",
+  "network_discovery": [{ "type": "ssdp", "st": "upnp:rootdevice" }],
   "config_schema": [
     {
       "key": "intro",
       "type": "section",
       "label": { "en": "Getting started", "fr": "Pour commencer" },
       "description": {
-        "en": "The demo weather station reads real data from the free Open-Meteo API: pick the coordinates to observe. No account, no API key.",
-        "fr": "La station météo de démonstration lit de vraies données via l'API gratuite Open-Meteo : choisissez les coordonnées à observer. Pas de compte, pas de clé d'API."
+        "en": "Denon/Marantz AVRs are found automatically on the LAN (SSDP/UPnP) — open the Discovery tab and run a scan. Make sure 'Network Standby' (or 'ECO' network standby) is enabled in the receiver's setup menu so it stays reachable while off. If your network blocks multicast (VLANs...), fill in the manual IP below instead.",
+        "fr": "Les amplis Denon/Marantz sont découverts automatiquement sur le réseau local (SSDP/UPnP) : ouvrez l'onglet Découverte et lancez un scan. Vérifiez que la 'veille réseau' (ou 'ECO') est activée dans le menu de configuration de l'ampli pour qu'il reste joignable une fois éteint. Si votre réseau bloque le multicast (VLAN...), renseignez plutôt l'IP manuelle ci-dessous."
       },
       "links": [
         {
-          "url": "https://open-meteo.com/en/docs",
-          "label": { "en": "Open-Meteo documentation", "fr": "Documentation Open-Meteo" }
+          "url": "https://assets.denon.com/documentmaster/us/avr-4308ciserialprotocol_ver510a.pdf",
+          "label": {
+            "en": "Denon AVR Control protocol reference",
+            "fr": "Référence du protocole Denon AVR Control"
+          }
         }
       ]
     },
     {
-      "key": "latitude",
-      "type": "number",
-      "label": { "en": "Latitude", "fr": "Latitude" },
+      "key": "host",
+      "type": "string",
+      "label": { "en": "Manual IP/hostname (fallback)", "fr": "IP/nom d'hôte manuel (secours)" },
       "description": {
-        "en": "Latitude used for the demo weather sensor.",
-        "fr": "Latitude utilisée par le capteur météo de démonstration."
-      },
-      "required": true,
-      "default": 48.8566,
-      "min": -90,
-      "max": 90
-    },
-    {
-      "key": "longitude",
-      "type": "number",
-      "label": { "en": "Longitude", "fr": "Longitude" },
-      "description": {
-        "en": "Longitude used for the demo weather sensor.",
-        "fr": "Longitude utilisée par le capteur météo de démonstration."
-      },
-      "required": true,
-      "default": 2.3522,
-      "min": -180,
-      "max": 180
-    },
-    {
-      "key": "unit",
-      "type": "select",
-      "label": { "en": "Temperature unit", "fr": "Unité de température" },
-      "required": false,
-      "default": "celsius",
-      "options": [
-        { "value": "celsius", "label": { "en": "Celsius", "fr": "Celsius" } },
-        { "value": "fahrenheit", "label": { "en": "Fahrenheit", "fr": "Fahrenheit" } }
-      ]
-    },
-    {
-      "key": "poll_frequency",
-      "type": "number",
-      "label": { "en": "Refresh interval (s)", "fr": "Intervalle de rafraîchissement (s)" },
-      "description": {
-        "en": "How often sensors are polled, in seconds.",
-        "fr": "Fréquence d'interrogation des capteurs, en secondes."
+        "en": "Only needed if the automatic scan does not find your receiver. Leave empty otherwise.",
+        "fr": "Utile seulement si le scan automatique ne trouve pas votre ampli. Laissez vide sinon."
       },
       "required": false,
-      "default": 300,
-      "min": 30,
-      "max": 3600
+      "default": ""
+    },
+    {
+      "key": "port",
+      "type": "number",
+      "label": { "en": "Telnet port (advanced)", "fr": "Port Telnet (avancé)" },
+      "description": {
+        "en": "Every Denon/Marantz model uses 23. Change only for a non-standard setup.",
+        "fr": "Tous les modèles Denon/Marantz utilisent le port 23. À modifier seulement pour une configuration non standard."
+      },
+      "required": false,
+      "default": 23,
+      "min": 1,
+      "max": 65535
+    },
+    {
+      "key": "reconnect_interval_seconds",
+      "type": "number",
+      "label": { "en": "Reconnect backoff base (s)", "fr": "Base du délai de reconnexion (s)" },
+      "description": {
+        "en": "Base delay before a Telnet reconnect attempt; it grows with consecutive failures, capped at 120 s.",
+        "fr": "Délai de base avant une tentative de reconnexion Telnet ; il augmente avec les échecs consécutifs, plafonné à 120 s."
+      },
+      "required": false,
+      "default": 10,
+      "min": 5,
+      "max": 120
     }
   ],
   "actions": [
     {
-      "key": "test_weather",
-      "label": { "en": "Test the weather provider", "fr": "Tester le fournisseur météo" },
-      "timeout_seconds": 30
-    },
-    {
-      "key": "identify",
-      "label": { "en": "Identify a device", "fr": "Identifier un appareil" },
+      "key": "test_connection",
+      "label": { "en": "Test connection", "fr": "Tester la connexion" },
+      "timeout_seconds": 15,
       "fields": [
         {
           "key": "device",
           "type": "select",
           "source": "devices",
-          "label": { "en": "Device", "fr": "Appareil" },
+          "label": { "en": "AVR", "fr": "Ampli" },
           "required": true
+        }
+      ]
+    },
+    {
+      "key": "select_source",
+      "label": { "en": "Select input", "fr": "Sélectionner l'entrée" },
+      "timeout_seconds": 15,
+      "fields": [
+        {
+          "key": "device",
+          "type": "select",
+          "source": "devices",
+          "label": { "en": "AVR", "fr": "Ampli" },
+          "required": true
+        },
+        {
+          "key": "source",
+          "type": "select",
+          "label": { "en": "Input", "fr": "Entrée" },
+          "required": true,
+          "options": [
+            { "value": "PHONO", "label": { "en": "Phono", "fr": "Phono" } },
+            { "value": "CD", "label": { "en": "CD", "fr": "CD" } },
+            { "value": "TUNER", "label": { "en": "Tuner", "fr": "Tuner" } },
+            { "value": "DVD", "label": { "en": "DVD", "fr": "DVD" } },
+            { "value": "BD", "label": { "en": "Blu-ray", "fr": "Blu-ray" } },
+            { "value": "SAT/CBL", "label": { "en": "Sat/Cable", "fr": "Satellite/Câble" } },
+            { "value": "MPLAY", "label": { "en": "Media Player", "fr": "Lecteur multimédia" } },
+            { "value": "GAME", "label": { "en": "Game", "fr": "Jeu" } },
+            { "value": "TV", "label": { "en": "TV", "fr": "TV" } },
+            { "value": "HDRADIO", "label": { "en": "HD Radio", "fr": "HD Radio" } },
+            { "value": "NET", "label": { "en": "Network", "fr": "Réseau" } },
+            { "value": "IRADIO", "label": { "en": "Internet Radio", "fr": "Radio internet" } },
+            { "value": "SERVER", "label": { "en": "Media Server", "fr": "Serveur média" } },
+            { "value": "FAVORITES", "label": { "en": "Favorites", "fr": "Favoris" } },
+            { "value": "USB/IPOD", "label": { "en": "USB/iPod", "fr": "USB/iPod" } },
+            { "value": "BT", "label": { "en": "Bluetooth", "fr": "Bluetooth" } },
+            { "value": "AUX1", "label": { "en": "Aux 1", "fr": "Aux 1" } },
+            { "value": "AUX2", "label": { "en": "Aux 2", "fr": "Aux 2" } },
+            { "value": "AUX3", "label": { "en": "Aux 3", "fr": "Aux 3" } },
+            { "value": "AUX4", "label": { "en": "Aux 4", "fr": "Aux 4" } },
+            { "value": "AUX5", "label": { "en": "Aux 5", "fr": "Aux 5" } },
+            { "value": "AUX6", "label": { "en": "Aux 6", "fr": "Aux 6" } },
+            { "value": "AUX7", "label": { "en": "Aux 7", "fr": "Aux 7" } }
+          ]
         }
       ]
     }
