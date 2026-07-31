@@ -1,0 +1,44 @@
+# -----------------------------------------------------------------------------
+# Dependabot version updates.
+#
+# Opens a PR by itself when a newer version of a dependency is available, for
+# the three places this repo pins versions: npm packages, the Dockerfile base
+# image, and the GitHub Actions used by the workflows. Regression checking is
+# the existing CI workflow (.github/workflows/ci.yml), which already runs on
+# every pull_request with no extra setup needed here.
+# -----------------------------------------------------------------------------
+version: 2
+updates:
+  - package-ecosystem: 'npm'
+    directory: '/'
+    schedule:
+      interval: 'weekly'
+    open-pull-requests-limit: 5
+    groups:
+      dev-dependencies:
+        dependency-type: 'development'
+    labels:
+      - 'dependencies'
+    commit-message:
+      prefix: 'chore'
+      include: 'scope'
+
+  - package-ecosystem: 'docker'
+    directory: '/'
+    schedule:
+      interval: 'weekly'
+    labels:
+      - 'dependencies'
+    commit-message:
+      prefix: 'chore'
+      include: 'scope'
+
+  - package-ecosystem: 'github-actions'
+    directory: '/'
+    schedule:
+      interval: 'weekly'
+    labels:
+      - 'dependencies'
+    commit-message:
+      prefix: 'chore'
+      include: 'scope'
