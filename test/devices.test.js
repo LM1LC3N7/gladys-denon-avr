@@ -1,152 +1,192 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import net from 'node:net';
 import {
   DEVICE_FEATURE_CATEGORIES,
   DEVICE_FEATURE_TYPES,
-  DEVICE_TRANSPORTS,
+  DEVICE_FEATURE_UNITS,
 } from '@gladysassistant/integration-sdk';
 import {
-  DEVICE_BLUEPRINTS,
-  buildDiscoveredDevices,
-  buildTransportEntries,
-  findBlueprintByDevice,
-  identifyDevice,
-} from '../src/devices/index.js';
-import { simulateLanSession } from '../src/devices/plug.js';
+  FEATURE,
+  featureExternalId,
+  buildDiscoveredDevice,
+  buildManualDevice,
+  connectDevice,
+  disconnectDevice,
+  onSetValue,
+  runTestConnectionAction,
+  runSelectSourceAction,
+  __setConnectionForTesting,
+  __clearConnectionsForTesting,
+} from '../src/devices/avr.js';
 import { normalizeConfig } from '../src/config.js';
 import { createFakeGladys } from './helpers/fakeGladys.js';
 
 const gladys = createFakeGladys();
-const config = normalizeConfig();
 
-test('every blueprint exposes the required shape', () => {
-  for (const bp of DEVICE_BLUEPRINTS) {
-    assert.equal(typeof bp.key, 'string', 'key must be a string');
-    assert.equal(typeof bp.deviceExternalId, 'function', 'deviceExternalId must be a function');
-    assert.equal(typeof bp.buildDevice, 'function', 'buildDevice must be a function');
-  }
+const DISCOVERED = {
+  udn: 'abc-123',
+  host: '192.168.1.50',
+  friendlyName: 'Denon AVR-S970H',
+  modelName: 'AVR-S970H',
+};
+
+test.afterEach(() => {
+  __clearConnectionsForTesting();
 });
 
-test('buildDiscoveredDevices returns one payload per blueprint', () => {
-  const devices = buildDiscoveredDevices(gladys, config);
-  assert.equal(devices.length, DEVICE_BLUEPRINTS.length);
-  for (const device of devices) {
-    assert.equal(typeof device.name, 'string');
-    assert.ok(device.external_id, 'each device has an external_id');
-    assert.ok(Array.isArray(device.features) && device.features.length > 0);
-  }
+function createFakeTelnetClient() {
+  const sent = [];
+  let connected = true;
+  return {
+    sent,
+    send(command) {
+      if (!connected) {
+        return false;
+      }
+      sent.push(command);
+      return true;
+    },
+    isConnected: () => connected,
+    stop: () => {
+      connected = false;
+    },
+    setConnected(value) {
+      connected = value;
+    },
+  };
+}
+
+test('buildDiscoveredDevice exposes power/volume/mute/source with the right categories', () => {
+  const device = buildDiscoveredDevice(gladys, DISCOVERED);
+  assert.equal(device.name, 'Denon AVR-S970H (AVR-S970H)');
+  assert.ok(device.external_id.includes('abc-123'));
+  assert.deepEqual(device.params, [{ name: 'IP_ADDRESS', value: '192.168.1.50' }]);
+  assert.equal(device.features.length, 4);
+
+  const byKey = Object.fromEntries(device.features.map((f) => [f.external_id, f]));
+  const power = byKey[featureExternalId(device.external_id, FEATURE.POWER)];
+  assert.equal(power.category, DEVICE_FEATURE_CATEGORIES.TELEVISION);
+  assert.equal(power.type, DEVICE_FEATURE_TYPES.TELEVISION.BINARY);
+  assert.equal(power.read_only, false);
+
+  const volume = byKey[featureExternalId(device.external_id, FEATURE.VOLUME)];
+  assert.equal(volume.type, DEVICE_FEATURE_TYPES.TELEVISION.VOLUME);
+  assert.equal(volume.unit, DEVICE_FEATURE_UNITS.PERCENT);
+  assert.equal(volume.min, 0);
+  assert.equal(volume.max, 100);
+
+  const mute = byKey[featureExternalId(device.external_id, FEATURE.MUTE)];
+  assert.equal(mute.type, DEVICE_FEATURE_TYPES.TELEVISION.VOLUME_MUTE);
+
+  const source = byKey[featureExternalId(device.external_id, FEATURE.SOURCE)];
+  assert.equal(source.category, DEVICE_FEATURE_CATEGORIES.TEXT);
+  assert.equal(source.type, DEVICE_FEATURE_TYPES.TEXT.TEXT);
+  assert.equal(source.read_only, true, 'source is read-only, set via the select_source action');
 });
 
-test('device external_ids are unique across the catalog', () => {
-  const devices = buildDiscoveredDevices(gladys, config);
-  const ids = devices.map((d) => d.external_id);
-  assert.equal(new Set(ids).size, ids.length, 'no two devices may share an external_id');
+test('buildManualDevice builds a stable device keyed on the configured host', () => {
+  const device = buildManualDevice(gladys, '192.168.1.77');
+  assert.deepEqual(device.params, [{ name: 'IP_ADDRESS', value: '192.168.1.77' }]);
+  assert.equal(device.features.length, 4);
 });
 
-test('findBlueprintByDevice routes an external_id back to its owner blueprint', () => {
-  for (const bp of DEVICE_BLUEPRINTS) {
-    const external_id = bp.deviceExternalId(gladys);
-    const found = findBlueprintByDevice(gladys, { external_id });
-    assert.equal(found, bp);
-  }
+test('onSetValue routes power/volume/mute to the right telnet command', async () => {
+  const device = buildDiscoveredDevice(gladys, DISCOVERED);
+  const telnet = createFakeTelnetClient();
+  __setConnectionForTesting(device.external_id, telnet);
+
+  const powerFeature = { external_id: featureExternalId(device.external_id, FEATURE.POWER) };
+  await onSetValue(gladys, { device, feature: powerFeature, value: 1 });
+  assert.equal(telnet.sent.at(-1), 'PWON');
+
+  const volumeFeature = { external_id: featureExternalId(device.external_id, FEATURE.VOLUME) };
+  await onSetValue(gladys, { device, feature: volumeFeature, value: 50 });
+  assert.equal(telnet.sent.at(-1), 'MV49');
+
+  const muteFeature = { external_id: featureExternalId(device.external_id, FEATURE.MUTE) };
+  await onSetValue(gladys, { device, feature: muteFeature, value: 0 });
+  assert.equal(telnet.sent.at(-1), 'MUOFF');
 });
 
-test('findBlueprintByDevice returns undefined for an unknown device', () => {
-  const found = findBlueprintByDevice(gladys, { external_id: 'does-not-exist' });
-  assert.equal(found, undefined);
+test('onSetValue rejects the read-only source feature', async () => {
+  const device = buildDiscoveredDevice(gladys, DISCOVERED);
+  __setConnectionForTesting(device.external_id, createFakeTelnetClient());
+  const sourceFeature = { external_id: featureExternalId(device.external_id, FEATURE.SOURCE) };
+  await assert.rejects(() => onSetValue(gladys, { device, feature: sourceFeature, value: 1 }));
 });
 
-test('manifest action keys are unique across blueprints', () => {
-  const keys = DEVICE_BLUEPRINTS.flatMap((bp) => Object.keys(bp.actions ?? {}));
-  assert.equal(new Set(keys).size, keys.length, 'no two blueprints may register the same action');
+test('onSetValue throws when the device has no open connection', async () => {
+  const device = buildDiscoveredDevice(gladys, DISCOVERED);
+  const powerFeature = { external_id: featureExternalId(device.external_id, FEATURE.POWER) };
+  await assert.rejects(() => onSetValue(gladys, { device, feature: powerFeature, value: 1 }));
 });
 
-test('the camera declares a camera/image feature', () => {
-  const cameraBlueprint = DEVICE_BLUEPRINTS.find((bp) => bp.key === 'camera');
-  const device = cameraBlueprint.buildDevice(gladys, config);
-  const imageFeature = device.features.find((f) => f.category === DEVICE_FEATURE_CATEGORIES.CAMERA);
-  assert.ok(imageFeature, 'the camera must carry a camera feature');
-  assert.equal(imageFeature.type, DEVICE_FEATURE_TYPES.CAMERA.IMAGE);
-  assert.equal(imageFeature.read_only, true);
-});
+test('runSelectSourceAction sends SI<code> and reports it back', async () => {
+  const device = buildDiscoveredDevice(gladys, DISCOVERED);
+  const telnet = createFakeTelnetClient();
+  __setConnectionForTesting(device.external_id, telnet);
 
-test('onGetImage resolves a base64 JPEG under the 150 KB limit', async () => {
-  const cameraBlueprint = DEVICE_BLUEPRINTS.find((bp) => bp.key === 'camera');
-  const image = await cameraBlueprint.onGetImage(gladys, {
-    device: { external_id: cameraBlueprint.deviceExternalId(gladys) },
-    config,
+  const message = await runSelectSourceAction(gladys, {
+    fields: { device: device.external_id, source: 'TUNER' },
   });
-  assert.match(image, /^image\/jpg;base64,/);
-  assert.ok(image.length <= 150 * 1024, 'the image must stay under 150 KB');
+  assert.equal(telnet.sent.at(-1), 'SITUNER');
+  assert.match(message.en, /TUNER/);
 });
 
-test('buildTransportEntries reports one valid entry per dual-channel device', () => {
-  const entries = buildTransportEntries(gladys, config);
-  assert.ok(entries.length > 0, 'the demo plug reports its transport');
-  const validValues = Object.values(DEVICE_TRANSPORTS);
-  for (const entry of entries) {
-    assert.ok(entry.external_id, 'each entry targets a device external_id');
-    assert.ok(validValues.includes(entry.transport), `invalid transport: ${entry.transport}`);
-  }
-});
-
-test('the demo plug honors the GLADYS_PREFER_LOCAL preference', () => {
-  const local = buildTransportEntries(gladys, normalizeConfig({ GLADYS_PREFER_LOCAL: true }));
-  const cloud = buildTransportEntries(gladys, normalizeConfig({ GLADYS_PREFER_LOCAL: false }));
-  const plugId = DEVICE_BLUEPRINTS.find((bp) => bp.key === 'plug').deviceExternalId(gladys);
-  assert.equal(local.find((e) => e.external_id === plugId).transport, DEVICE_TRANSPORTS.LOCAL);
-  assert.equal(cloud.find((e) => e.external_id === plugId).transport, DEVICE_TRANSPORTS.CLOUD);
-});
-
-test('nominal transport entries never carry a leftover degraded flag', () => {
-  const entries = buildTransportEntries(gladys, config);
-  for (const entry of entries) {
-    assert.equal(entry.degraded, undefined, 'nominal entries must clear the degraded state');
-  }
-});
-
-test('the plug reports a degraded cloud fallback when the LAN session is refused', () => {
-  const plugId = DEVICE_BLUEPRINTS.find((bp) => bp.key === 'plug').deviceExternalId(gladys);
-  simulateLanSession(false);
-  try {
-    const entries = buildTransportEntries(gladys, normalizeConfig({ GLADYS_PREFER_LOCAL: true }));
-    const entry = entries.find((e) => e.external_id === plugId);
-    assert.equal(entry.transport, DEVICE_TRANSPORTS.CLOUD, 'falls back to cloud');
-    assert.equal(entry.degraded, true, 'the fallback is flagged degraded');
-    assert.ok(entry.message.en, 'the reason carries at least the mandatory `en` text');
-    assert.ok(entry.message.en.length <= 200, 'tooltip messages are capped at 200 characters');
-  } finally {
-    simulateLanSession(true);
-  }
-});
-
-test('identifyDevice signals a device that implements identify', async () => {
-  const lightId = DEVICE_BLUEPRINTS.find((bp) => bp.key === 'light').deviceExternalId(gladys);
-  const message = await identifyDevice(gladys, lightId, config);
-  assert.match(message.en, /signalling/);
-  assert.ok(message.fr, 'the message is multi-language');
-});
-
-test('identifyDevice explains when the device has no way to signal itself', async () => {
-  const weatherId = DEVICE_BLUEPRINTS.find((bp) => bp.key === 'weather-station').deviceExternalId(
-    gladys,
+test('runSelectSourceAction throws when not connected', async () => {
+  await assert.rejects(() =>
+    runSelectSourceAction(gladys, { fields: { device: 'unknown', source: 'TUNER' } }),
   );
-  const message = await identifyDevice(gladys, weatherId, config);
-  assert.match(message.en, /no way to signal/);
 });
 
-test('the test_weather action returns a multi-language message', async () => {
-  const realFetch = globalThis.fetch;
-  globalThis.fetch = async () => ({
-    ok: true,
-    json: async () => ({ current: { temperature_2m: 21.4, relative_humidity_2m: 55 } }),
+test('runTestConnectionAction reports "not connected" without a session', async () => {
+  const message = await runTestConnectionAction(gladys, { fields: { device: 'unknown' } });
+  assert.match(message.en, /not connected/i);
+});
+
+test('disconnectDevice makes onSetValue fail again', async () => {
+  const device = buildDiscoveredDevice(gladys, DISCOVERED);
+  __setConnectionForTesting(device.external_id, createFakeTelnetClient());
+  disconnectDevice(device.external_id);
+  const powerFeature = { external_id: featureExternalId(device.external_id, FEATURE.POWER) };
+  await assert.rejects(() => onSetValue(gladys, { device, feature: powerFeature, value: 1 }));
+});
+
+// End-to-end: connectDevice() against a real (local, fake) AVR Telnet
+// server, exercising the whole push path down to gladys.publishState() and
+// the "Test connection" action's summary.
+test('connectDevice publishes the state pushed by a real Telnet session', async () => {
+  const server = net.createServer((socket) => {
+    socket.write('PWON\rMV50\rMUOFF\rSITUNER\r');
   });
+  const port = await new Promise((resolve) =>
+    server.listen(0, '127.0.0.1', () => resolve(server.address().port)),
+  );
+
+  const device = buildDiscoveredDevice(gladys, { ...DISCOVERED, host: '127.0.0.1' });
+  const localConfig = normalizeConfig({ port });
+
   try {
-    const weatherStation = DEVICE_BLUEPRINTS.find((bp) => bp.key === 'weather-station');
-    const message = await weatherStation.actions.test_weather(gladys, { fields: {}, config });
-    assert.match(message.en, /21\.4/);
-    assert.match(message.fr, /21\.4/);
+    connectDevice(gladys, device, localConfig);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    const powerId = featureExternalId(device.external_id, FEATURE.POWER);
+    const volumeId = featureExternalId(device.external_id, FEATURE.VOLUME);
+    const sourceId = featureExternalId(device.external_id, FEATURE.SOURCE);
+    assert.ok(gladys.published.some((p) => p.featureExternalId === powerId && p.state === 1));
+    assert.ok(gladys.published.some((p) => p.featureExternalId === volumeId));
+    assert.ok(
+      gladys.published.some((p) => p.featureExternalId === sourceId && p.state?.text === 'TUNER'),
+    );
+
+    const message = await runTestConnectionAction(gladys, {
+      fields: { device: device.external_id },
+    });
+    assert.match(message.en, /Power: ON/);
+    assert.match(message.en, /TUNER/);
   } finally {
-    globalThis.fetch = realFetch;
+    disconnectDevice(device.external_id);
+    server.close();
   }
 });

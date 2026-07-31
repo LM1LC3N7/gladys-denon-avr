@@ -1,90 +1,40 @@
 // -----------------------------------------------------------------------------
-// Device registry.
+// Device discovery composition: SSDP-discovered AVRs + the optional manual
+// host fallback (config.host), combined into the payload
+// gladys.publishDiscoveredDevices() expects.
 //
-// Add or remove device types here. Each device lives in its own file and
-// exposes the same shape:
-//   - key                        : short identifier (used in logs)
-//   - deviceExternalId(gladys)   : the device external_id (for dispatch)
-//   - buildDevice(gladys, config): the discovery payload sent to Gladys
-//   - onPoll(gladys, config)      (optional): periodic read
-//   - onSetValue(gladys, {...})   (optional): run a user command
-//   - onGetImage(gladys, {...})   (optional): fresh camera capture, resolved
-//     as an `image/jpg;base64,...` string (cameras only)
-//   - startPush(gladys, config)   (optional): subscribe to a real-time stream
-//   - transport(gladys, config)   (optional): effective transport of the
-//     device, shown as a badge in Gladys. Either a plain string ('local' |
-//     'cloud' | 'unreachable') or an object `{ transport, degraded, message }`
-//     to also flag the "works, but not nominal" state (orange dot + tooltip)
-//   - identify(gladys, {...})     (optional): make the physical device signal
-//     itself (blink...), used by the `identify` manifest action
-//   - actions                     (optional): manifest action handlers, keyed
-//     by the action `key` declared in gladys-assistant-integration.json
+// Connection management (Telnet sessions, command dispatch, manifest action
+// handlers) lives in ./avr.js; the SSDP scan itself lives in
+// ../denon/discovery.js. This module only composes the two into one
+// discovery payload — kept separate so index.js (the entry point) stays pure
+// wiring.
 // -----------------------------------------------------------------------------
 
-import { weatherStation } from './weatherStation.js';
-import { switchDevice } from './switchDevice.js';
-import { light } from './light.js';
-import { plug } from './plug.js';
-import { motionSensor } from './motionSensor.js';
-import { camera } from './camera.js';
+import { createLogger } from '@gladysassistant/integration-sdk';
+import { discoverDenonAvrs } from '../denon/discovery.js';
+import { buildDiscoveredDevice, buildManualDevice } from './avr.js';
 
-export const DEVICE_BLUEPRINTS = [weatherStation, switchDevice, light, plug, motionSensor, camera];
+const logger = createLogger({ name: 'discovery' });
 
 /**
- * Build the discovery payload for Gladys (all devices).
+ * Run an SSDP scan and build the full discovery payload: every Denon/Marantz
+ * AVR found, plus the manually-configured host as a fallback entry — for
+ * networks that block multicast — when it was not already found by SSDP at
+ * that same address.
  */
-export function buildDiscoveredDevices(gladys, config) {
-  return DEVICE_BLUEPRINTS.map((bp) => bp.buildDevice(gladys, config));
-}
-
-/**
- * Find the blueprint that owns a given device, from its external_id
- * (used to route onPoll / onSetValue / onGetImage to the right device).
- */
-export function findBlueprintByDevice(gladys, device) {
-  return DEVICE_BLUEPRINTS.find((bp) => bp.deviceExternalId(gladys) === device.external_id);
-}
-
-/**
- * Build the `publishTransports` payload: one entry per blueprint that reports
- * its effective transport (dual-channel devices). Devices with a single,
- * obvious channel simply do not implement `transport()`.
- *
- * A blueprint returns either a plain transport string, or an object
- * `{ transport, degraded, message }` when it needs to flag a degraded state
- * (SDK v0.7+): "it works, but not in the nominal mode" — e.g. local preferred
- * but refused, falling back to cloud. Entries WITHOUT `degraded` clear a
- * previously published degraded state, so nominal blueprints have nothing
- * special to do.
- */
-export function buildTransportEntries(gladys, config) {
-  return DEVICE_BLUEPRINTS.filter((bp) => typeof bp.transport === 'function').map((bp) => {
-    const reported = bp.transport(gladys, config);
-    const entry = typeof reported === 'string' ? { transport: reported } : reported;
-    return { external_id: bp.deviceExternalId(gladys), ...entry };
-  });
-}
-
-/**
- * Handler of the `identify` manifest action: make the chosen device signal
- * itself so the user can spot it among identical hardware.
- *
- * `externalId` comes from the action's dynamic select (`"source": "devices"`
- * in the manifest): the Configuration screen populates the options with the
- * integration's OWN created devices (label = device name, value =
- * external_id), so the user never copies an identifier by hand.
- */
-export async function identifyDevice(gladys, externalId, config) {
-  const blueprint = findBlueprintByDevice(gladys, { external_id: externalId });
-  if (!blueprint || typeof blueprint.identify !== 'function') {
-    return {
-      en: 'This device has no way to signal itself.',
-      fr: 'Cet appareil ne peut pas se signaler.',
-    };
+export async function buildDiscoveredDevices(gladys, config) {
+  let discovered = [];
+  try {
+    discovered = await discoverDenonAvrs(gladys);
+  } catch (err) {
+    logger.error(`SSDP scan failed: ${err.message}`);
   }
-  await blueprint.identify(gladys, { config });
-  return {
-    en: 'Look around: the device is signalling itself.',
-    fr: "Regardez autour de vous : l'appareil se signale.",
-  };
+
+  const devices = discovered.map((d) => buildDiscoveredDevice(gladys, d));
+
+  if (config.host && !discovered.some((d) => d.host === config.host)) {
+    devices.push(buildManualDevice(gladys, config.host));
+  }
+
+  return devices;
 }
