@@ -86,6 +86,20 @@ Dev-only dependencies (never shipped in the Docker image, see the `Dockerfile`'s
 Testing uses no library at all: `npm test` runs Node's own built-in test runner (`node --test`,
 requires no dependency), see `test/` and the "Quality checks" section below.
 
+### Keeping dependencies up to date
+
+[Dependabot](https://docs.github.com/en/code-security/dependabot/dependabot-version-updates)
+(config: [`.github/dependabot.yml`](./.github/dependabot.yml)) checks weekly for newer versions
+of the three things this repo pins — npm packages, the Dockerfile's base image, and the GitHub
+Actions used by the workflows — and opens a PR by itself for each one it finds, no bot account
+or extra service to install.
+
+The regression check for those PRs is the existing CI workflow
+([`.github/workflows/ci.yml`](./.github/workflows/ci.yml)): it already runs on every pull
+request (format, lint, tests), Dependabot's included, so a PR that breaks something simply
+won't go green. Nothing merges by itself — review the diff (mainly the `CHANGELOG`/release
+notes Dependabot links in the PR body) and merge it like any other PR once CI is green.
+
 ## Project structure
 
 ```
