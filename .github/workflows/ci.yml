@@ -1,11 +1,12 @@
 # -----------------------------------------------------------------------------
 # Continuous integration: runs on every push and every pull request.
 #
-# Three gates, the same ones every developer inspired by this template should
-# keep:
-#   1. Prettier  -> consistent formatting (no style debates in reviews);
-#   2. ESLint    -> catch real mistakes (undefined vars, dead code, ...);
-#   3. Tests     -> `node --test`, the built-in runner (no extra dependency).
+# Two independent jobs:
+#   1. quality -> Prettier, ESLint, `node --test` (no extra dependency).
+#   2. docker  -> `docker build .`, no push. Without this job a Dockerfile
+#      change (base image bump, a COPY typo...) goes green on `quality` alone
+#      and is only ever actually built the day someone cuts a release — this
+#      catches it on every PR instead.
 #
 # Runs on Node 24, the version the Docker image ships with (see the Dockerfile),
 # so the check exercises the exact runtime the integration runs on.
@@ -43,3 +44,16 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+  docker:
+    runs-on: ubuntu-latest
+    name: Docker build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build the image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false

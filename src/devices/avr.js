@@ -71,6 +71,12 @@ function buildFeatures(deviceExternalId) {
       external_id: featureExternalId(deviceExternalId, FEATURE.POWER),
       category: DEVICE_FEATURE_CATEGORIES.TELEVISION,
       type: DEVICE_FEATURE_TYPES.TELEVISION.BINARY,
+      // min/max are NOT NULL in Gladys' database for every feature, binary
+      // ones included — omitting them passes the store validator and CI
+      // fine, then fails with a 422 ("max cannot be null") the moment a user
+      // clicks "add" on a real Gladys instance. 0/1 is the binary range.
+      min: 0,
+      max: 1,
       read_only: false,
       has_feedback: true,
       keep_history: true,
@@ -92,6 +98,8 @@ function buildFeatures(deviceExternalId) {
       external_id: featureExternalId(deviceExternalId, FEATURE.MUTE),
       category: DEVICE_FEATURE_CATEGORIES.TELEVISION,
       type: DEVICE_FEATURE_TYPES.TELEVISION.VOLUME_MUTE,
+      min: 0,
+      max: 1,
       read_only: false,
       has_feedback: true,
       keep_history: true,
@@ -107,6 +115,11 @@ function buildFeatures(deviceExternalId) {
       external_id: featureExternalId(deviceExternalId, FEATURE.SOURCE),
       category: DEVICE_FEATURE_CATEGORIES.TEXT,
       type: DEVICE_FEATURE_TYPES.TEXT.TEXT,
+      // Placeholder range: min/max are NOT NULL for every feature even when
+      // they carry no real meaning for a free-text value (see the Power
+      // feature above for why this must never be omitted).
+      min: 0,
+      max: 1,
       read_only: true,
       has_feedback: false,
       keep_history: true,

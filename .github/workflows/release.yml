@@ -61,6 +61,17 @@ jobs:
           new_version="$(npm version "$RELEASE_TYPE" --no-git-tag-version | tail -n1)"
           new_version="${new_version#v}" # v1.2.0 -> 1.2.0
 
+          # Refuse early rather than fail halfway through: a re-run after a
+          # partial failure, or package.json out of sync with the last tag,
+          # would otherwise compute a version that already exists and only
+          # discover it at the `git push` below — after the bump commit is
+          # already made locally.
+          if git ls-remote --exit-code --tags origin "refs/tags/v${new_version}" >/dev/null; then
+            echo "::error::Tag v${new_version} already exists on origin. Is package.json out of sync with the last release?"
+            git checkout -- package.json package-lock.json
+            exit 1
+          fi
+
           image="ghcr.io/${GITHUB_REPOSITORY,,}:${new_version}"
 
           # Keep the manifest in lockstep: the version the indexer reads AND the
@@ -91,6 +102,12 @@ jobs:
 
           git push origin "HEAD:${GITHUB_REF_NAME}"
           git push origin "v${VERSION}"
+
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: gh release create "v${VERSION}" --generate-notes
 
   # Build and publish the image for the version we just tagged.
   build:

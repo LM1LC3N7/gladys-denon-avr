@@ -20,7 +20,7 @@ import {
   __clearConnectionsForTesting,
 } from '../src/devices/avr.js';
 import { normalizeConfig } from '../src/config.js';
-import { createFakeGladys } from './helpers/fakeGladys.js';
+import { createFakeGladys } from '../test-fixtures/fakeGladys.js';
 
 const gladys = createFakeGladys();
 
@@ -69,6 +69,8 @@ test('buildDiscoveredDevice exposes power/volume/mute/source with the right cate
   assert.equal(power.category, DEVICE_FEATURE_CATEGORIES.TELEVISION);
   assert.equal(power.type, DEVICE_FEATURE_TYPES.TELEVISION.BINARY);
   assert.equal(power.read_only, false);
+  assert.equal(power.min, 0);
+  assert.equal(power.max, 1);
 
   const volume = byKey[featureExternalId(device.external_id, FEATURE.VOLUME)];
   assert.equal(volume.type, DEVICE_FEATURE_TYPES.TELEVISION.VOLUME);
@@ -78,11 +80,27 @@ test('buildDiscoveredDevice exposes power/volume/mute/source with the right cate
 
   const mute = byKey[featureExternalId(device.external_id, FEATURE.MUTE)];
   assert.equal(mute.type, DEVICE_FEATURE_TYPES.TELEVISION.VOLUME_MUTE);
+  assert.equal(mute.min, 0);
+  assert.equal(mute.max, 1);
 
   const source = byKey[featureExternalId(device.external_id, FEATURE.SOURCE)];
   assert.equal(source.category, DEVICE_FEATURE_CATEGORIES.TEXT);
   assert.equal(source.type, DEVICE_FEATURE_TYPES.TEXT.TEXT);
   assert.equal(source.read_only, true, 'source is read-only, set via the select_source action');
+  assert.equal(source.min, 0);
+  assert.equal(source.max, 1);
+});
+
+test('every feature declares a non-null min/max (Gladys rejects a null one at "add device" time, not at publish)', () => {
+  for (const device of [
+    buildDiscoveredDevice(gladys, DISCOVERED),
+    buildManualDevice(gladys, '192.168.1.77'),
+  ]) {
+    for (const feature of device.features) {
+      assert.notEqual(feature.min, undefined, `${feature.name}.min must be set`);
+      assert.notEqual(feature.max, undefined, `${feature.name}.max must be set`);
+    }
+  }
 });
 
 test('buildManualDevice builds a stable device keyed on the configured host', () => {

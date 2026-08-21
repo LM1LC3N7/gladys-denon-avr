@@ -115,7 +115,13 @@ notes Dependabot links in the PR body) and merge it like any other PR once CI is
 │  │  └─ discovery.js                # SSDP scan + UPnP description.xml parsing
 │  └─ config.js                      # config defaults + normalization
 ├─ test/                             # one *.test.js per src/ file above, node --test, no library
-│  └─ helpers/fakeGladys.js          # minimal in-memory stand-in for the SDK client, used by tests
+├─ test-fixtures/
+│  └─ fakeGladys.js                  # minimal in-memory stand-in for the SDK client, used by tests
+│                                     # — deliberately OUTSIDE test/: `node --test` treats every
+│                                     # .js file under test/ as a test file to run, fixtures included
+├─ scripts/
+│  └─ debug-telnet.js                # talk to a real receiver's Telnet session directly, without
+│                                     # running Gladys at all — `node scripts/debug-telnet.js <host>`
 ├─ docs/
 │  └─ en.md / fr.md                  # END-USER documentation, re-hosted by Gladys itself in its
 │                                     # UI (not this README) — what someone installing the
@@ -150,7 +156,14 @@ npm test                 # node --test
 
 `protocol.js` and `telnet.js`/`discovery.js` are unit-tested without a real receiver: pure
 parsing/building functions, a local fake Telnet server (`net.createServer`), and a mocked
-`fetch`/`scanNetwork`. See [`test/`](./test).
+`fetch`/`scanNetwork`. See [`test/`](./test). Test doubles/fixtures live in
+[`test-fixtures/`](./test-fixtures), not `test/` itself — `node --test` runs every `.js` file it
+finds under `test/`, fixtures included, so one in there silently becomes a passing 0-assertion
+"test" instead of the helper it's meant to be.
+
+To poke a real receiver directly, without running Gladys at all:
+`node scripts/debug-telnet.js <host> [port]` opens the same Telnet client this integration uses
+in production and gives you a prompt to type raw protocol commands (`PW?`, `MV50`, `SITUNER`...).
 
 ## Validate before publishing
 
@@ -171,6 +184,24 @@ Power, volume, mute, input source (status + selection), SSDP discovery. Delibera
 scope for now: sound/surround mode, multi-zone, HEOS "now playing" metadata, and an HTTP
 fallback control channel — see the design notes at the top of
 [`src/devices/avr.js`](./src/devices/avr.js) and [`src/denon/discovery.js`](./src/denon/discovery.js).
+
+## Tested and confirmed
+
+Honest status, so it's clear what "it works" actually rests on:
+
+- **Confirmed**: protocol parsing/building (`test/protocol.test.js`), the Telnet client's framing
+  and reconnect logic against a local fake server (`test/telnet.test.js`), SSDP discovery parsing
+  against mocked responses (`test/discovery.test.js`), the manifest/config/device wiring
+  (`test/manifest.test.js`, `test/config.test.js`, `test/devices.test.js`) — 45 unit tests, `npm
+test` green. The official Gladys store validator (`npx github:GladysAssistant/integration-store
+.`) passes.
+- **Not yet confirmed**: end-to-end behavior against a real Denon or Marantz receiver (the
+  volume mapping in particular — see the note on `DENON_VOLUME_MAX` in
+  [`src/denon/protocol.js`](./src/denon/protocol.js) — is a reasonable default, not something
+  calibrated against real hardware) and the SSDP discovery flow against Gladys' actual
+  `scanNetwork('ssdp')` implementation. Use
+  [`scripts/debug-telnet.js`](./scripts/debug-telnet.js) to validate against your own receiver
+  before relying on this in production.
 
 ## License
 
