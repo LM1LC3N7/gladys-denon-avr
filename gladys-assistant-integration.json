@@ -6,16 +6,24 @@
     "en": "Control a Denon or Marantz AV receiver: power, volume, mute, source — auto-discovered, no cloud.",
     "fr": "Contrôlez un ampli Denon ou Marantz : alimentation, volume, muet, source — découverte automatique."
   },
-  "version": "1.0.0",
-  "docker_image": "ghcr.io/lm1lc3n7/gladys-denon-avr:1.0.0",
+  "version": "1.0.1",
+  "docker_image": "ghcr.io/lm1lc3n7/gladys-denon-avr:1.0.1",
   "gladys_version": ">=4.62.0",
   "cover_image": "https://raw.githubusercontent.com/lm1lc3n7/gladys-denon-avr/master/cover.png",
-  "network_discovery": [{ "type": "ssdp", "st": "upnp:rootdevice" }],
+  "network_discovery": [
+    {
+      "type": "ssdp",
+      "st": "upnp:rootdevice"
+    }
+  ],
   "config_schema": [
     {
       "key": "intro",
       "type": "section",
-      "label": { "en": "Getting started", "fr": "Pour commencer" },
+      "label": {
+        "en": "Getting started",
+        "fr": "Pour commencer"
+      },
       "description": {
         "en": "Denon/Marantz AVRs are found automatically on the LAN (SSDP/UPnP) — open the Discovery tab and run a scan. Make sure 'Network Standby' (or 'ECO' network standby) is enabled in the receiver's setup menu so it stays reachable while off. If your network blocks multicast (VLANs...), fill in the manual IP below instead.",
         "fr": "Les amplis Denon/Marantz sont découverts automatiquement sur le réseau local (SSDP/UPnP) : ouvrez l'onglet Découverte et lancez un scan. Vérifiez que la 'veille réseau' (ou 'ECO') est activée dans le menu de configuration de l'ampli pour qu'il reste joignable une fois éteint. Si votre réseau bloque le multicast (VLAN...), renseignez plutôt l'IP manuelle ci-dessous."
@@ -33,7 +41,10 @@
     {
       "key": "host",
       "type": "string",
-      "label": { "en": "Manual IP/hostname (fallback)", "fr": "IP/nom d'hôte manuel (secours)" },
+      "label": {
+        "en": "Manual IP/hostname (fallback)",
+        "fr": "IP/nom d'hôte manuel (secours)"
+      },
       "description": {
         "en": "Only needed if the automatic scan does not find your receiver. Leave empty otherwise.",
         "fr": "Utile seulement si le scan automatique ne trouve pas votre ampli. Laissez vide sinon."
@@ -44,7 +55,10 @@
     {
       "key": "port",
       "type": "number",
-      "label": { "en": "Telnet port (advanced)", "fr": "Port Telnet (avancé)" },
+      "label": {
+        "en": "Telnet port (advanced)",
+        "fr": "Port Telnet (avancé)"
+      },
       "description": {
         "en": "Every Denon/Marantz model uses 23. Change only for a non-standard setup.",
         "fr": "Tous les modèles Denon/Marantz utilisent le port 23. À modifier seulement pour une configuration non standard."
@@ -57,7 +71,10 @@
     {
       "key": "reconnect_interval_seconds",
       "type": "number",
-      "label": { "en": "Reconnect backoff base (s)", "fr": "Base du délai de reconnexion (s)" },
+      "label": {
+        "en": "Reconnect backoff base (s)",
+        "fr": "Base du délai de reconnexion (s)"
+      },
       "description": {
         "en": "Base delay before a Telnet reconnect attempt; it grows with consecutive failures, capped at 120 s.",
         "fr": "Délai de base avant une tentative de reconnexion Telnet ; il augmente avec les échecs consécutifs, plafonné à 120 s."
@@ -71,59 +88,212 @@
   "actions": [
     {
       "key": "test_connection",
-      "label": { "en": "Test connection", "fr": "Tester la connexion" },
+      "label": {
+        "en": "Test connection",
+        "fr": "Tester la connexion"
+      },
       "timeout_seconds": 15,
       "fields": [
         {
           "key": "device",
           "type": "select",
           "source": "devices",
-          "label": { "en": "AVR", "fr": "Ampli" },
+          "label": {
+            "en": "AVR",
+            "fr": "Ampli"
+          },
           "required": true
         }
       ]
     },
     {
       "key": "select_source",
-      "label": { "en": "Select input", "fr": "Sélectionner l'entrée" },
+      "label": {
+        "en": "Select input",
+        "fr": "Sélectionner l'entrée"
+      },
       "timeout_seconds": 15,
       "fields": [
         {
           "key": "device",
           "type": "select",
           "source": "devices",
-          "label": { "en": "AVR", "fr": "Ampli" },
+          "label": {
+            "en": "AVR",
+            "fr": "Ampli"
+          },
           "required": true
         },
         {
           "key": "source",
           "type": "select",
-          "label": { "en": "Input", "fr": "Entrée" },
+          "label": {
+            "en": "Input",
+            "fr": "Entrée"
+          },
           "required": true,
           "options": [
-            { "value": "PHONO", "label": { "en": "Phono", "fr": "Phono" } },
-            { "value": "CD", "label": { "en": "CD", "fr": "CD" } },
-            { "value": "TUNER", "label": { "en": "Tuner", "fr": "Tuner" } },
-            { "value": "DVD", "label": { "en": "DVD", "fr": "DVD" } },
-            { "value": "BD", "label": { "en": "Blu-ray", "fr": "Blu-ray" } },
-            { "value": "SAT/CBL", "label": { "en": "Sat/Cable", "fr": "Satellite/Câble" } },
-            { "value": "MPLAY", "label": { "en": "Media Player", "fr": "Lecteur multimédia" } },
-            { "value": "GAME", "label": { "en": "Game", "fr": "Jeu" } },
-            { "value": "TV", "label": { "en": "TV", "fr": "TV" } },
-            { "value": "HDRADIO", "label": { "en": "HD Radio", "fr": "HD Radio" } },
-            { "value": "NET", "label": { "en": "Network", "fr": "Réseau" } },
-            { "value": "IRADIO", "label": { "en": "Internet Radio", "fr": "Radio internet" } },
-            { "value": "SERVER", "label": { "en": "Media Server", "fr": "Serveur média" } },
-            { "value": "FAVORITES", "label": { "en": "Favorites", "fr": "Favoris" } },
-            { "value": "USB/IPOD", "label": { "en": "USB/iPod", "fr": "USB/iPod" } },
-            { "value": "BT", "label": { "en": "Bluetooth", "fr": "Bluetooth" } },
-            { "value": "AUX1", "label": { "en": "Aux 1", "fr": "Aux 1" } },
-            { "value": "AUX2", "label": { "en": "Aux 2", "fr": "Aux 2" } },
-            { "value": "AUX3", "label": { "en": "Aux 3", "fr": "Aux 3" } },
-            { "value": "AUX4", "label": { "en": "Aux 4", "fr": "Aux 4" } },
-            { "value": "AUX5", "label": { "en": "Aux 5", "fr": "Aux 5" } },
-            { "value": "AUX6", "label": { "en": "Aux 6", "fr": "Aux 6" } },
-            { "value": "AUX7", "label": { "en": "Aux 7", "fr": "Aux 7" } }
+            {
+              "value": "PHONO",
+              "label": {
+                "en": "Phono",
+                "fr": "Phono"
+              }
+            },
+            {
+              "value": "CD",
+              "label": {
+                "en": "CD",
+                "fr": "CD"
+              }
+            },
+            {
+              "value": "TUNER",
+              "label": {
+                "en": "Tuner",
+                "fr": "Tuner"
+              }
+            },
+            {
+              "value": "DVD",
+              "label": {
+                "en": "DVD",
+                "fr": "DVD"
+              }
+            },
+            {
+              "value": "BD",
+              "label": {
+                "en": "Blu-ray",
+                "fr": "Blu-ray"
+              }
+            },
+            {
+              "value": "SAT/CBL",
+              "label": {
+                "en": "Sat/Cable",
+                "fr": "Satellite/Câble"
+              }
+            },
+            {
+              "value": "MPLAY",
+              "label": {
+                "en": "Media Player",
+                "fr": "Lecteur multimédia"
+              }
+            },
+            {
+              "value": "GAME",
+              "label": {
+                "en": "Game",
+                "fr": "Jeu"
+              }
+            },
+            {
+              "value": "TV",
+              "label": {
+                "en": "TV",
+                "fr": "TV"
+              }
+            },
+            {
+              "value": "HDRADIO",
+              "label": {
+                "en": "HD Radio",
+                "fr": "HD Radio"
+              }
+            },
+            {
+              "value": "NET",
+              "label": {
+                "en": "Network",
+                "fr": "Réseau"
+              }
+            },
+            {
+              "value": "IRADIO",
+              "label": {
+                "en": "Internet Radio",
+                "fr": "Radio internet"
+              }
+            },
+            {
+              "value": "SERVER",
+              "label": {
+                "en": "Media Server",
+                "fr": "Serveur média"
+              }
+            },
+            {
+              "value": "FAVORITES",
+              "label": {
+                "en": "Favorites",
+                "fr": "Favoris"
+              }
+            },
+            {
+              "value": "USB/IPOD",
+              "label": {
+                "en": "USB/iPod",
+                "fr": "USB/iPod"
+              }
+            },
+            {
+              "value": "BT",
+              "label": {
+                "en": "Bluetooth",
+                "fr": "Bluetooth"
+              }
+            },
+            {
+              "value": "AUX1",
+              "label": {
+                "en": "Aux 1",
+                "fr": "Aux 1"
+              }
+            },
+            {
+              "value": "AUX2",
+              "label": {
+                "en": "Aux 2",
+                "fr": "Aux 2"
+              }
+            },
+            {
+              "value": "AUX3",
+              "label": {
+                "en": "Aux 3",
+                "fr": "Aux 3"
+              }
+            },
+            {
+              "value": "AUX4",
+              "label": {
+                "en": "Aux 4",
+                "fr": "Aux 4"
+              }
+            },
+            {
+              "value": "AUX5",
+              "label": {
+                "en": "Aux 5",
+                "fr": "Aux 5"
+              }
+            },
+            {
+              "value": "AUX6",
+              "label": {
+                "en": "Aux 6",
+                "fr": "Aux 6"
+              }
+            },
+            {
+              "value": "AUX7",
+              "label": {
+                "en": "Aux 7",
+                "fr": "Aux 7"
+              }
+            }
           ]
         }
       ]
