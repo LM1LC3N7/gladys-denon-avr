@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { normalizeConfig, DEFAULT_CONFIG } from '../src/config.js';
 
 test('normalizeConfig returns the defaults when called with no argument', () => {
-  assert.deepEqual(normalizeConfig(), DEFAULT_CONFIG);
+  assert.deepEqual(normalizeConfig(), { ...DEFAULT_CONFIG, hosts: [] });
 });
 
 test('normalizeConfig keeps user values over the defaults', () => {
@@ -28,6 +28,24 @@ test('normalizeConfig coerces numeric strings coming from a form', () => {
 test('normalizeConfig trims a manual host and falls back to the default when absent', () => {
   assert.equal(normalizeConfig({ host: '  192.168.1.50  ' }).host, '192.168.1.50');
   assert.equal(normalizeConfig({}).host, DEFAULT_CONFIG.host);
+});
+
+test('normalizeConfig: a single host is a one-element hosts array (backward compatible)', () => {
+  const config = normalizeConfig({ host: '192.168.1.50' });
+  assert.equal(config.host, '192.168.1.50');
+  assert.deepEqual(config.hosts, ['192.168.1.50']);
+});
+
+test('normalizeConfig: comma-separated hosts are trimmed, deduplicated, and empties dropped', () => {
+  const config = normalizeConfig({ host: ' 192.168.1.50 ,192.168.2.50, ,192.168.1.50,' });
+  assert.deepEqual(config.hosts, ['192.168.1.50', '192.168.2.50']);
+  // `host` stays the first one, for callers that only expect a single value.
+  assert.equal(config.host, '192.168.1.50');
+});
+
+test('normalizeConfig: an empty host yields an empty hosts array', () => {
+  assert.deepEqual(normalizeConfig({ host: '' }).hosts, []);
+  assert.deepEqual(normalizeConfig({ host: '   ' }).hosts, []);
 });
 
 test('normalizeConfig falls back to the default for a missing/invalid numeric field', () => {

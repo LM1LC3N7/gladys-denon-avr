@@ -17,6 +17,7 @@ import {
   runTestConnectionAction,
   runSelectSourceAction,
   __setConnectionForTesting,
+  __setLastKnownStateForTesting,
   __clearConnectionsForTesting,
 } from '../src/devices/avr.js';
 import { normalizeConfig } from '../src/config.js';
@@ -85,10 +86,15 @@ test('buildDiscoveredDevice exposes power/volume/mute/source with the right cate
 
   const source = byKey[featureExternalId(device.external_id, FEATURE.SOURCE)];
   assert.equal(source.category, DEVICE_FEATURE_CATEGORIES.TEXT);
-  assert.equal(source.type, DEVICE_FEATURE_TYPES.TEXT.TEXT);
-  assert.equal(source.read_only, true, 'source is read-only, set via the select_source action');
+  assert.equal(source.type, 'select'); // TEXT.SELECT, not in this SDK version's constants
+  assert.equal(source.read_only, false, 'the dashboard dropdown sets the source directly');
   assert.equal(source.min, 0);
   assert.equal(source.max, 1);
+  assert.ok(Array.isArray(source.supported_options) && source.supported_options.length > 0);
+  assert.deepEqual(source.supported_options[0], { value: 'PHONO', label: 'PHONO' });
+  // Every SI code must be representable, and only once.
+  const optionValues = source.supported_options.map((o) => o.value);
+  assert.equal(new Set(optionValues).size, optionValues.length);
 });
 
 test('every feature declares a non-null min/max (Gladys rejects a null one at "add device" time, not at publish)', () => {
@@ -109,7 +115,7 @@ test('buildManualDevice builds a stable device keyed on the configured host', ()
   assert.equal(device.features.length, 4);
 });
 
-test('onSetValue routes power/volume/mute to the right telnet command', async () => {
+test('onSetValue routes power/volume to the right telnet command', async () => {
   const device = buildDiscoveredDevice(gladys, DISCOVERED);
   const telnet = createFakeTelnetClient();
   __setConnectionForTesting(device.external_id, telnet);
@@ -121,17 +127,41 @@ test('onSetValue routes power/volume/mute to the right telnet command', async ()
   const volumeFeature = { external_id: featureExternalId(device.external_id, FEATURE.VOLUME) };
   await onSetValue(gladys, { device, feature: volumeFeature, value: 50 });
   assert.equal(telnet.sent.at(-1), 'MV49');
-
-  const muteFeature = { external_id: featureExternalId(device.external_id, FEATURE.MUTE) };
-  await onSetValue(gladys, { device, feature: muteFeature, value: 0 });
-  assert.equal(telnet.sent.at(-1), 'MUOFF');
 });
 
-test('onSetValue rejects the read-only source feature', async () => {
+test("onSetValue toggles mute off the receiver's last-reported state, ignoring the incoming value", async () => {
+  // TELEVISION.VOLUME_MUTE is a remote-control button, not a stateful
+  // switch: Gladys sends a "pressed" signal, not a target on/off value —
+  // this is exactly the bug a real receiver surfaced (every press sent the
+  // same command). `value` must have zero effect on which command is sent.
   const device = buildDiscoveredDevice(gladys, DISCOVERED);
-  __setConnectionForTesting(device.external_id, createFakeTelnetClient());
+  const telnet = createFakeTelnetClient();
+  __setConnectionForTesting(device.external_id, telnet);
+  const muteFeature = { external_id: featureExternalId(device.external_id, FEATURE.MUTE) };
+
+  __setLastKnownStateForTesting(device.external_id, { mute: 0 });
+  await onSetValue(gladys, { device, feature: muteFeature, value: 0 });
+  assert.equal(telnet.sent.at(-1), 'MUON');
+
+  __setLastKnownStateForTesting(device.external_id, { mute: 1 });
+  await onSetValue(gladys, { device, feature: muteFeature, value: 0 });
+  assert.equal(telnet.sent.at(-1), 'MUOFF');
+
+  // Nothing known yet (fresh device, receiver hasn't reported a state):
+  // defaults to "currently unmuted" -> first press mutes.
+  __setLastKnownStateForTesting(device.external_id, undefined);
+  await onSetValue(gladys, { device, feature: muteFeature, value: 1 });
+  assert.equal(telnet.sent.at(-1), 'MUON');
+});
+
+test('onSetValue routes the source dropdown to SI<code>, using the value as-is (a string, not a number)', async () => {
+  const device = buildDiscoveredDevice(gladys, DISCOVERED);
+  const telnet = createFakeTelnetClient();
+  __setConnectionForTesting(device.external_id, telnet);
   const sourceFeature = { external_id: featureExternalId(device.external_id, FEATURE.SOURCE) };
-  await assert.rejects(() => onSetValue(gladys, { device, feature: sourceFeature, value: 1 }));
+
+  await onSetValue(gladys, { device, feature: sourceFeature, value: 'NET' });
+  assert.equal(telnet.sent.at(-1), 'SINET');
 });
 
 test('onSetValue throws when the device has no open connection', async () => {

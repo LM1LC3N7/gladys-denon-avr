@@ -46,8 +46,8 @@
         "fr": "IP/nom d'hôte manuel (secours)"
       },
       "description": {
-        "en": "Only needed if the automatic scan does not find your receiver. Leave empty otherwise.",
-        "fr": "Utile seulement si le scan automatique ne trouve pas votre ampli. Laissez vide sinon."
+        "en": "Only needed if the automatic scan does not find (all of) your receiver(s). Leave empty otherwise. Several networks/receivers: separate multiple addresses with commas, e.g. \"192.168.1.50, 192.168.2.50\".",
+        "fr": "Utile seulement si le scan automatique ne trouve pas (tous) vos amplis. Laissez vide sinon. Plusieurs réseaux/amplis : séparez les adresses par des virgules, ex. « 192.168.1.50, 192.168.2.50 »."
       },
       "required": false,
       "default": ""

@@ -16,11 +16,12 @@ lineup (Telnet, TCP port 23) — not hardcoded to a specific model.
   networks that block multicast.
 - **Power / Volume / Mute**: controllable features (`TELEVISION` category), fed in real time by
   the Telnet session the receiver itself pushes state changes to — no polling.
-- **Input source**: a read-only status feature (shows the exact code the receiver reports) plus
-  a **Select input** manifest action with the standard Denon/Marantz source codes, since the
-  Gladys front-end's rendering of a generic `TELEVISION.SOURCE` control isn't reliable enough
-  yet to be the only path (see the design notes in
-  [`src/devices/avr.js`](./src/devices/avr.js)).
+- **Input source**: a dropdown on the dashboard, backed by `TEXT.SELECT` +
+  `supported_options` (the receiver's own SI codes) — **not** the generic `TELEVISION.SOURCE`
+  type, which Gladys' front-end renders as a one-shot remote-control button with no way to pick
+  a specific input (see the design notes in [`src/devices/avr.js`](./src/devices/avr.js)). This
+  needs a fairly recent Gladys core; the **Select input** manifest action is kept as an
+  equivalent second path in case an older core doesn't know the `select` feature type.
 - **Test connection** action: on-demand query + a summary of the receiver's current state.
 
 ## New to this codebase? Start here
@@ -189,19 +190,20 @@ fallback control channel — see the design notes at the top of
 
 Honest status, so it's clear what "it works" actually rests on:
 
-- **Confirmed**: protocol parsing/building (`test/protocol.test.js`), the Telnet client's framing
-  and reconnect logic against a local fake server (`test/telnet.test.js`), SSDP discovery parsing
-  against mocked responses (`test/discovery.test.js`), the manifest/config/device wiring
-  (`test/manifest.test.js`, `test/config.test.js`, `test/devices.test.js`) — 45 unit tests, `npm
-test` green. The official Gladys store validator (`npx github:GladysAssistant/integration-store
-.`) passes.
-- **Not yet confirmed**: end-to-end behavior against a real Denon or Marantz receiver (the
-  volume mapping in particular — see the note on `DENON_VOLUME_MAX` in
-  [`src/denon/protocol.js`](./src/denon/protocol.js) — is a reasonable default, not something
-  calibrated against real hardware) and the SSDP discovery flow against Gladys' actual
-  `scanNetwork('ssdp')` implementation. Use
-  [`scripts/debug-telnet.js`](./scripts/debug-telnet.js) to validate against your own receiver
-  before relying on this in production.
+- **Confirmed**: unit tests (`npm test`, `test/`) and the official Gladys store validator
+  (`npx github:GladysAssistant/integration-store .`) are green. On a real Denon AVR-S970H
+  (v1.0.1): SSDP-independent static-IP detection and the Telnet connection both work.
+- **Confirmed fixed after real-hardware feedback, not yet re-verified on real hardware**: the
+  mute toggle used to re-send the same command on every press (see the note in
+  `onSetValue`/`src/devices/avr.js` — `TELEVISION.VOLUME_MUTE` is a remote-control button, not a
+  stateful switch); the fix is unit-tested but needs one more hardware pass to close the loop.
+- **Not yet confirmed**: the input-source dropdown on the dashboard (`TEXT.SELECT` +
+  `supported_options` — confirmed against the real Gladys core source, but not yet against a
+  running instance: it needs a fairly recent core version, see "What it does" above), the volume
+  mapping (`DENON_VOLUME_MAX` in [`src/denon/protocol.js`](./src/denon/protocol.js) is a
+  reasonable default, not calibrated against real hardware), and the SSDP discovery flow itself
+  (only the static-IP fallback has been confirmed so far). Use
+  [`scripts/debug-telnet.js`](./scripts/debug-telnet.js) to validate against your own receiver.
 
 ## License
 

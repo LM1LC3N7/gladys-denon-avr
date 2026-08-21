@@ -36,7 +36,17 @@ import {
   buildMuteCommand,
   buildSourceQuery,
   buildSourceCommand,
+  SOURCE_CODES,
 } from '../denon/protocol.js';
+
+// DEVICE_FEATURE_TYPES.TEXT.SELECT ('select'): a dynamic dropdown among
+// string values the integration itself declares via `supported_options`
+// (Gladys core #2567 — installed TV apps, HDMI sources...), exactly our
+// case. Not in this SDK's constants yet (^0.9.0 predates it; the string is
+// stable and mirrors server/utils/constants.js), so it's spelled out here
+// rather than imported. Requires a Gladys core recent enough to know the
+// 'select' feature type — see the Source feature below.
+const TEXT_SELECT_TYPE = 'select';
 
 export const DEVICE_TYPE = 'avr';
 
@@ -105,24 +115,31 @@ function buildFeatures(deviceExternalId) {
       keep_history: true,
     },
     {
-      // Read-only: the value comes verbatim from the receiver (`SI<CODE>`),
-      // so it stays correct for inputs we did not anticipate. Selecting a
-      // source is done through the `select_source` manifest action instead
-      // of a controllable feature (see gladys-assistant-integration.json) —
-      // Gladys' front-end rendering of a generic TELEVISION.SOURCE control
-      // isn't reliable enough yet to be the only path.
+      // A dropdown of the receiver's own input codes (TEXT.SELECT — see the
+      // TEXT_SELECT_TYPE note above), NOT the generic TELEVISION.SOURCE type:
+      // that one is a one-shot remote-control button in Gladys' front-end
+      // (same family as VOLUME_MUTE, no meaningful value), so it could never
+      // represent a specific input — only TEXT.SELECT actually renders a
+      // real select with our supported_options. The value published/set is
+      // the verbatim SI code, so it stays correct for inputs the static
+      // SOURCE_CODES list did not anticipate. The `select_source` manifest
+      // action (see gladys-assistant-integration.json) is kept as a second,
+      // equivalent path — this dashboard control needs a fairly recent
+      // Gladys core (TEXT.SELECT/supported_options); on an older one this
+      // feature type may be rejected outright, so both routes existing
+      // matters, not just redundancy.
       name: 'Source',
       external_id: featureExternalId(deviceExternalId, FEATURE.SOURCE),
       category: DEVICE_FEATURE_CATEGORIES.TEXT,
-      type: DEVICE_FEATURE_TYPES.TEXT.TEXT,
+      type: TEXT_SELECT_TYPE,
+      supported_options: SOURCE_CODES.map((code) => ({ value: code.value, label: code.value })),
       // Placeholder range: min/max are NOT NULL for every feature even when
-      // they carry no real meaning for a free-text value (see the Power
+      // they carry no real meaning for a select value (see the Power
       // feature above for why this must never be omitted).
       min: 0,
       max: 1,
-      read_only: true,
-      has_feedback: false,
-      keep_history: true,
+      read_only: false,
+      has_feedback: true,
     },
   ];
 }
@@ -218,6 +235,15 @@ export function __setConnectionForTesting(externalId, telnetClient) {
   connections.set(externalId, telnetClient);
 }
 
+/**
+ * Test-only hook: seed the last-known-state cache for a given external_id,
+ * so the MUTE toggle logic in onSetValue() can be tested without a real
+ * receiver pushing state back over Telnet. Not used by production code.
+ */
+export function __setLastKnownStateForTesting(externalId, state) {
+  lastKnownState.set(externalId, state);
+}
+
 /** Test-only hook: drop every registered connection between tests. */
 export function __clearConnectionsForTesting() {
   connections.clear();
@@ -252,11 +278,23 @@ export async function onSetValue(gladys, { device, feature, value }) {
   } else if (key === FEATURE.VOLUME) {
     command = buildVolumeCommand(value);
   } else if (key === FEATURE.MUTE) {
-    command = buildMuteCommand(value === 1);
+    // DEVICE_FEATURE_TYPES.TELEVISION.VOLUME_MUTE is a remote-control button
+    // (same family as VOLUME_UP/VOLUME_DOWN), not a stateful switch like
+    // POWER's BINARY type — `value` is not a target state to set, it's just
+    // a "button pressed" signal (observed constant across presses on a real
+    // instance: trusting it as a target made every press send the same
+    // command, so the second press never undid the first). Toggle off the
+    // receiver's own last-reported mute state instead.
+    const currentlyMuted = lastKnownState.get(device.external_id)?.mute === 1;
+    command = buildMuteCommand(!currentlyMuted);
+  } else if (key === FEATURE.SOURCE) {
+    // TEXT.SELECT features carry their state as the selected option's own
+    // string value (not the `number` the SDK types suggest — checked
+    // against the Gladys core: device.setValue forwards it as-is, string or
+    // number, to the integration), so `value` is already the SI code.
+    command = buildSourceCommand(value);
   } else {
-    throw new Error(
-      `Feature "${key}" is not controllable (use the select_source action for the source)`,
-    );
+    throw new Error(`Feature "${key}" is not controllable`);
   }
 
   if (!telnet.send(command)) {

@@ -1,6 +1,6 @@
 // -----------------------------------------------------------------------------
 // Device discovery composition: SSDP-discovered AVRs + the optional manual
-// host fallback (config.host), combined into the payload
+// host(s) fallback (config.hosts), combined into the payload
 // gladys.publishDiscoveredDevices() expects.
 //
 // Connection management (Telnet sessions, command dispatch, manifest action
@@ -18,9 +18,9 @@ const logger = createLogger({ name: 'discovery' });
 
 /**
  * Run an SSDP scan and build the full discovery payload: every Denon/Marantz
- * AVR found, plus the manually-configured host as a fallback entry — for
- * networks that block multicast — when it was not already found by SSDP at
- * that same address.
+ * AVR found, plus one manual-fallback entry per host in `config.hosts` — for
+ * networks that block multicast, or receivers SSDP simply doesn't reach —
+ * skipping any host SSDP already found at that same address.
  */
 export async function buildDiscoveredDevices(gladys, config) {
   let discovered = [];
@@ -32,8 +32,11 @@ export async function buildDiscoveredDevices(gladys, config) {
 
   const devices = discovered.map((d) => buildDiscoveredDevice(gladys, d));
 
-  if (config.host && !discovered.some((d) => d.host === config.host)) {
-    devices.push(buildManualDevice(gladys, config.host));
+  const discoveredHosts = new Set(discovered.map((d) => d.host));
+  for (const host of config.hosts) {
+    if (!discoveredHosts.has(host)) {
+      devices.push(buildManualDevice(gladys, host));
+    }
   }
 
   return devices;
