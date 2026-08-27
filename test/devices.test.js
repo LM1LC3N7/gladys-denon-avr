@@ -19,10 +19,12 @@ import {
   __setConnectionForTesting,
   __setLastKnownStateForTesting,
   __setHeosConnectionForTesting,
+  __setHeosPollIntervalMsForTesting,
   __clearConnectionsForTesting,
 } from '../src/devices/avr.js';
 import { normalizeConfig } from '../src/config.js';
 import { createFakeGladys } from '../test-fixtures/fakeGladys.js';
+import { HEOS_PORT } from '../src/heos/protocol.js';
 
 const gladys = createFakeGladys();
 
@@ -391,5 +393,111 @@ test('connectDevice publishes the state pushed by a real Telnet session', async 
   } finally {
     disconnectDevice(device.external_id);
     server.close();
+  }
+});
+
+// End-to-end: connectDevice() against BOTH a real fake Telnet server AND a
+// real fake HEOS CLI server for the same host, exercising the precedence
+// rule (HEOS wins once its player id is matched, legacy NSE0/NSE1/NSE2 must
+// not overwrite it) and the periodic poll (see HEOS_POLL_INTERVAL_MS).
+test('connectDevice: HEOS becomes authoritative for playback state and now playing once matched, and the poll timer keeps refreshing both', async () => {
+  __setHeosPollIntervalMsForTesting(50);
+
+  const telnetServer = net.createServer((socket) => {
+    socket.write('PWON\r');
+    // Arrives well after the HEOS handshake below should have completed —
+    // must be ignored for playback_state/now_playing once HEOS has matched.
+    setTimeout(() => {
+      socket.write('NSE0Bluetooth Standby\rNSE1Wrong Title\rNSE2Wrong Artist\r');
+    }, 150);
+  });
+  const telnetPort = await new Promise((resolve) =>
+    telnetServer.listen(0, '127.0.0.1', () => resolve(telnetServer.address().port)),
+  );
+
+  const heosServer = net.createServer((socket) => {
+    socket.setEncoding('utf8');
+    let buffer = '';
+    socket.on('data', (chunk) => {
+      buffer += chunk;
+      const lines = buffer.split(/\r\n/);
+      buffer = lines.pop() ?? '';
+      for (const line of lines) {
+        if (line.includes('player/get_players')) {
+          socket.write(
+            JSON.stringify({
+              heos: { command: 'player/get_players', result: 'success', message: '' },
+              payload: [{ pid: 999, ip: '127.0.0.1' }],
+            }) + '\r\n',
+          );
+        } else if (line.includes('player/get_play_state')) {
+          socket.write(
+            JSON.stringify({
+              heos: {
+                command: 'player/get_play_state',
+                result: 'success',
+                message: 'pid=999&state=play',
+              },
+            }) + '\r\n',
+          );
+        } else if (line.includes('player/get_now_playing_media')) {
+          socket.write(
+            JSON.stringify({
+              heos: {
+                command: 'player/get_now_playing_media',
+                result: 'success',
+                message: 'pid=999',
+              },
+              payload: { song: 'HEOS Title', artist: 'HEOS Artist' },
+            }) + '\r\n',
+          );
+        }
+      }
+    });
+  });
+  await new Promise((resolve) => heosServer.listen(HEOS_PORT, '127.0.0.1', resolve));
+
+  const device = buildDiscoveredDevice(gladys, { ...DISCOVERED, host: '127.0.0.1' });
+  const localConfig = normalizeConfig({ port: telnetPort });
+
+  try {
+    connectDevice(gladys, device, localConfig);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    const playbackStateId = featureExternalId(device.external_id, FEATURE.PLAYBACK_STATE);
+    const nowPlayingId = featureExternalId(device.external_id, FEATURE.NOW_PLAYING);
+
+    assert.ok(
+      gladys.published.some((p) => p.featureExternalId === playbackStateId && p.state === 1),
+      'HEOS get_play_state (playing) is published',
+    );
+    assert.ok(
+      gladys.published.some(
+        (p) => p.featureExternalId === nowPlayingId && p.state?.text === 'HEOS Artist - HEOS Title',
+      ),
+      'HEOS get_now_playing_media is published',
+    );
+    assert.ok(
+      !gladys.published.some((p) => p.featureExternalId === playbackStateId && p.state === 0),
+      'the legacy NSE0 "Bluetooth Standby" banner must not overwrite HEOS-sourced playback state',
+    );
+    assert.ok(
+      !gladys.published.some(
+        (p) =>
+          p.featureExternalId === nowPlayingId && p.state?.text === 'Wrong Artist - Wrong Title',
+      ),
+      'the legacy NSE1/NSE2 lines must not overwrite HEOS-sourced now playing',
+    );
+
+    // The 50ms poll interval should have re-sent get_play_state/
+    // get_now_playing_media several times over the 400ms wait above,
+    // republishing the same HEOS-sourced values each time.
+    const publishCount = (id) => gladys.published.filter((p) => p.featureExternalId === id).length;
+    assert.ok(publishCount(playbackStateId) >= 3, 'the poll timer re-fetches playback state');
+    assert.ok(publishCount(nowPlayingId) >= 3, 'the poll timer re-fetches now playing');
+  } finally {
+    disconnectDevice(device.external_id);
+    telnetServer.close();
+    heosServer.close();
   }
 });

@@ -47,6 +47,12 @@ the receiver supports it: no configuration needed, nothing to turn on. If HEOS i
 (no HEOS module, or its network port is blocked), the buttons transparently fall back to the
 classic commands, which still work for the receiver's own non-HEOS Net/USB sources.
 
+Once HEOS is confirmed for your receiver, it also becomes the source for the playback state and
+the "Now playing" title/artist — refreshed both when HEOS pushes a change and on a background
+check every 30 seconds, so the dashboard catches up on its own within half a minute even if a
+push notification is missed (this can happen if the HEOS connection drops briefly, which is a
+known HEOS behavior on an idle connection).
+
 **Limits**: this is implemented from HEOS's own (unofficial, but widely used) network protocol,
 cross-checked against the library behind Home Assistant's official HEOS integration — not tested
 by the developer against a live HEOS streaming session, since that requires an actual paid

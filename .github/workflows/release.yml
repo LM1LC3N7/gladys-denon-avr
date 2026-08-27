@@ -82,6 +82,13 @@ jobs:
             gladys-assistant-integration.json > "$tmp"
           mv "$tmp" gladys-assistant-integration.json
 
+          # jq always re-indents every array across multiple lines regardless
+          # of length, which disagrees with Prettier's style (a short array
+          # like `categories` collapses to one line) — re-format back to that
+          # style so the next PR's CI doesn't inherit a pre-existing diff on
+          # a file this workflow, not that PR, touched last.
+          npx --yes prettier --write gladys-assistant-integration.json
+
           echo "version=${new_version}" >> "$GITHUB_OUTPUT"
 
       # Note: if the branch you release from is protected against direct pushes,

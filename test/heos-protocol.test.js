@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   HEOS_PORT,
   HEOS_PLAY_STATE,
+  HEOS_EVENT,
   buildGetPlayersCommand,
   buildGetPlayStateCommand,
   buildSetPlayStateCommand,
@@ -10,10 +11,12 @@ import {
   buildPauseCommand,
   buildPlayNextCommand,
   buildPlayPreviousCommand,
+  buildGetNowPlayingMediaCommand,
   buildRegisterForChangeEventsCommand,
   parseMessage,
   findPlayerIdByIp,
   heosPlayStateToPlaybackState,
+  parseNowPlayingMedia,
 } from '../src/heos/protocol.js';
 
 test('HEOS_PORT is the well-known HEOS CLI port', () => {
@@ -31,6 +34,7 @@ test('command builders produce the exact heos:// path (without the scheme, added
   assert.equal(buildPauseCommand(12345), 'player/set_play_state?pid=12345&state=pause');
   assert.equal(buildPlayNextCommand(12345), 'player/play_next?pid=12345');
   assert.equal(buildPlayPreviousCommand(12345), 'player/play_previous?pid=12345');
+  assert.equal(buildGetNowPlayingMediaCommand(12345), 'player/get_now_playing_media?pid=12345');
   assert.equal(
     buildRegisterForChangeEventsCommand(),
     'system/register_for_change_events?enable=on',
@@ -91,4 +95,35 @@ test('heosPlayStateToPlaybackState maps "play" to 1, everything else to 0', () =
   assert.equal(heosPlayStateToPlaybackState('pause'), 0);
   assert.equal(heosPlayStateToPlaybackState('stop'), 0);
   assert.equal(heosPlayStateToPlaybackState(undefined), 0);
+});
+
+test('HEOS_EVENT names match the exact strings HEOS pushes', () => {
+  assert.equal(HEOS_EVENT.PLAYER_STATE_CHANGED, 'event/player_state_changed');
+  assert.equal(HEOS_EVENT.PLAYER_NOW_PLAYING_CHANGED, 'event/player_now_playing_changed');
+});
+
+test('parseNowPlayingMedia: extracts title/artist from the song/artist payload fields', () => {
+  assert.deepEqual(parseNowPlayingMedia({ song: 'Come Away With Me', artist: 'Norah Jones' }), {
+    title: 'Come Away With Me',
+    artist: 'Norah Jones',
+  });
+});
+
+test('parseNowPlayingMedia: returns null for missing/empty payload (nothing playing)', () => {
+  assert.equal(parseNowPlayingMedia(null), null);
+  assert.equal(parseNowPlayingMedia(undefined), null);
+  assert.equal(parseNowPlayingMedia({}), null);
+  assert.equal(parseNowPlayingMedia({ song: '', artist: '' }), null);
+  assert.equal(parseNowPlayingMedia('not an object'), null);
+});
+
+test('parseNowPlayingMedia: tolerates a title with no artist, or an artist with no title', () => {
+  assert.deepEqual(parseNowPlayingMedia({ song: 'Some Station' }), {
+    title: 'Some Station',
+    artist: '',
+  });
+  assert.deepEqual(parseNowPlayingMedia({ artist: 'Norah Jones' }), {
+    title: '',
+    artist: 'Norah Jones',
+  });
 });

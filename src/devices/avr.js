@@ -49,6 +49,7 @@ import { createHeosClient } from '../heos/client.js';
 import {
   buildGetPlayersCommand,
   buildGetPlayStateCommand,
+  buildGetNowPlayingMediaCommand,
   buildPlayCommand as buildHeosPlayCommand,
   buildPauseCommand as buildHeosPauseCommand,
   buildPlayNextCommand as buildHeosPlayNextCommand,
@@ -56,6 +57,8 @@ import {
   buildRegisterForChangeEventsCommand,
   findPlayerIdByIp,
   heosPlayStateToPlaybackState,
+  parseNowPlayingMedia,
+  HEOS_EVENT,
 } from '../heos/protocol.js';
 
 // DEVICE_FEATURE_TYPES.TEXT.SELECT ('select'): a dynamic dropdown among
@@ -90,6 +93,23 @@ const NOW_PLAYING_TITLE = 'now_playing_title';
 const NOW_PLAYING_ARTIST = 'now_playing_artist';
 
 const CONNECTION_FAILURE_THRESHOLD = 3;
+
+// How often to actively re-query HEOS for playback state + now-playing
+// metadata while a player id is known, on top of reacting to its pushed
+// events. HEOS CLI connections are known to drop silently when idle (the
+// protocol has its own recommended heart_beat command for exactly this),
+// and even when the socket itself survives, there's no guarantee every
+// `event/player_*_changed` push actually reaches us — so treat the pushed
+// events as the fast path and this poll as the self-healing fallback that
+// guarantees eventual consistency either way, rather than trying to prove
+// which failure mode is real. Real-hardware feedback: without this, the
+// dashboard was observed stuck on "paused" indefinitely after playback
+// actually started elsewhere (the Qobuz app), even though HEOS commands
+// sent *from* Gladys (play/pause/next) worked fine.
+const DEFAULT_HEOS_POLL_INTERVAL_MS = 30_000;
+// `let`, not `const`: overridable by __setHeosPollIntervalMsForTesting() so
+// tests can exercise the periodic-refresh behavior without a real 30s wait.
+let HEOS_POLL_INTERVAL_MS = DEFAULT_HEOS_POLL_INTERVAL_MS;
 
 const logger = createLogger({ name: DEVICE_TYPE });
 
@@ -321,6 +341,15 @@ export function connectDevice(gladys, device, config) {
     return;
   }
 
+  // Declared before the legacy Telnet client below (not just the HEOS one
+  // further down) so that client's onLine handler can also read
+  // `heosState.pid` — once HEOS has matched this receiver's player id, it
+  // becomes the authoritative source for PLAYBACK_STATE/NOW_PLAYING and the
+  // legacy NSE0/NSE1/NSE2 lines (which generally don't fire for HEOS-managed
+  // playback anyway, per real-hardware feedback) must not overwrite it with
+  // a stale or unrelated Net/USB-subsystem guess.
+  const heosState = { client: null, pid: null, pollTimer: null };
+
   const telnet = createTelnetClient({
     host,
     port: config.port,
@@ -347,6 +376,9 @@ export function connectDevice(gladys, device, config) {
       // never published under their own name: NOW_PLAYING is the single
       // "Artist - Title" feature actually declared in buildFeatures().
       if (update.feature === NOW_PLAYING_TITLE || update.feature === NOW_PLAYING_ARTIST) {
+        if (heosState.pid != null) {
+          return; // HEOS is authoritative once matched — see the comment above heosState.
+        }
         const id = featureExternalId(device.external_id, FEATURE.NOW_PLAYING);
         const nowPlaying = [state[NOW_PLAYING_ARTIST], state[NOW_PLAYING_TITLE]]
           .filter(Boolean)
@@ -355,6 +387,10 @@ export function connectDevice(gladys, device, config) {
           .publishState(id, { text: nowPlaying })
           .catch((err) => logger.error(`publishState failed for ${id}: ${err.message}`));
         return;
+      }
+
+      if (update.feature === FEATURE.PLAYBACK_STATE && heosState.pid != null) {
+        return; // Same precedence rule — see the comment above heosState.
       }
 
       const id = featureExternalId(device.external_id, update.feature);
@@ -384,8 +420,28 @@ export function connectDevice(gladys, device, config) {
   // non-HEOS model, or one with the HEOS CLI port firewalled, simply never
   // confirms a `pid` and every HEOS-routed feature below transparently
   // falls back to the legacy NS9x transport commands (see onSetValue()).
-  const heosState = { client: null, pid: null };
   heosConnections.set(device.external_id, heosState);
+
+  function publishNowPlayingMedia(parsedPayload) {
+    const media = parseNowPlayingMedia(parsedPayload);
+    const id = featureExternalId(device.external_id, FEATURE.NOW_PLAYING);
+    const nowPlaying = media ? [media.artist, media.title].filter(Boolean).join(' - ') : '';
+    gladys
+      .publishState(id, { text: nowPlaying })
+      .catch((err) => logger.error(`publishState failed for ${id}: ${err.message}`));
+  }
+
+  function publishPlaybackState(state) {
+    const id = featureExternalId(device.external_id, FEATURE.PLAYBACK_STATE);
+    const value = heosPlayStateToPlaybackState(state);
+    const cached = { ...lastKnownState.get(device.external_id) };
+    cached[FEATURE.PLAYBACK_STATE] = value;
+    lastKnownState.set(device.external_id, cached);
+    gladys
+      .publishState(id, value)
+      .catch((err) => logger.error(`publishState failed for ${id}: ${err.message}`));
+  }
+
   heosState.client = createHeosClient({
     host,
     reconnectIntervalSeconds: config.reconnect_interval_seconds,
@@ -403,27 +459,36 @@ export function connectDevice(gladys, device, config) {
           heosState.pid = pid;
           logger.info(`${device.external_id}: HEOS player id ${pid} matched to ${host}`);
           heosState.client.sendCommand(buildGetPlayStateCommand(pid));
+          heosState.client.sendCommand(buildGetNowPlayingMediaCommand(pid));
         }
         return;
       }
 
-      // Prefer HEOS's own real transport-state event over the NSE0
+      const isOurPlayer = heosState.pid != null && Number(parsed.message?.pid) === heosState.pid;
+      if (!isOurPlayer) {
+        return;
+      }
+
+      // Prefer HEOS's own real transport-state event/query over the NSE0
       // "Now Playing ..." banner heuristic (protocol.js) whenever we have
       // it: it is an actual play/pause/stop signal, not a text-banner guess.
-      const isOurPlayer = heosState.pid != null && Number(parsed.message?.pid) === heosState.pid;
       if (
-        isOurPlayer &&
-        (parsed.command === 'event/player_state_changed' ||
-          parsed.command === 'player/get_play_state')
+        parsed.command === HEOS_EVENT.PLAYER_STATE_CHANGED ||
+        parsed.command === 'player/get_play_state'
       ) {
-        const id = featureExternalId(device.external_id, FEATURE.PLAYBACK_STATE);
-        const value = heosPlayStateToPlaybackState(parsed.message?.state);
-        const state = { ...lastKnownState.get(device.external_id) };
-        state[FEATURE.PLAYBACK_STATE] = value;
-        lastKnownState.set(device.external_id, state);
-        gladys
-          .publishState(id, value)
-          .catch((err) => logger.error(`publishState failed for ${id}: ${err.message}`));
+        publishPlaybackState(parsed.message?.state);
+        return;
+      }
+
+      if (parsed.command === 'player/get_now_playing_media') {
+        publishNowPlayingMedia(parsed.payload);
+        return;
+      }
+
+      // The event itself carries no track data (just the pid) — it's a
+      // "something changed, go re-fetch" signal, not the data itself.
+      if (parsed.command === HEOS_EVENT.PLAYER_NOW_PLAYING_CHANGED) {
+        heosState.client.sendCommand(buildGetNowPlayingMediaCommand(heosState.pid));
       }
     },
     onDisconnect: () => {
@@ -431,10 +496,24 @@ export function connectDevice(gladys, device, config) {
       // optional bonus channel, its absence must never be surfaced as this
       // AVR being unreachable (that is entirely the legacy Telnet session's
       // job, above). Losing the pid just resumes the legacy-command
-      // fallback in onSetValue() until (if ever) HEOS reconnects.
+      // fallback in onSetValue() (and the legacy NSE0/NSE1/NSE2 precedence
+      // above) until (if ever) HEOS reconnects and re-matches.
       heosState.pid = null;
     },
   });
+
+  // Actively refresh playback state + now-playing on a timer, on top of
+  // reacting to HEOS's pushed events — see the comment on
+  // HEOS_POLL_INTERVAL_MS for why the pushed events alone weren't enough in
+  // practice. A no-op tick (pid not known yet, or the HEOS socket currently
+  // down) is harmless: sendCommand() just returns false.
+  heosState.pollTimer = setInterval(() => {
+    if (heosState.pid == null) {
+      return;
+    }
+    heosState.client.sendCommand(buildGetPlayStateCommand(heosState.pid));
+    heosState.client.sendCommand(buildGetNowPlayingMediaCommand(heosState.pid));
+  }, HEOS_POLL_INTERVAL_MS);
 }
 
 /**
@@ -466,11 +545,25 @@ export function __setHeosConnectionForTesting(externalId, heosState) {
   heosConnections.set(externalId, heosState);
 }
 
+/**
+ * Test-only hook: override HEOS_POLL_INTERVAL_MS so a test can exercise the
+ * periodic playback-state/now-playing refresh without a real 30s wait.
+ * Reset to the default by __clearConnectionsForTesting(). Not used by
+ * production code.
+ */
+export function __setHeosPollIntervalMsForTesting(ms) {
+  HEOS_POLL_INTERVAL_MS = ms;
+}
+
 /** Test-only hook: drop every registered connection between tests. */
 export function __clearConnectionsForTesting() {
   connections.clear();
   lastKnownState.clear();
+  for (const heosState of heosConnections.values()) {
+    clearInterval(heosState?.pollTimer);
+  }
   heosConnections.clear();
+  HEOS_POLL_INTERVAL_MS = DEFAULT_HEOS_POLL_INTERVAL_MS;
 }
 
 /** Close and forget the persistent session of one device, if any. */
@@ -478,7 +571,9 @@ export function disconnectDevice(externalId) {
   connections.get(externalId)?.stop();
   connections.delete(externalId);
   lastKnownState.delete(externalId);
-  heosConnections.get(externalId)?.client?.stop();
+  const heosState = heosConnections.get(externalId);
+  clearInterval(heosState?.pollTimer);
+  heosState?.client?.stop();
   heosConnections.delete(externalId);
 }
 

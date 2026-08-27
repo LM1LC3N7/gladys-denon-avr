@@ -53,6 +53,13 @@ de module HEOS, ou son port réseau bloqué), les boutons basculent automatiquem
 commandes classiques, qui continuent de fonctionner pour les sources Net/USB non-HEOS de
 l'ampli.
 
+Une fois HEOS confirmé pour votre ampli, il devient aussi la source de l'état de lecture et du
+titre/artiste « En cours de lecture » — actualisés à la fois quand HEOS pousse un changement et
+via une vérification en arrière-plan toutes les 30 secondes, pour que le tableau de bord se
+remette à jour tout seul en moins d'une demi-minute même si une notification est manquée (cela
+peut arriver si la connexion HEOS se coupe brièvement, un comportement connu de HEOS sur une
+connexion inactive).
+
 **Limites** : ceci est implémenté à partir du protocole réseau propre à HEOS (non officiel, mais
 largement utilisé), recoupé avec la bibliothèque derrière l'intégration HEOS officielle de Home
 Assistant — non testé par le développeur sur une vraie session de streaming HEOS, car cela

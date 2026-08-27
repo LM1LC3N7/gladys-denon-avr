@@ -46,10 +46,7 @@ TuneIn...) — see "Playback controls" below.
   (`src/devices/avr.js`'s `onSetValue`, `src/heos/`):
   - **HEOS CLI** (port 1255) — used whenever this AVR's own IP has been matched to a HEOS
     `pid` (via `player/get_players`, on every connect). This is the path that actually reaches
-    HEOS-managed streaming sources: Qobuz, Spotify Connect, TIDAL, TuneIn, Amazon Music... The
-    receiver's own HEOS transport-state events (`event/player_state_changed`) also feed the
-    `MUSIC.PLAYBACK_STATE` feature directly when available, in preference to the Telnet-side
-    heuristic below.
+    HEOS-managed streaming sources: Qobuz, Spotify Connect, TIDAL, TuneIn, Amazon Music...
   - **Legacy `NS9x` Telnet commands** — the fallback whenever no HEOS `pid` is known yet, HEOS
     CLI is unreachable (firewalled, or a non-HEOS/older model), or on a genuinely non-HEOS
     Net/USB source. This is the only path that existed before 1.1.0, and real-hardware feedback
@@ -62,8 +59,21 @@ TuneIn...) — see "Playback controls" below.
     compare actual traffic with [`scripts/debug-heos.js`](./scripts/debug-heos.js) (next to
     [`scripts/debug-telnet.js`](./scripts/debug-telnet.js) for the legacy path) — see "Tested and
     confirmed" below.
-- **Now playing**: a read-only "Artist - Title" line, composed from the two status lines the
-  receiver pushes while streaming.
+- **Now playing**: a read-only "Artist - Title" line. Same two-path split as the buttons above:
+  HEOS's `get_now_playing_media`/`event/player_now_playing_changed` when a `pid` is matched,
+  otherwise the legacy `NSE1`/`NSE2` Telnet lines — HEOS-managed sources generally don't push
+  those either, same root cause as the buttons.
+- **Playback state / now-playing refresh**: once a HEOS `pid` is matched, it becomes the
+  _authoritative_ source for `MUSIC.PLAYBACK_STATE` and "Now playing" — the legacy `NSE0`/`NSE1`/
+  `NSE2` lines are ignored for those two features from then on (they don't track HEOS-managed
+  playback anyway, so trusting them would just show stale/wrong data). On top of reacting to
+  HEOS's own pushed events (`event/player_state_changed`, `event/player_now_playing_changed`),
+  this integration also **actively re-polls** `get_play_state`/`get_now_playing_media` every 30s
+  while a `pid` is known: HEOS CLI connections are known to drop silently when idle, and there's
+  no guarantee every pushed event actually arrives, so the poll is a self-healing fallback rather
+  than a bet on the push channel alone. Confirmed necessary on real hardware — the dashboard was
+  observed stuck on "paused" indefinitely after playback started elsewhere (the Qobuz app), even
+  though HEOS commands sent _from_ Gladys worked fine.
 - **Test connection** action: on-demand query + a summary of the receiver's current state.
 
 ## New to this codebase? Start here
@@ -270,26 +280,33 @@ Honest status, so it's clear what "it works" actually rests on:
   `MUSIC.PLAYBACK_STATE` feature while initializing; without one, that throws, the box's `init`
   never finishes, and every button past Play silently has no wired-up feature. Confirmed by
   reading the actual Gladys core source, not guessed — fixed by declaring that feature (derived
-  from the receiver's `NSE0` "Now Playing ..." banner, see `src/denon/protocol.js`), not yet
-  re-verified on real hardware.
+  from the receiver's `NSE0` "Now Playing ..." banner, see `src/denon/protocol.js`).
+- **Confirmed and then found/fixed after real-hardware feedback on the HEOS routing itself**:
+  Play/Pause/Next/Previous do control Qobuz playback correctly via HEOS. Two follow-up bugs
+  surfaced from the same feedback: the "Now playing" title never appeared, and the playback state
+  stayed stuck on "paused" even while actively playing. Root causes: (1) now-playing metadata was
+  still wired to the legacy `NSE1`/`NSE2` Telnet lines only, which — same as the transport
+  commands before this fix — don't fire for HEOS-managed playback; there was simply no HEOS-side
+  path for it yet. (2) playback state relied entirely on HEOS's _pushed_ `event/player_state_changed`,
+  with no periodic re-check — if that push is dropped (HEOS CLI connections are documented to
+  drop silently when idle) the dashboard never recovers on its own. Fixed by adding a HEOS
+  `get_now_playing_media` path (mirroring the playback-state one, with the same "HEOS is
+  authoritative once matched" precedence over the legacy NSE lines) and a 30s active poll of both
+  `get_play_state`/`get_now_playing_media` on top of the pushed events, so a missed/dropped event
+  self-heals within 30s instead of sticking forever.
 - **Not yet confirmed** — implemented from protocol research, not yet run against real hardware:
-  - Now-playing metadata (`NSE1`/`NSE2`) and the playback-state derivation above.
   - The volume mapping (`DENON_VOLUME_MAX` = 98, the receiver's raw scale ceiling) and multiple
     manual-fallback hosts (comma-separated `source_overrides`/`host`) — implemented and
     unit-tested, no real-hardware pass yet (the volume ceiling is a protocol-level constant, not
     a per-user "Maximum Volume" setting, so it shouldn't need calibration — see the comment above
     `DENON_VOLUME_MAX`).
   - The SSDP discovery flow itself (only the static-IP fallback has been confirmed so far).
-  - **HEOS CLI playback routing** (`src/heos/`, added to address real-hardware feedback that the
-    legacy `NS9x` commands do nothing on Qobuz/Spotify Connect streaming): the protocol details
-    (port 1255, `heos://` command paths, JSON response shape, matching a `pid` to the receiver's
-    IP via `player/get_players`, the `event/player_state_changed` push) are cross-checked against
-    `pyheos` (the library behind Home Assistant's own official HEOS integration) rather than
-    Denon's own documentation, which doesn't cover HEOS as cleanly as the base AVR Control PDF —
-    same tier of confidence as the `NS9x` codes above, and likewise not yet run against a real
-    HEOS session. The legacy-command fallback means a wrong assumption here degrades to the
-    pre-1.1.0 behavior (buttons that do nothing on HEOS sources), not a crash or a regression on
-    non-HEOS playback.
+  - **HEOS now-playing metadata and the 30s poll** (the `get_now_playing_media` path and the
+    periodic re-check added right after the playback-routing/state fixes below were confirmed):
+    implemented from the same `pyheos` cross-reference, not yet re-verified on real hardware.
+    Same fallback safety as everything else HEOS-side — a wrong assumption here just means a
+    blank/stale title or a state that only self-heals every 30s instead of instantly, never a
+    crash or a regression on non-HEOS playback.
 
   Use [`scripts/debug-telnet.js`](./scripts/debug-telnet.js) against your own receiver to check
   any of the above — in particular, send `MS?` and start streaming on a NET/USB source to see

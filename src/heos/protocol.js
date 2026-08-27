@@ -41,6 +41,15 @@ export const HEOS_PLAY_STATE = {
   STOP: 'stop',
 };
 
+// HEOS pushes these unprompted once `register_for_change_events` is on (see
+// buildRegisterForChangeEventsCommand below). PLAYER_NOW_PLAYING_CHANGED
+// carries no payload of its own (just the pid in `message`) — it's a
+// "go re-fetch" signal, not the data itself; see buildGetNowPlayingMediaCommand.
+export const HEOS_EVENT = {
+  PLAYER_STATE_CHANGED: 'event/player_state_changed',
+  PLAYER_NOW_PLAYING_CHANGED: 'event/player_now_playing_changed',
+};
+
 /** `heos://player/get_players` — list every HEOS player known to this system. */
 export function buildGetPlayersCommand() {
   return 'player/get_players';
@@ -74,6 +83,15 @@ export function buildPlayNextCommand(pid) {
 /** `heos://player/play_previous?pid=<pid>`. */
 export function buildPlayPreviousCommand(pid) {
   return `player/play_previous?pid=${pid}`;
+}
+
+/**
+ * `heos://player/get_now_playing_media?pid=<pid>` — the current track's
+ * metadata (title/artist/album/art...) for one player. No equivalent
+ * "set" — this is display-only, fed into FEATURE.NOW_PLAYING (see avr.js).
+ */
+export function buildGetNowPlayingMediaCommand(pid) {
+  return `player/get_now_playing_media?pid=${pid}`;
 }
 
 /**
@@ -158,4 +176,25 @@ export function findPlayerIdByIp(payload, ip) {
  */
 export function heosPlayStateToPlaybackState(state) {
   return state === HEOS_PLAY_STATE.PLAY ? 1 : 0;
+}
+
+/**
+ * Extract `{ title, artist }` from a `get_now_playing_media` response's
+ * `payload` (the object itself, already parsed from the outer JSON line by
+ * parseMessage() above — HEOS names the fields `song`/`artist`, not
+ * `title`, hence the rename here so callers deal in one vocabulary).
+ * Returns `null` when there's nothing playing (a station with no song
+ * metadata yet, an empty payload...), so callers can tell "know it's
+ * blank" apart from "haven't asked yet".
+ */
+export function parseNowPlayingMedia(payload) {
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+  const title = typeof payload.song === 'string' ? payload.song.trim() : '';
+  const artist = typeof payload.artist === 'string' ? payload.artist.trim() : '';
+  if (!title && !artist) {
+    return null;
+  }
+  return { title, artist };
 }
