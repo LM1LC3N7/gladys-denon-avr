@@ -13,7 +13,11 @@ lineup (Telnet, TCP port 23) — not hardcoded to a specific model.
 - **Discovery**: SSDP/UPnP, mediated by the Gladys core (`network_discovery: ["ssdp"]` in the
   manifest) — receivers are found automatically on the LAN, whether powered on or in standby
   (Network Standby required). A manual IP fallback is available in the Configuration screen for
-  networks that block multicast.
+  networks that block multicast. Discovery is also re-run automatically on every connect/reconnect
+  (`index.js`'s `'connected'` handler), not just when the user opens the Discovery tab: a device
+  Gladys created before this integration added new features (e.g. the 1.0.4 playback controls)
+  otherwise never shows the **Update** button that applies them — see "Re-publishing a device"
+  in the SDK README for why a config/image change alone never does.
 - **Power / Volume / Mute**: controllable features (`TELEVISION` category), fed in real time by
   the Telnet session the receiver itself pushes state changes to — no polling.
 - **Input source**: a dropdown on the dashboard, backed by `TEXT.SELECT` +
@@ -29,6 +33,13 @@ lineup (Telnet, TCP port 23) — not hardcoded to a specific model.
   "Tested and confirmed" below.
 - **Playback controls**: Play/Pause/Next/Previous buttons (`MUSIC` category), meaningful while a
   NET/USB/streaming source (Qobuz, Spotify Connect via HEOS...) is active — a no-op otherwise.
+  **`MUSIC` features don't render in the plain device list** — Gladys' generic
+  `SUPPORTED_FEATURE_TYPES` (`front/src/components/boxs/device-in-room/SupportedFeatureTypes.jsx`)
+  doesn't include the `MUSIC` category at all, so there they fall back to a plain read-only row
+  ("no recent value" is expected there, not a bug). Add a **Music** dashboard box for this device
+  to get actual play/pause/skip buttons — that box also hard-requires a
+  `MUSIC.PLAYBACK_STATE` feature to even initialize (`MusicBox.jsx` dereferences it
+  unconditionally), which is why one is declared here even though nothing calls it a "button".
 - **Now playing**: a read-only "Artist - Title" line, composed from the two status lines the
   receiver pushes while streaming.
 - **Test connection** action: on-demand query + a summary of the receiver's current state.
@@ -207,19 +218,23 @@ at the top of [`src/devices/avr.js`](./src/devices/avr.js) and
 Honest status, so it's clear what "it works" actually rests on:
 
 - **Confirmed on a real Denon AVR-S970H**: unit tests and the store validator are green, and on
-  the actual hardware (as of v1.0.3): static-IP detection, the Telnet connection, power/volume,
-  the mute toggle (fixed in 1.0.2 — was re-sending the same command every press), and the
-  input-source dropdown (`TEXT.SELECT` + `supported_options`, confirmed rendering and working on
-  this user's Gladys core version).
+  the actual hardware: static-IP detection, the Telnet connection, power/volume, the mute toggle
+  (fixed in 1.0.2 — was re-sending the same command every press), the input-source dropdown
+  (`TEXT.SELECT` + `supported_options`), and — as of 1.0.4 — the sound-mode dropdown (correctly
+  showed `MCH STEREO`, an actual `SOUND_MODE_CODES` entry, matching the receiver's real state).
+  The `source_overrides` config field renders correctly too; its actual rename/hide effect on
+  the dropdown hasn't been explicitly confirmed yet (needs the same Discovery→Update step as any
+  feature/structure change — see "What it does" above).
+- **Found and fixed after real-hardware feedback**: the `MUSIC` playback buttons published fine
+  but did nothing when clicked, and only Play ever showed (no Previous/Next) — Gladys' Music
+  dashboard box (`front/src/components/boxs/music/MusicBox.jsx`) unconditionally reads a
+  `MUSIC.PLAYBACK_STATE` feature while initializing; without one, that throws, the box's `init`
+  never finishes, and every button past Play silently has no wired-up feature. Confirmed by
+  reading the actual Gladys core source, not guessed — fixed by declaring that feature (derived
+  from the receiver's `NSE0` "Now Playing ..." banner, see `src/denon/protocol.js`), not yet
+  re-verified on real hardware.
 - **Not yet confirmed** — implemented from protocol research, not yet run against real hardware:
-  - **Sound mode**: the least certain part of this integration. `SOUND_MODE_CODES` in
-    [`src/denon/protocol.js`](./src/denon/protocol.js) is a starting list — mode naming shifted
-    repeatedly across Denon/Marantz generations, so this one specifically may need adjusting.
-  - **Playback controls / now-playing metadata**: the `NS9x` transport codes and `NSE1`/`NSE2`
-    now-playing lines aren't in the same official reference PDF as the rest of the protocol
-    (network/HEOS control was documented later, less cleanly) — cross-checked against two
-    independent community implementations that agree on the transport codes, but genuinely lower
-    confidence than everything else here.
+  - Now-playing metadata (`NSE1`/`NSE2`) and the playback-state derivation above.
   - The volume mapping (`DENON_VOLUME_MAX` = 98, the receiver's raw scale ceiling) and multiple
     manual-fallback hosts (comma-separated `source_overrides`/`host`) — implemented and
     unit-tested, no real-hardware pass yet (the volume ceiling is a protocol-level constant, not

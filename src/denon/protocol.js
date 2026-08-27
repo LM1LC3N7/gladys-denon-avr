@@ -14,7 +14,7 @@
 //   SI?   / SI<CODE>                   -> input source
 //   MS?   / MS<MODE>                   -> surround/sound mode
 //   NS9A / NS9B / NS9D / NS9E          -> network/USB transport: play/pause/next/previous
-//   NSE1<text> / NSE2<text>            -> pushed while playing: track title / artist
+//   NSE0<text> / NSE1<text> / NSE2<text> -> pushed while playing: playback state / title / artist
 //
 // The last three groups are NOT in the same official reference PDF the first
 // four come from (network/HEOS control was added to the protocol later, and
@@ -171,10 +171,24 @@ export function parseLine(rawLine) {
   }
 
   // NSE<n><text>: pushed while a NET/USB/streaming source is playing. Only
-  // the two rows every source we've seen documented shares are handled;
-  // other rows (album, playback position/percentage, station name...) are
+  // the rows every source we've seen documented shares are handled; other
+  // rows (album, playback position/percentage, station name...) are
   // silently ignored like any other status line this integration doesn't
   // react to. Trailing "_" is fixed-width padding, not part of the text.
+  //
+  // NSE0 is the receiver's own "Now Playing <source>" banner — not a
+  // second copy of the source (that's SI), the one line confirmed (in the
+  // denonavr project, used by Home Assistant) to double as the playback
+  // state: it reads exactly "Now Playing ..." while playing, anything else
+  // otherwise. There is no separate "paused" signal over Telnet — the
+  // MUSIC.PLAYBACK_STATE feature Gladys' Music dashboard box requires only
+  // has PLAYING/PAUSED anyway (see src/devices/avr.js), so "not playing"
+  // maps to PAUSED here, whether the receiver actually considers itself
+  // paused or fully stopped.
+  if (line.startsWith('NSE0')) {
+    const text = line.slice(4).replace(/_+$/, '').trim();
+    return { feature: 'playback_state', value: text.startsWith('Now Playing') ? 1 : 0 };
+  }
   if (line.startsWith('NSE1')) {
     const title = line.slice(4).replace(/_+$/, '').trim();
     return title.length === 0 ? null : { feature: 'now_playing_title', value: title };

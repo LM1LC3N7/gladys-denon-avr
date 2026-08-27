@@ -63,7 +63,7 @@ test('buildDiscoveredDevice exposes power/volume/mute/source with the right cate
   assert.equal(device.name, 'Denon AVR-S970H (AVR-S970H)');
   assert.ok(device.external_id.includes('abc-123'));
   assert.deepEqual(device.params, [{ name: 'IP_ADDRESS', value: '192.168.1.50' }]);
-  assert.equal(device.features.length, 10);
+  assert.equal(device.features.length, 11);
 
   const byKey = Object.fromEntries(device.features.map((f) => [f.external_id, f]));
   const power = byKey[featureExternalId(device.external_id, FEATURE.POWER)];
@@ -107,6 +107,14 @@ test('buildDiscoveredDevice exposes power/volume/mute/source with the right cate
     assert.equal(button.category, DEVICE_FEATURE_CATEGORIES.MUSIC, `${key} is a MUSIC feature`);
     assert.equal(button.read_only, false, `${key} must be controllable to appear as a button`);
   }
+
+  // Required by Gladys' Music dashboard box, not just informational — see
+  // the comment above this feature in src/devices/avr.js: without it, the
+  // box crashes during its own init and Play/Previous/Next never work.
+  const playbackState = byKey[featureExternalId(device.external_id, FEATURE.PLAYBACK_STATE)];
+  assert.equal(playbackState.category, DEVICE_FEATURE_CATEGORIES.MUSIC);
+  assert.equal(playbackState.type, DEVICE_FEATURE_TYPES.MUSIC.PLAYBACK_STATE);
+  assert.equal(playbackState.read_only, true);
 
   const nowPlaying = byKey[featureExternalId(device.external_id, FEATURE.NOW_PLAYING)];
   assert.equal(nowPlaying.category, DEVICE_FEATURE_CATEGORIES.TEXT);
@@ -153,7 +161,7 @@ test('every feature declares a non-null min/max (Gladys rejects a null one at "a
 test('buildManualDevice builds a stable device keyed on the configured host', () => {
   const device = buildManualDevice(gladys, '192.168.1.77');
   assert.deepEqual(device.params, [{ name: 'IP_ADDRESS', value: '192.168.1.77' }]);
-  assert.equal(device.features.length, 10);
+  assert.equal(device.features.length, 11);
 });
 
 test('onSetValue routes power/volume to the right telnet command', async () => {
@@ -277,7 +285,9 @@ test('disconnectDevice makes onSetValue fail again', async () => {
 // the "Test connection" action's summary.
 test('connectDevice publishes the state pushed by a real Telnet session', async () => {
   const server = net.createServer((socket) => {
-    socket.write('PWON\rMV50\rMUOFF\rSITUNER\rMSMOVIE\rNSE1Come Away With Me\rNSE2Norah Jones\r');
+    socket.write(
+      'PWON\rMV50\rMUOFF\rSITUNER\rMSMOVIE\rNSE0Now Playing USB\rNSE1Come Away With Me\rNSE2Norah Jones\r',
+    );
   });
   const port = await new Promise((resolve) =>
     server.listen(0, '127.0.0.1', () => resolve(server.address().port)),
@@ -294,8 +304,13 @@ test('connectDevice publishes the state pushed by a real Telnet session', async 
     const volumeId = featureExternalId(device.external_id, FEATURE.VOLUME);
     const sourceId = featureExternalId(device.external_id, FEATURE.SOURCE);
     const soundModeId = featureExternalId(device.external_id, FEATURE.SOUND_MODE);
+    const playbackStateId = featureExternalId(device.external_id, FEATURE.PLAYBACK_STATE);
     const nowPlayingId = featureExternalId(device.external_id, FEATURE.NOW_PLAYING);
     assert.ok(gladys.published.some((p) => p.featureExternalId === powerId && p.state === 1));
+    assert.ok(
+      gladys.published.some((p) => p.featureExternalId === playbackStateId && p.state === 1),
+      'the "Now Playing ..." banner maps to playback_state = 1 (playing)',
+    );
     assert.ok(gladys.published.some((p) => p.featureExternalId === volumeId));
     assert.ok(
       gladys.published.some((p) => p.featureExternalId === sourceId && p.state?.text === 'TUNER'),

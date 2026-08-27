@@ -26,7 +26,10 @@ These show up per receiver:
   ships with.
 - **Play / Pause / Next / Previous** — buttons that control playback on a network/USB/streaming
   source (Qobuz, Spotify Connect via HEOS, internet radio...). They do nothing on a source that
-  isn't a player (a TV input, for instance).
+  isn't a player (a TV input, for instance). **These need a Music box, not the plain device
+  list**: on your dashboard, add a box and pick **Music** as its type, then this AVR as its
+  device — that's what actually renders the play/pause/skip buttons. In the regular device list
+  they only show up as plain rows with no visible value, which is expected there.
 - **Now playing** — a read-only "Artist - Title" line, filled in automatically while streaming.
 
 ## Prerequisites

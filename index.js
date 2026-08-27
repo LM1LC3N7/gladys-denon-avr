@@ -80,6 +80,17 @@ gladys.on('connected', async () => {
     for (const device of devices) {
       connectDevice(gladys, device, config);
     }
+    // Re-publish discovery on every (re)connect, not just when the user
+    // opens the Discovery tab and clicks "Scan": a new image version can
+    // add/change features on an already-created device (e.g. the playback
+    // buttons added in 1.0.4), and Gladys only ever shows that as an
+    // "Update" button already sitting in the Discovery tab — it never
+    // applies structure changes to an existing device on its own. Doing
+    // this on every connect means that button is there the moment the
+    // updated container starts, instead of requiring a manual scan first.
+    await gladys
+      .publishDiscoveredDevices(await buildDiscoveredDevices(gladys, config))
+      .catch((err) => logger.error(`publishDiscoveredDevices on connect failed: ${err.message}`));
     await gladys.setConnectionStatus(true);
   } catch (err) {
     logger.error('Post-connection initialization failed', err);

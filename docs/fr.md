@@ -28,7 +28,11 @@ Voici ce qui apparaît par ampli :
   générique fournie par cette intégration.
 - **Lecture / Pause / Suivant / Précédent** — des boutons qui contrôlent la lecture sur une
   source réseau/USB/streaming (Qobuz, Spotify Connect via HEOS, radio internet...). Sans effet
-  sur une source qui n'est pas un lecteur (une entrée TV, par exemple).
+  sur une source qui n'est pas un lecteur (une entrée TV, par exemple). **Il faut une carte
+  Musique, pas la liste d'appareils classique** : sur votre tableau de bord, ajoutez une carte et
+  choisissez le type **Musique**, puis cet ampli comme appareil — c'est ce qui affiche
+  réellement les boutons lecture/pause/suivant. Dans la liste d'appareils classique, ils
+  apparaissent juste comme des lignes sans valeur visible, c'est normal à cet endroit.
 - **En cours de lecture** — une ligne « Artiste - Titre » en lecture seule, renseignée
   automatiquement pendant la lecture en streaming.
 

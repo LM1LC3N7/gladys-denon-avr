@@ -67,6 +67,7 @@ export const FEATURE = {
   PAUSE: 'pause',
   NEXT: 'next',
   PREVIOUS: 'previous',
+  PLAYBACK_STATE: 'playback_state',
   NOW_PLAYING: 'now_playing',
 };
 
@@ -224,6 +225,26 @@ function buildFeatures(deviceExternalId, sourceOverrides = {}) {
       min: 0,
       max: 1,
       read_only: false,
+      has_feedback: false,
+    },
+    {
+      // Required, not optional: Gladys' "Music" dashboard box (the one with
+      // the actual play/pause/skip button row, as opposed to the plain
+      // device list — MUSIC isn't a generically-rendered category there)
+      // reads this feature unconditionally when it loads the device. With
+      // no PLAYBACK_STATE feature at all, that lookup is undefined and the
+      // box's own state ends up never populated: Play renders but silently
+      // does nothing when clicked, Previous/Next don't render at all. No
+      // separate Telnet "paused" signal exists, so anything other than the
+      // receiver's own "Now Playing ..." banner (see NSE0 in protocol.js)
+      // maps to PAUSED — matches MUSIC_PLAYBACK_STATE's two values.
+      name: 'Playback state',
+      external_id: featureExternalId(deviceExternalId, FEATURE.PLAYBACK_STATE),
+      category: DEVICE_FEATURE_CATEGORIES.MUSIC,
+      type: DEVICE_FEATURE_TYPES.MUSIC.PLAYBACK_STATE,
+      min: 0,
+      max: 1,
+      read_only: true,
       has_feedback: false,
     },
     {

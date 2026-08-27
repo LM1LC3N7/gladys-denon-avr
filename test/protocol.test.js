@@ -68,15 +68,23 @@ test('parseLine: now-playing title/artist (NSE1/NSE2), trailing padding stripped
   });
 });
 
+test('parseLine: playback state (NSE0) is derived from the "Now Playing ..." banner text, not a dedicated flag', () => {
+  assert.deepEqual(parseLine('NSE0Now Playing USB'), { feature: 'playback_state', value: 1 });
+  // No separate Telnet "paused" signal exists: anything that isn't the
+  // "Now Playing ..." banner maps to 0 (see the comment above this check
+  // in protocol.js for why that's the correct call for a binary feature).
+  assert.deepEqual(parseLine('NSE0Bluetooth Standby'), { feature: 'playback_state', value: 0 });
+});
+
 test('parseLine: an empty MS/NSE1/NSE2 payload is ignored, not published as a blank value', () => {
   assert.equal(parseLine('MS'), null);
   assert.equal(parseLine('NSE1'), null);
   assert.equal(parseLine('NSE1____'), null);
 });
 
-test('parseLine: other NSE rows (position, station name...) are ignored, not just NSE1/2', () => {
+test('parseLine: other NSE rows (position, station name...) are ignored, only 0/1/2 are handled', () => {
   assert.equal(parseLine('NSE500:11 100%'), null);
-  assert.equal(parseLine('NSE0Now Playing'), null);
+  assert.equal(parseLine('NSE3Some Album'), null);
 });
 
 test('parseLine: unrecognized or empty lines are ignored', () => {
