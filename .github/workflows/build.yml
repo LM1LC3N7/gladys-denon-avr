@@ -45,7 +45,7 @@ jobs:
       packages: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           # Release build (called by release.yml): check out the tag it just
           # created, otherwise the default checkout would be the pre-bump
