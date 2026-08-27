@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { normalizeConfig, DEFAULT_CONFIG } from '../src/config.js';
 
 test('normalizeConfig returns the defaults when called with no argument', () => {
-  assert.deepEqual(normalizeConfig(), { ...DEFAULT_CONFIG, hosts: [] });
+  assert.deepEqual(normalizeConfig(), { ...DEFAULT_CONFIG, hosts: [], sourceOverrides: {} });
 });
 
 test('normalizeConfig keeps user values over the defaults', () => {
@@ -51,4 +51,21 @@ test('normalizeConfig: an empty host yields an empty hosts array', () => {
 test('normalizeConfig falls back to the default for a missing/invalid numeric field', () => {
   assert.equal(normalizeConfig({ host: '192.168.1.50' }).port, DEFAULT_CONFIG.port);
   assert.equal(normalizeConfig({ port: 'not-a-number' }).port, DEFAULT_CONFIG.port);
+});
+
+test('normalizeConfig: source_overrides parses CODE=Label pairs, CODE= means hidden', () => {
+  const config = normalizeConfig({ source_overrides: 'SAT/CBL=Chromecast, GAME=, aux1 = PS5' });
+  assert.deepEqual(config.sourceOverrides, {
+    'SAT/CBL': 'Chromecast',
+    GAME: '',
+    AUX1: 'PS5',
+  });
+});
+
+test('normalizeConfig: source_overrides is empty by default and ignores malformed entries', () => {
+  assert.deepEqual(normalizeConfig().sourceOverrides, {});
+  assert.deepEqual(
+    normalizeConfig({ source_overrides: 'not-an-override, =NoCode' }).sourceOverrides,
+    {},
+  );
 });

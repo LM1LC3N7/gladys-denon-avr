@@ -63,7 +63,7 @@ test('buildDiscoveredDevice exposes power/volume/mute/source with the right cate
   assert.equal(device.name, 'Denon AVR-S970H (AVR-S970H)');
   assert.ok(device.external_id.includes('abc-123'));
   assert.deepEqual(device.params, [{ name: 'IP_ADDRESS', value: '192.168.1.50' }]);
-  assert.equal(device.features.length, 4);
+  assert.equal(device.features.length, 10);
 
   const byKey = Object.fromEntries(device.features.map((f) => [f.external_id, f]));
   const power = byKey[featureExternalId(device.external_id, FEATURE.POWER)];
@@ -95,6 +95,47 @@ test('buildDiscoveredDevice exposes power/volume/mute/source with the right cate
   // Every SI code must be representable, and only once.
   const optionValues = source.supported_options.map((o) => o.value);
   assert.equal(new Set(optionValues).size, optionValues.length);
+
+  const soundMode = byKey[featureExternalId(device.external_id, FEATURE.SOUND_MODE)];
+  assert.equal(soundMode.category, DEVICE_FEATURE_CATEGORIES.TEXT);
+  assert.equal(soundMode.type, 'select');
+  assert.equal(soundMode.read_only, false);
+  assert.ok(soundMode.supported_options.length > 0);
+
+  for (const key of [FEATURE.PLAY, FEATURE.PAUSE, FEATURE.NEXT, FEATURE.PREVIOUS]) {
+    const button = byKey[featureExternalId(device.external_id, key)];
+    assert.equal(button.category, DEVICE_FEATURE_CATEGORIES.MUSIC, `${key} is a MUSIC feature`);
+    assert.equal(button.read_only, false, `${key} must be controllable to appear as a button`);
+  }
+
+  const nowPlaying = byKey[featureExternalId(device.external_id, FEATURE.NOW_PLAYING)];
+  assert.equal(nowPlaying.category, DEVICE_FEATURE_CATEGORIES.TEXT);
+  assert.equal(nowPlaying.type, DEVICE_FEATURE_TYPES.TEXT.TEXT);
+  assert.equal(
+    nowPlaying.read_only,
+    true,
+    'now playing is receiver-pushed only, never set by the user',
+  );
+});
+
+test('buildDiscoveredDevice applies source_overrides: renames one entry, hides another, leaves the rest untouched', () => {
+  const device = buildDiscoveredDevice(gladys, DISCOVERED, { 'SAT/CBL': 'Chromecast', GAME: '' });
+  const source = device.features.find(
+    (f) => f.external_id === featureExternalId(device.external_id, FEATURE.SOURCE),
+  );
+  const byValue = Object.fromEntries(source.supported_options.map((o) => [o.value, o]));
+
+  assert.equal(
+    byValue['SAT/CBL'].label,
+    'Chromecast',
+    'renamed, value (the SI code sent over Telnet) unchanged',
+  );
+  assert.equal(byValue.GAME, undefined, 'hidden entries are dropped entirely, not just relabeled');
+  assert.equal(
+    byValue.TUNER.label,
+    'TUNER',
+    'an entry with no override keeps its SI code as the label',
+  );
 });
 
 test('every feature declares a non-null min/max (Gladys rejects a null one at "add device" time, not at publish)', () => {
@@ -112,7 +153,7 @@ test('every feature declares a non-null min/max (Gladys rejects a null one at "a
 test('buildManualDevice builds a stable device keyed on the configured host', () => {
   const device = buildManualDevice(gladys, '192.168.1.77');
   assert.deepEqual(device.params, [{ name: 'IP_ADDRESS', value: '192.168.1.77' }]);
-  assert.equal(device.features.length, 4);
+  assert.equal(device.features.length, 10);
 });
 
 test('onSetValue routes power/volume to the right telnet command', async () => {
@@ -164,6 +205,36 @@ test('onSetValue routes the source dropdown to SI<code>, using the value as-is (
   assert.equal(telnet.sent.at(-1), 'SINET');
 });
 
+test('onSetValue routes the sound mode dropdown to MS<mode>', async () => {
+  const device = buildDiscoveredDevice(gladys, DISCOVERED);
+  const telnet = createFakeTelnetClient();
+  __setConnectionForTesting(device.external_id, telnet);
+  const soundModeFeature = {
+    external_id: featureExternalId(device.external_id, FEATURE.SOUND_MODE),
+  };
+
+  await onSetValue(gladys, { device, feature: soundModeFeature, value: 'MOVIE' });
+  assert.equal(telnet.sent.at(-1), 'MSMOVIE');
+});
+
+test('onSetValue routes the transport buttons to their fixed NS9x command, ignoring the value', async () => {
+  const device = buildDiscoveredDevice(gladys, DISCOVERED);
+  const telnet = createFakeTelnetClient();
+  __setConnectionForTesting(device.external_id, telnet);
+
+  const cases = [
+    [FEATURE.PLAY, 'NS9A'],
+    [FEATURE.PAUSE, 'NS9B'],
+    [FEATURE.NEXT, 'NS9D'],
+    [FEATURE.PREVIOUS, 'NS9E'],
+  ];
+  for (const [key, expectedCommand] of cases) {
+    const feature = { external_id: featureExternalId(device.external_id, key) };
+    await onSetValue(gladys, { device, feature, value: 1 });
+    assert.equal(telnet.sent.at(-1), expectedCommand, `${key} -> ${expectedCommand}`);
+  }
+});
+
 test('onSetValue throws when the device has no open connection', async () => {
   const device = buildDiscoveredDevice(gladys, DISCOVERED);
   const powerFeature = { external_id: featureExternalId(device.external_id, FEATURE.POWER) };
@@ -206,7 +277,7 @@ test('disconnectDevice makes onSetValue fail again', async () => {
 // the "Test connection" action's summary.
 test('connectDevice publishes the state pushed by a real Telnet session', async () => {
   const server = net.createServer((socket) => {
-    socket.write('PWON\rMV50\rMUOFF\rSITUNER\r');
+    socket.write('PWON\rMV50\rMUOFF\rSITUNER\rMSMOVIE\rNSE1Come Away With Me\rNSE2Norah Jones\r');
   });
   const port = await new Promise((resolve) =>
     server.listen(0, '127.0.0.1', () => resolve(server.address().port)),
@@ -222,10 +293,25 @@ test('connectDevice publishes the state pushed by a real Telnet session', async 
     const powerId = featureExternalId(device.external_id, FEATURE.POWER);
     const volumeId = featureExternalId(device.external_id, FEATURE.VOLUME);
     const sourceId = featureExternalId(device.external_id, FEATURE.SOURCE);
+    const soundModeId = featureExternalId(device.external_id, FEATURE.SOUND_MODE);
+    const nowPlayingId = featureExternalId(device.external_id, FEATURE.NOW_PLAYING);
     assert.ok(gladys.published.some((p) => p.featureExternalId === powerId && p.state === 1));
     assert.ok(gladys.published.some((p) => p.featureExternalId === volumeId));
     assert.ok(
       gladys.published.some((p) => p.featureExternalId === sourceId && p.state?.text === 'TUNER'),
+    );
+    assert.ok(
+      gladys.published.some(
+        (p) => p.featureExternalId === soundModeId && p.state?.text === 'MOVIE',
+      ),
+    );
+    assert.ok(
+      gladys.published.some(
+        (p) =>
+          p.featureExternalId === nowPlayingId &&
+          p.state?.text === 'Norah Jones - Come Away With Me',
+      ),
+      'now playing combines artist and title regardless of the order the two lines arrive in',
     );
 
     const message = await runTestConnectionAction(gladys, {

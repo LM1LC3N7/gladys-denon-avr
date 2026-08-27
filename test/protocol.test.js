@@ -10,9 +10,16 @@ import {
   buildMuteCommand,
   buildSourceQuery,
   buildSourceCommand,
+  buildSoundModeQuery,
+  buildSoundModeCommand,
+  buildPlayCommand,
+  buildPauseCommand,
+  buildNextCommand,
+  buildPreviousCommand,
   percentToDenonVolume,
   denonVolumeToPercent,
   SOURCE_CODES,
+  SOUND_MODE_CODES,
 } from '../src/denon/protocol.js';
 
 test('parseLine: power', () => {
@@ -43,6 +50,33 @@ test('parseLine: MVMAX is ignored (volume ceiling, not current volume)', () => {
 test('parseLine: source, verbatim SI code, including ones with a slash', () => {
   assert.deepEqual(parseLine('SITUNER'), { feature: 'source', value: 'TUNER' });
   assert.deepEqual(parseLine('SISAT/CBL'), { feature: 'source', value: 'SAT/CBL' });
+});
+
+test('parseLine: sound mode, verbatim MS code, including ones with a space', () => {
+  assert.deepEqual(parseLine('MSMOVIE'), { feature: 'sound_mode', value: 'MOVIE' });
+  assert.deepEqual(parseLine('MSPURE DIRECT'), { feature: 'sound_mode', value: 'PURE DIRECT' });
+});
+
+test('parseLine: now-playing title/artist (NSE1/NSE2), trailing padding stripped', () => {
+  assert.deepEqual(parseLine('NSE1Come Away With Me___'), {
+    feature: 'now_playing_title',
+    value: 'Come Away With Me',
+  });
+  assert.deepEqual(parseLine('NSE2Norah Jones'), {
+    feature: 'now_playing_artist',
+    value: 'Norah Jones',
+  });
+});
+
+test('parseLine: an empty MS/NSE1/NSE2 payload is ignored, not published as a blank value', () => {
+  assert.equal(parseLine('MS'), null);
+  assert.equal(parseLine('NSE1'), null);
+  assert.equal(parseLine('NSE1____'), null);
+});
+
+test('parseLine: other NSE rows (position, station name...) are ignored, not just NSE1/2', () => {
+  assert.equal(parseLine('NSE500:11 100%'), null);
+  assert.equal(parseLine('NSE0Now Playing'), null);
 });
 
 test('parseLine: unrecognized or empty lines are ignored', () => {
@@ -80,6 +114,12 @@ test('command builders produce the exact protocol strings, no trailing CR', () =
   assert.equal(buildMuteCommand(false), 'MUOFF');
   assert.equal(buildSourceQuery(), 'SI?');
   assert.equal(buildSourceCommand('TUNER'), 'SITUNER');
+  assert.equal(buildSoundModeQuery(), 'MS?');
+  assert.equal(buildSoundModeCommand('MOVIE'), 'MSMOVIE');
+  assert.equal(buildPlayCommand(), 'NS9A');
+  assert.equal(buildPauseCommand(), 'NS9B');
+  assert.equal(buildNextCommand(), 'NS9D');
+  assert.equal(buildPreviousCommand(), 'NS9E');
 });
 
 test('buildVolumeCommand always pads to two digits', () => {
@@ -93,5 +133,14 @@ test('SOURCE_CODES: every entry has a unique value and a bilingual label', () =>
   for (const source of SOURCE_CODES) {
     assert.ok(source.label?.en, `${source.value} needs an English label`);
     assert.ok(source.label?.fr, `${source.value} needs a French label`);
+  }
+});
+
+test('SOUND_MODE_CODES: every entry has a unique value and a bilingual label', () => {
+  const values = SOUND_MODE_CODES.map((m) => m.value);
+  assert.equal(new Set(values).size, values.length, 'no duplicate sound mode codes');
+  for (const mode of SOUND_MODE_CODES) {
+    assert.ok(mode.label?.en, `${mode.value} needs an English label`);
+    assert.ok(mode.label?.fr, `${mode.value} needs a French label`);
   }
 });

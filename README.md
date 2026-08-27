@@ -20,7 +20,17 @@ lineup (Telnet, TCP port 23) — not hardcoded to a specific model.
   `supported_options` (the receiver's own SI codes) — **not** the generic `TELEVISION.SOURCE`
   type, which Gladys' front-end renders as a one-shot remote-control button with no way to pick
   a specific input (see the design notes in [`src/devices/avr.js`](./src/devices/avr.js)). The
-  **Select input** manifest action is kept as an equivalent second path regardless.
+  **Select input** manifest action is kept as an equivalent second path regardless. The
+  `source_overrides` config field lets you rename an entry (the input actually plugged into
+  `SAT/CBL` might really be a Chromecast) or hide ones you never use.
+- **Sound mode**: same `TEXT.SELECT` dropdown mechanism as the source, built from
+  `SOUND_MODE_CODES` in [`src/denon/protocol.js`](./src/denon/protocol.js) — the least certain
+  part of this integration (mode naming shifted a lot across Denon/Marantz generations), see
+  "Tested and confirmed" below.
+- **Playback controls**: Play/Pause/Next/Previous buttons (`MUSIC` category), meaningful while a
+  NET/USB/streaming source (Qobuz, Spotify Connect via HEOS...) is active — a no-op otherwise.
+- **Now playing**: a read-only "Artist - Title" line, composed from the two status lines the
+  receiver pushes while streaming.
 - **Test connection** action: on-demand query + a summary of the receiver's current state.
 
 ## New to this codebase? Start here
@@ -186,29 +196,40 @@ comfortably covers the `TEXT.SELECT`/`supported_options` the input-source dropdo
 
 ## v1 scope
 
-Power, volume, mute, input source (status + selection), SSDP discovery. Deliberately out of
-scope for now: sound/surround mode, multi-zone, HEOS "now playing" metadata, and an HTTP
-fallback control channel — see the design notes at the top of
-[`src/devices/avr.js`](./src/devices/avr.js) and [`src/denon/discovery.js`](./src/denon/discovery.js).
+Power, volume, mute, input source (status + selection, with per-user renaming/hiding), sound
+mode, network/USB playback controls, now-playing metadata, SSDP discovery. Deliberately out of
+scope for now: multi-zone (Zone 2/3) and an HTTP fallback control channel — see the design notes
+at the top of [`src/devices/avr.js`](./src/devices/avr.js) and
+[`src/denon/discovery.js`](./src/denon/discovery.js).
 
 ## Tested and confirmed
 
 Honest status, so it's clear what "it works" actually rests on:
 
-- **Confirmed**: unit tests (`npm test`, `test/`) and the official Gladys store validator
-  (`npx github:GladysAssistant/integration-store .`) are green. On a real Denon AVR-S970H
-  (v1.0.1): SSDP-independent static-IP detection and the Telnet connection both work.
-- **Confirmed fixed after real-hardware feedback, not yet re-verified on real hardware**: the
-  mute toggle used to re-send the same command on every press (see the note in
-  `onSetValue`/`src/devices/avr.js` — `TELEVISION.VOLUME_MUTE` is a remote-control button, not a
-  stateful switch); the fix is unit-tested but needs one more hardware pass to close the loop.
-- **Not yet confirmed**: the input-source dropdown on the dashboard (`TEXT.SELECT` +
-  `supported_options` — confirmed against the real Gladys core source, but not yet against a
-  running instance: it needs a fairly recent core version, see "What it does" above), the volume
-  mapping (`DENON_VOLUME_MAX` in [`src/denon/protocol.js`](./src/denon/protocol.js) is a
-  reasonable default, not calibrated against real hardware), and the SSDP discovery flow itself
-  (only the static-IP fallback has been confirmed so far). Use
-  [`scripts/debug-telnet.js`](./scripts/debug-telnet.js) to validate against your own receiver.
+- **Confirmed on a real Denon AVR-S970H**: unit tests and the store validator are green, and on
+  the actual hardware (as of v1.0.3): static-IP detection, the Telnet connection, power/volume,
+  the mute toggle (fixed in 1.0.2 — was re-sending the same command every press), and the
+  input-source dropdown (`TEXT.SELECT` + `supported_options`, confirmed rendering and working on
+  this user's Gladys core version).
+- **Not yet confirmed** — implemented from protocol research, not yet run against real hardware:
+  - **Sound mode**: the least certain part of this integration. `SOUND_MODE_CODES` in
+    [`src/denon/protocol.js`](./src/denon/protocol.js) is a starting list — mode naming shifted
+    repeatedly across Denon/Marantz generations, so this one specifically may need adjusting.
+  - **Playback controls / now-playing metadata**: the `NS9x` transport codes and `NSE1`/`NSE2`
+    now-playing lines aren't in the same official reference PDF as the rest of the protocol
+    (network/HEOS control was documented later, less cleanly) — cross-checked against two
+    independent community implementations that agree on the transport codes, but genuinely lower
+    confidence than everything else here.
+  - The volume mapping (`DENON_VOLUME_MAX` = 98, the receiver's raw scale ceiling) and multiple
+    manual-fallback hosts (comma-separated `source_overrides`/`host`) — implemented and
+    unit-tested, no real-hardware pass yet (the volume ceiling is a protocol-level constant, not
+    a per-user "Maximum Volume" setting, so it shouldn't need calibration — see the comment above
+    `DENON_VOLUME_MAX`).
+  - The SSDP discovery flow itself (only the static-IP fallback has been confirmed so far).
+
+  Use [`scripts/debug-telnet.js`](./scripts/debug-telnet.js) against your own receiver to check
+  any of the above — in particular, send `MS?` and start streaming on a NET/USB source to see
+  the real sound-mode and now-playing lines your model actually sends.
 
 ## License
 

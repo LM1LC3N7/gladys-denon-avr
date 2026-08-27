@@ -28,6 +28,11 @@ export const DEFAULT_CONFIG = {
   // Backoff base (seconds) between Telnet reconnect attempts, see
   // src/denon/telnet.js#computeReconnectDelayMs.
   reconnect_interval_seconds: 10,
+  // Per-user rename/hide list for the source dropdown, e.g.
+  // "SAT/CBL=Chromecast, GAME=" (renames SAT/CBL, hides GAME). See
+  // normalizeConfig() for the exact syntax. Leave empty to show every
+  // SOURCE_CODES entry under its protocol name, unchanged.
+  source_overrides: '',
 };
 
 /**
@@ -61,5 +66,40 @@ export function normalizeConfig(raw = {}) {
     reconnect_interval_seconds:
       Number(raw.reconnect_interval_seconds ?? DEFAULT_CONFIG.reconnect_interval_seconds) ||
       DEFAULT_CONFIG.reconnect_interval_seconds,
+    sourceOverrides: parseSourceOverrides(
+      typeof raw.source_overrides === 'string'
+        ? raw.source_overrides
+        : DEFAULT_CONFIG.source_overrides,
+    ),
   };
+}
+
+/**
+ * Parse the `source_overrides` string into `{ [SI code]: label }`, consumed
+ * by src/devices/avr.js#buildFeatures() to build the source dropdown's
+ * `supported_options`. Syntax: comma-separated `CODE=Label` pairs.
+ *   - "SAT/CBL=Chromecast"  -> renames SAT/CBL to "Chromecast" in the dropdown
+ *   - "GAME="               -> hides GAME from the dropdown entirely
+ * The code is matched case-insensitively against SOURCE_CODES (normalized
+ * to uppercase here); the label keeps whatever case the user typed. An
+ * entry with no "=" is ignored (nothing to key it on).
+ */
+function parseSourceOverrides(raw) {
+  const overrides = {};
+  for (const entry of raw.split(',')) {
+    const trimmed = entry.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const equalsIndex = trimmed.indexOf('=');
+    if (equalsIndex === -1) {
+      continue;
+    }
+    const code = trimmed.slice(0, equalsIndex).trim().toUpperCase();
+    if (!code) {
+      continue;
+    }
+    overrides[code] = trimmed.slice(equalsIndex + 1).trim();
+  }
+  return overrides;
 }

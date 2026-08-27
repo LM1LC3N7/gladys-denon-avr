@@ -12,6 +12,19 @@
 //   MV?   / MV<nn>                     -> master volume (raw scale, see below)
 //   MU?   / MUON / MUOFF               -> mute
 //   SI?   / SI<CODE>                   -> input source
+//   MS?   / MS<MODE>                   -> surround/sound mode
+//   NS9A / NS9B / NS9D / NS9E          -> network/USB transport: play/pause/next/previous
+//   NSE1<text> / NSE2<text>            -> pushed while playing: track title / artist
+//
+// The last three groups are NOT in the same official reference PDF the first
+// four come from (network/HEOS control was added to the protocol later, and
+// Denon never published as clean a spec for it) — cross-checked against two
+// independent, actively-maintained community implementations instead
+// (python denonavr, used by Home Assistant; the node denon-remote CLI) that
+// agree on the NS9x codes. Genuinely lower confidence than the rest of this
+// file: verify with `node scripts/debug-telnet.js <host>` (send `MS?` and
+// start playback on a NET/USB source to see the real NSE lines) before
+// relying on this against your own receiver.
 // -----------------------------------------------------------------------------
 
 // Denon's raw master-volume scale: roughly 0-98, where each unit is 1 dB and
@@ -50,6 +63,27 @@ export const SOURCE_CODES = [
   { value: 'AUX5', label: { en: 'Aux 5', fr: 'Aux 5' } },
   { value: 'AUX6', label: { en: 'Aux 6', fr: 'Aux 6' } },
   { value: 'AUX7', label: { en: 'Aux 7', fr: 'Aux 7' } },
+];
+
+// Generic MS (surround/sound mode) codes. Varies far more across
+// generations than SOURCE_CODES (naming changed repeatedly as Dolby/DTS
+// added formats over the years) — this is a reasonable starting set, not a
+// promise of completeness for every model. Same tolerance as source codes:
+// a receiver ignores a mode it doesn't have, so sending an unsupported one
+// is harmless. Note the literal spaces in some values (e.g. "PURE DIRECT")
+// — that space is part of the command Denon expects, not a typo.
+export const SOUND_MODE_CODES = [
+  { value: 'MOVIE', label: { en: 'Movie', fr: 'Film' } },
+  { value: 'MUSIC', label: { en: 'Music', fr: 'Musique' } },
+  { value: 'GAME', label: { en: 'Game', fr: 'Jeu' } },
+  { value: 'DIRECT', label: { en: 'Direct', fr: 'Direct' } },
+  { value: 'PURE DIRECT', label: { en: 'Pure Direct', fr: 'Pure Direct' } },
+  { value: 'STEREO', label: { en: 'Stereo', fr: 'Stéréo' } },
+  { value: 'STANDARD', label: { en: 'Standard', fr: 'Standard' } },
+  { value: 'DOLBY DIGITAL', label: { en: 'Dolby Digital', fr: 'Dolby Digital' } },
+  { value: 'DTS SURROUND', label: { en: 'DTS Surround', fr: 'DTS Surround' } },
+  { value: 'MCH STEREO', label: { en: 'Multi-Channel Stereo', fr: 'Stéréo multicanal' } },
+  { value: 'VIRTUAL', label: { en: 'Virtual', fr: 'Virtuel' } },
 ];
 
 /**
@@ -126,6 +160,30 @@ export function parseLine(rawLine) {
     return { feature: 'source', value: code };
   }
 
+  // Must come before the SI/generic checks would ever be extended to a
+  // bare "S" prefix — not currently a risk, but MS itself is unambiguous.
+  if (line.startsWith('MS')) {
+    const mode = line.slice(2).trim();
+    if (mode.length === 0) {
+      return null;
+    }
+    return { feature: 'sound_mode', value: mode };
+  }
+
+  // NSE<n><text>: pushed while a NET/USB/streaming source is playing. Only
+  // the two rows every source we've seen documented shares are handled;
+  // other rows (album, playback position/percentage, station name...) are
+  // silently ignored like any other status line this integration doesn't
+  // react to. Trailing "_" is fixed-width padding, not part of the text.
+  if (line.startsWith('NSE1')) {
+    const title = line.slice(4).replace(/_+$/, '').trim();
+    return title.length === 0 ? null : { feature: 'now_playing_title', value: title };
+  }
+  if (line.startsWith('NSE2')) {
+    const artist = line.slice(4).replace(/_+$/, '').trim();
+    return artist.length === 0 ? null : { feature: 'now_playing_artist', value: artist };
+  }
+
   return null;
 }
 
@@ -167,4 +225,32 @@ export function buildSourceQuery() {
 /** Build the command that selects an input source by its SI code (no trailing CR). */
 export function buildSourceCommand(code) {
   return `SI${code}`;
+}
+
+/** Build the command that queries the current surround/sound mode (no trailing CR). */
+export function buildSoundModeQuery() {
+  return 'MS?';
+}
+
+/** Build the command that sets the surround/sound mode by its MS code (no trailing CR). */
+export function buildSoundModeCommand(mode) {
+  return `MS${mode}`;
+}
+
+/**
+ * Build the network/USB transport commands (no trailing CR). One-shot
+ * remote-control buttons (see DEVICE_FEATURE_TYPES.MUSIC in avr.js) — no
+ * query exists for "current playback state" the way PW?/MV?/MU?/SI? do.
+ */
+export function buildPlayCommand() {
+  return 'NS9A';
+}
+export function buildPauseCommand() {
+  return 'NS9B';
+}
+export function buildNextCommand() {
+  return 'NS9D';
+}
+export function buildPreviousCommand() {
+  return 'NS9E';
 }

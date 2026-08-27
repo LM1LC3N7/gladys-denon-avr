@@ -11,7 +11,7 @@ no cloud account, no internet dependency. The receiver itself pushes every state
 (power, volume, mute, source) as soon as it happens, whether triggered from Gladys, the
 physical remote, or the Denon/HEOS app, so the dashboard stays in sync in real time.
 
-Four things show up per receiver:
+These show up per receiver:
 
 - **Power** — on/off, controllable.
 - **Volume** — 0-100%, controllable (mapped from the receiver's internal -80 dB to +18 dB scale).
@@ -19,7 +19,15 @@ Four things show up per receiver:
 - **Source** — a dropdown of the receiver's input codes (e.g. `TUNER`, `BD`, `NET`), directly on
   the dashboard. The **Select input** action described below does the exact same thing and stays
   available as an alternative — useful if your Gladys instance is on an older version that
-  doesn't render the dropdown yet.
+  doesn't render the dropdown yet. You can rename or hide entries — see Configuration below.
+- **Sound mode** — a dropdown of surround/sound modes (e.g. `MOVIE`, `STEREO`, `PURE DIRECT`).
+  Fewer receivers behave identically here than for the other controls — if a mode you use on the
+  physical remote doesn't appear, it's likely just missing from the generic list this integration
+  ships with.
+- **Play / Pause / Next / Previous** — buttons that control playback on a network/USB/streaming
+  source (Qobuz, Spotify Connect via HEOS, internet radio...). They do nothing on a source that
+  isn't a player (a TV input, for instance).
+- **Now playing** — a read-only "Artist - Title" line, filled in automatically while streaming.
 
 ## Prerequisites
 
@@ -44,9 +52,17 @@ Four things show up per receiver:
    one becomes its own fallback entry. A fixed IP or a DHCP reservation for every receiver is
    recommended in that case, since the manual entry does not track IP changes automatically.
 4. Two actions are available from the Configuration screen for any AVR you added:
-   - **Test connection** — queries the receiver and reports its current power/volume/mute/source.
+   - **Test connection** — queries the receiver and reports its current power/volume/mute/source/
+     sound mode.
    - **Select input** — pick an input from the standard list of Denon/Marantz source codes and
      switch to it.
+5. **Rename or hide sources on the dashboard dropdown** (Configuration tab, advanced): the
+   dropdown shows generic codes like `SAT/CBL` or `GAME`, not what you actually plugged in. Fill
+   in `CODE=Label` pairs separated by commas to rename them — e.g. `SAT/CBL=Chromecast` if that's
+   what's on that input — or `CODE=` (nothing after the `=`) to remove an entry you never use,
+   e.g. `SAT/CBL=Chromecast, GAME=`. After saving, run a Discovery scan again and click **Update**
+   on the device — the dropdown's choices are part of the device's structure, so they don't
+   refresh just because the configuration changed.
 
 ## Troubleshooting
 
@@ -62,3 +78,6 @@ Four things show up per receiver:
 - The integration logs everything it does: check the integration logs from the Gladys UI (or
   `docker logs` on the host) with `LOG_LEVEL=debug` for the full detail, including every Telnet
   line sent and received.
+- **Sound mode, playback buttons or now-playing don't work as expected**: these rely on parts of
+  the protocol that vary more across models/firmware than power/volume/mute/source. Compare what
+  your remote actually sends against what this integration expects using the debug logs above.

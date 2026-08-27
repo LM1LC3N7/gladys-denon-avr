@@ -30,12 +30,12 @@ export async function buildDiscoveredDevices(gladys, config) {
     logger.error(`SSDP scan failed: ${err.message}`);
   }
 
-  const devices = discovered.map((d) => buildDiscoveredDevice(gladys, d));
+  const devices = discovered.map((d) => buildDiscoveredDevice(gladys, d, config.sourceOverrides));
 
   const discoveredHosts = new Set(discovered.map((d) => d.host));
   for (const host of config.hosts) {
     if (!discoveredHosts.has(host)) {
-      devices.push(buildManualDevice(gladys, host));
+      devices.push(buildManualDevice(gladys, host, config.sourceOverrides));
     }
   }
 

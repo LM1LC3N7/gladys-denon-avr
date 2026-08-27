@@ -36,7 +36,14 @@ import {
   buildMuteCommand,
   buildSourceQuery,
   buildSourceCommand,
+  buildSoundModeQuery,
+  buildSoundModeCommand,
+  buildPlayCommand,
+  buildPauseCommand,
+  buildNextCommand,
+  buildPreviousCommand,
   SOURCE_CODES,
+  SOUND_MODE_CODES,
 } from '../denon/protocol.js';
 
 // DEVICE_FEATURE_TYPES.TEXT.SELECT ('select'): a dynamic dropdown among
@@ -55,7 +62,19 @@ export const FEATURE = {
   VOLUME: 'volume',
   MUTE: 'mute',
   SOURCE: 'source',
+  SOUND_MODE: 'sound_mode',
+  PLAY: 'play',
+  PAUSE: 'pause',
+  NEXT: 'next',
+  PREVIOUS: 'previous',
+  NOW_PLAYING: 'now_playing',
 };
+
+// Own state keys (never published directly, only combined into
+// FEATURE.NOW_PLAYING — see connectDevice()'s onLine below), kept out of
+// FEATURE so featureExternalId()/onSetValue never treat them as a feature.
+const NOW_PLAYING_TITLE = 'now_playing_title';
+const NOW_PLAYING_ARTIST = 'now_playing_artist';
 
 const CONNECTION_FAILURE_THRESHOLD = 3;
 
@@ -74,7 +93,7 @@ function ipAddressOf(device) {
   return (device.params ?? []).find((p) => p.name === 'IP_ADDRESS')?.value;
 }
 
-function buildFeatures(deviceExternalId) {
+function buildFeatures(deviceExternalId, sourceOverrides = {}) {
   return [
     {
       name: 'Power',
@@ -132,7 +151,14 @@ function buildFeatures(deviceExternalId) {
       external_id: featureExternalId(deviceExternalId, FEATURE.SOURCE),
       category: DEVICE_FEATURE_CATEGORIES.TEXT,
       type: TEXT_SELECT_TYPE,
-      supported_options: SOURCE_CODES.map((code) => ({ value: code.value, label: code.value })),
+      // sourceOverrides (config `source_overrides`, see src/config.js) lets
+      // the user rename an entry (e.g. SAT/CBL is actually a Chromecast) or
+      // hide one entirely — an empty-string override. `value` never
+      // changes: it's still the real SI code the receiver understands,
+      // only the dropdown's `label` is user-facing.
+      supported_options: SOURCE_CODES.filter((code) => sourceOverrides[code.value] !== '').map(
+        (code) => ({ value: code.value, label: sourceOverrides[code.value] || code.value }),
+      ),
       // Placeholder range: min/max are NOT NULL for every feature even when
       // they carry no real meaning for a select value (see the Power
       // feature above for why this must never be omitted).
@@ -141,11 +167,85 @@ function buildFeatures(deviceExternalId) {
       read_only: false,
       has_feedback: true,
     },
+    {
+      // Same TEXT.SELECT mechanism as Source, own supported_options list.
+      // Confidence note: the mode list itself (SOUND_MODE_CODES) is the
+      // least certain part of this integration — see the comment above it
+      // in src/denon/protocol.js.
+      name: 'Sound mode',
+      external_id: featureExternalId(deviceExternalId, FEATURE.SOUND_MODE),
+      category: DEVICE_FEATURE_CATEGORIES.TEXT,
+      type: TEXT_SELECT_TYPE,
+      supported_options: SOUND_MODE_CODES.map((mode) => ({ value: mode.value, label: mode.value })),
+      min: 0,
+      max: 1,
+      read_only: false,
+      has_feedback: true,
+    },
+    {
+      // Network/USB transport buttons (NS9x, see protocol.js) — one-shot
+      // presses, meaningful only while playing a NET/USB/streaming source
+      // (Qobuz, Spotify Connect via HEOS...): pressing them on a source
+      // that isn't playing is a harmless no-op on the receiver's end.
+      name: 'Play',
+      external_id: featureExternalId(deviceExternalId, FEATURE.PLAY),
+      category: DEVICE_FEATURE_CATEGORIES.MUSIC,
+      type: DEVICE_FEATURE_TYPES.MUSIC.PLAY,
+      min: 0,
+      max: 1,
+      read_only: false,
+      has_feedback: false,
+    },
+    {
+      name: 'Pause',
+      external_id: featureExternalId(deviceExternalId, FEATURE.PAUSE),
+      category: DEVICE_FEATURE_CATEGORIES.MUSIC,
+      type: DEVICE_FEATURE_TYPES.MUSIC.PAUSE,
+      min: 0,
+      max: 1,
+      read_only: false,
+      has_feedback: false,
+    },
+    {
+      name: 'Previous',
+      external_id: featureExternalId(deviceExternalId, FEATURE.PREVIOUS),
+      category: DEVICE_FEATURE_CATEGORIES.MUSIC,
+      type: DEVICE_FEATURE_TYPES.MUSIC.PREVIOUS,
+      min: 0,
+      max: 1,
+      read_only: false,
+      has_feedback: false,
+    },
+    {
+      name: 'Next',
+      external_id: featureExternalId(deviceExternalId, FEATURE.NEXT),
+      category: DEVICE_FEATURE_CATEGORIES.MUSIC,
+      type: DEVICE_FEATURE_TYPES.MUSIC.NEXT,
+      min: 0,
+      max: 1,
+      read_only: false,
+      has_feedback: false,
+    },
+    {
+      // Read-only, composed as "Artist - Title" from the NSE1/NSE2 lines
+      // the receiver pushes while playing a NET/USB/streaming source. Empty
+      // (never published) until playback actually starts, and there is no
+      // query for it — like the transport buttons above, this only ever
+      // updates from the receiver's own pushes.
+      name: 'Now playing',
+      external_id: featureExternalId(deviceExternalId, FEATURE.NOW_PLAYING),
+      category: DEVICE_FEATURE_CATEGORIES.TEXT,
+      type: DEVICE_FEATURE_TYPES.TEXT.TEXT,
+      min: 0,
+      max: 1,
+      read_only: true,
+      has_feedback: false,
+    },
   ];
 }
 
 /** Build the discovery payload for one SSDP-discovered receiver. */
-export function buildDiscoveredDevice(gladys, discovered) {
+export function buildDiscoveredDevice(gladys, discovered, sourceOverrides = {}) {
   const ids = gladys.externalIds(DEVICE_TYPE, discovered.udn);
   const name = discovered.modelName
     ? `${discovered.friendlyName} (${discovered.modelName})`
@@ -154,18 +254,18 @@ export function buildDiscoveredDevice(gladys, discovered) {
     name,
     external_id: ids.device,
     params: [{ name: 'IP_ADDRESS', value: discovered.host }],
-    features: buildFeatures(ids.device),
+    features: buildFeatures(ids.device, sourceOverrides),
   };
 }
 
 /** Build the discovery payload for a manually-configured host (SSDP fallback). */
-export function buildManualDevice(gladys, host) {
+export function buildManualDevice(gladys, host, sourceOverrides = {}) {
   const ids = gladys.externalIds(DEVICE_TYPE, `manual:${host}`);
   return {
     name: `Denon/Marantz AVR (${host})`,
     external_id: ids.device,
     params: [{ name: 'IP_ADDRESS', value: host }],
-    features: buildFeatures(ids.device),
+    features: buildFeatures(ids.device, sourceOverrides),
   };
 }
 
@@ -193,6 +293,7 @@ export function connectDevice(gladys, device, config) {
       telnet.send(buildVolumeQuery());
       telnet.send(buildMuteQuery());
       telnet.send(buildSourceQuery());
+      telnet.send(buildSoundModeQuery());
       gladys.setConnectionStatus(true).catch(() => {});
     },
     onLine: (line) => {
@@ -204,8 +305,24 @@ export function connectDevice(gladys, device, config) {
       state[update.feature] = update.value;
       lastKnownState.set(device.external_id, state);
 
+      // now_playing_title/artist are cached above like any other state, but
+      // never published under their own name: NOW_PLAYING is the single
+      // "Artist - Title" feature actually declared in buildFeatures().
+      if (update.feature === NOW_PLAYING_TITLE || update.feature === NOW_PLAYING_ARTIST) {
+        const id = featureExternalId(device.external_id, FEATURE.NOW_PLAYING);
+        const nowPlaying = [state[NOW_PLAYING_ARTIST], state[NOW_PLAYING_TITLE]]
+          .filter(Boolean)
+          .join(' - ');
+        gladys
+          .publishState(id, { text: nowPlaying })
+          .catch((err) => logger.error(`publishState failed for ${id}: ${err.message}`));
+        return;
+      }
+
       const id = featureExternalId(device.external_id, update.feature);
-      const value = update.feature === FEATURE.SOURCE ? { text: update.value } : update.value;
+      const isTextFeature =
+        update.feature === FEATURE.SOURCE || update.feature === FEATURE.SOUND_MODE;
+      const value = isTextFeature ? { text: update.value } : update.value;
       gladys
         .publishState(id, value)
         .catch((err) => logger.error(`publishState failed for ${id}: ${err.message}`));
@@ -293,6 +410,17 @@ export async function onSetValue(gladys, { device, feature, value }) {
     // against the Gladys core: device.setValue forwards it as-is, string or
     // number, to the integration), so `value` is already the SI code.
     command = buildSourceCommand(value);
+  } else if (key === FEATURE.SOUND_MODE) {
+    // Same TEXT.SELECT string-value case as SOURCE.
+    command = buildSoundModeCommand(value);
+  } else if (key === FEATURE.PLAY) {
+    command = buildPlayCommand();
+  } else if (key === FEATURE.PAUSE) {
+    command = buildPauseCommand();
+  } else if (key === FEATURE.NEXT) {
+    command = buildNextCommand();
+  } else if (key === FEATURE.PREVIOUS) {
+    command = buildPreviousCommand();
   } else {
     throw new Error(`Feature "${key}" is not controllable`);
   }
@@ -317,6 +445,7 @@ export async function runTestConnectionAction(gladys, { fields }) {
   telnet.send(buildVolumeQuery());
   telnet.send(buildMuteQuery());
   telnet.send(buildSourceQuery());
+  telnet.send(buildSoundModeQuery());
   // Bounded pause: the replies are asynchronous pushed lines, not a
   // request/response pair — give them a moment to land before reading the
   // (fresh-by-then) cache back.
@@ -326,8 +455,8 @@ export async function runTestConnectionAction(gladys, { fields }) {
   const power = state.power === 1 ? 'ON' : state.power === 0 ? 'STANDBY' : '?';
   const mute = state.mute === 1 ? 'ON' : state.mute === 0 ? 'OFF' : '?';
   return {
-    en: `Power: ${power}, Volume: ${state.volume ?? '?'}%, Mute: ${mute}, Source: ${state.source ?? '?'}.`,
-    fr: `Alimentation : ${power}, Volume : ${state.volume ?? '?'}%, Muet : ${mute}, Source : ${state.source ?? '?'}.`,
+    en: `Power: ${power}, Volume: ${state.volume ?? '?'}%, Mute: ${mute}, Source: ${state.source ?? '?'}, Sound mode: ${state.sound_mode ?? '?'}.`,
+    fr: `Alimentation : ${power}, Volume : ${state.volume ?? '?'}%, Muet : ${mute}, Source : ${state.source ?? '?'}, Mode sonore : ${state.sound_mode ?? '?'}.`,
   };
 }
 
