@@ -61,15 +61,6 @@ import {
   HEOS_EVENT,
 } from '../heos/protocol.js';
 
-// DEVICE_FEATURE_TYPES.TEXT.SELECT ('select'): a dynamic dropdown among
-// string values the integration itself declares via `supported_options`
-// (Gladys core #2567 — installed TV apps, HDMI sources...), exactly our
-// case. Not in this SDK's constants yet (^0.9.0 predates it; the string is
-// stable and mirrors server/utils/constants.js), so it's spelled out here
-// rather than imported. Requires a Gladys core recent enough to know the
-// 'select' feature type — see the Source feature below.
-const TEXT_SELECT_TYPE = 'select';
-
 export const DEVICE_TYPE = 'avr';
 
 export const FEATURE = {
@@ -77,6 +68,7 @@ export const FEATURE = {
   VOLUME: 'volume',
   MUTE: 'mute',
   SOURCE: 'source',
+  SOURCE_INDEX: 'source_index',
   SOUND_MODE: 'sound_mode',
   PLAY: 'play',
   PAUSE: 'pause',
@@ -131,7 +123,18 @@ function ipAddressOf(device) {
   return (device.params ?? []).find((p) => p.name === 'IP_ADDRESS')?.value;
 }
 
+/**
+ * SOURCE_CODES filtered down to the entries `source_overrides` doesn't hide,
+ * in the same order the Source dropdown (and FEATURE.SOURCE_INDEX below)
+ * present them — the single source of truth both features are built from,
+ * so they can never disagree on what index N means.
+ */
+function visibleSourceCodes(sourceOverrides = {}) {
+  return SOURCE_CODES.filter((code) => sourceOverrides[code.value] !== '');
+}
+
 function buildFeatures(deviceExternalId, sourceOverrides = {}) {
+  const visibleSources = visibleSourceCodes(sourceOverrides);
   return [
     {
       name: 'Power',
@@ -172,36 +175,66 @@ function buildFeatures(deviceExternalId, sourceOverrides = {}) {
       keep_history: true,
     },
     {
-      // A dropdown of the receiver's own input codes (TEXT.SELECT — see the
-      // TEXT_SELECT_TYPE note above), NOT the generic TELEVISION.SOURCE type:
-      // that one is a one-shot remote-control button in Gladys' front-end
-      // (same family as VOLUME_MUTE, no meaningful value), so it could never
-      // represent a specific input — only TEXT.SELECT actually renders a
-      // real select with our supported_options. The value published/set is
-      // the verbatim SI code, so it stays correct for inputs the static
-      // SOURCE_CODES list did not anticipate. The `select_source` manifest
-      // action (see gladys-assistant-integration.json) is kept as a second,
-      // equivalent path — this dashboard control needs a fairly recent
-      // Gladys core (TEXT.SELECT/supported_options); on an older one this
-      // feature type may be rejected outright, so both routes existing
-      // matters, not just redundancy.
+      // A dropdown of the receiver's own input codes (TEXT.SELECT), NOT the
+      // generic TELEVISION.SOURCE type: that one is a one-shot remote-control
+      // button in Gladys' front-end (same family as VOLUME_MUTE, no
+      // meaningful value), so it could never represent a specific input —
+      // only TEXT.SELECT actually renders a real select with our
+      // supported_options. The value published/set is the verbatim SI code,
+      // so it stays correct for inputs the static SOURCE_CODES list did not
+      // anticipate. The `select_source` manifest action (see
+      // gladys-assistant-integration.json) is kept as a second, equivalent
+      // path — this dashboard control needs a fairly recent Gladys core
+      // (TEXT.SELECT/supported_options); on an older one this feature type
+      // may be rejected outright, so both routes existing matters, not just
+      // redundancy.
+      //
+      // Also settable from a scene's generic "Control a device" action since
+      // Gladys >=4.86.1 (see gladys_version in the manifest — 4.86.0 shipped
+      // TEXT.SELECT but had a bug specific to externally-declared
+      // supported_options, fixed the next day): the scene editor reads this
+      // feature's own supported_options to show the same labeled dropdown,
+      // and the server-side action explicitly exempts TEXT.SELECT from its
+      // otherwise numbers-only value check. FEATURE.SOURCE_INDEX below is a
+      // numeric alias of the same control for anyone on an older core, or
+      // who just prefers a stable number in their scene.
       name: 'Source',
       external_id: featureExternalId(deviceExternalId, FEATURE.SOURCE),
       category: DEVICE_FEATURE_CATEGORIES.TEXT,
-      type: TEXT_SELECT_TYPE,
+      type: DEVICE_FEATURE_TYPES.TEXT.SELECT,
       // sourceOverrides (config `source_overrides`, see src/config.js) lets
       // the user rename an entry (e.g. SAT/CBL is actually a Chromecast) or
       // hide one entirely — an empty-string override. `value` never
       // changes: it's still the real SI code the receiver understands,
       // only the dropdown's `label` is user-facing.
-      supported_options: SOURCE_CODES.filter((code) => sourceOverrides[code.value] !== '').map(
-        (code) => ({ value: code.value, label: sourceOverrides[code.value] || code.value }),
-      ),
+      supported_options: visibleSources.map((code) => ({
+        value: code.value,
+        label: sourceOverrides[code.value] || code.value,
+      })),
       // Placeholder range: min/max are NOT NULL for every feature even when
       // they carry no real meaning for a select value (see the Power
       // feature above for why this must never be omitted).
       min: 0,
       max: 1,
+      read_only: false,
+      has_feedback: true,
+    },
+    {
+      // Numeric alias of Source: a scene's generic "Control a device"
+      // action can already set Source directly as of Gladys >=4.86.1 (see
+      // the comment above it), but this gives a plain integer for an older
+      // core, or for anyone who'd rather not depend on that. Index N is the
+      // Nth entry of the *visible* dropdown above (source_overrides-hidden
+      // entries excluded, same order) — 0 is the first one. Hiding/showing
+      // an entry renumbers everything after it, exactly like the dropdown
+      // itself; the current index for the active source is also reported by
+      // the "Test connection" action so it can be read off without guessing.
+      name: 'Source index',
+      external_id: featureExternalId(deviceExternalId, FEATURE.SOURCE_INDEX),
+      category: DEVICE_FEATURE_CATEGORIES.TELEVISION,
+      type: DEVICE_FEATURE_TYPES.SENSOR.INTEGER,
+      min: 0,
+      max: Math.max(0, visibleSources.length - 1),
       read_only: false,
       has_feedback: true,
     },
@@ -213,7 +246,7 @@ function buildFeatures(deviceExternalId, sourceOverrides = {}) {
       name: 'Sound mode',
       external_id: featureExternalId(deviceExternalId, FEATURE.SOUND_MODE),
       category: DEVICE_FEATURE_CATEGORIES.TEXT,
-      type: TEXT_SELECT_TYPE,
+      type: DEVICE_FEATURE_TYPES.TEXT.SELECT,
       supported_options: SOUND_MODE_CODES.map((mode) => ({ value: mode.value, label: mode.value })),
       min: 0,
       max: 1,
@@ -400,6 +433,24 @@ export function connectDevice(gladys, device, config) {
       gladys
         .publishState(id, value)
         .catch((err) => logger.error(`publishState failed for ${id}: ${err.message}`));
+
+      // Keep FEATURE.SOURCE_INDEX in lockstep with FEATURE.SOURCE — same
+      // visible-list computation buildFeatures() used to build the dropdown
+      // (see visibleSourceCodes()). A code that isn't in that list (hidden by
+      // source_overrides, or one the static SOURCE_CODES table doesn't know)
+      // has no index to report: skip the publish rather than send a bogus
+      // one, leaving the last known good index in place.
+      if (update.feature === FEATURE.SOURCE) {
+        const indexId = featureExternalId(device.external_id, FEATURE.SOURCE_INDEX);
+        const index = visibleSourceCodes(config.sourceOverrides).findIndex(
+          (code) => code.value === update.value,
+        );
+        if (index !== -1) {
+          gladys
+            .publishState(indexId, index)
+            .catch((err) => logger.error(`publishState failed for ${indexId}: ${err.message}`));
+        }
+      }
     },
     onDisconnect: (consecutiveFailures) => {
       if (consecutiveFailures >= CONNECTION_FAILURE_THRESHOLD) {
@@ -584,8 +635,13 @@ export function disconnectAllDevices() {
   }
 }
 
-/** Dispatch a user command (`onSetValue`) to the right device's Telnet session. */
-export async function onSetValue(gladys, { device, feature, value }) {
+/**
+ * Dispatch a user command (`onSetValue`) to the right device's Telnet
+ * session. `config` is optional (defaults to no source overrides) so
+ * existing callers/tests that don't need FEATURE.SOURCE_INDEX keep working
+ * unchanged; index.js passes its live, hot-reloaded config through.
+ */
+export async function onSetValue(gladys, { device, feature, value, config }) {
   const telnet = connections.get(device.external_id);
   if (!telnet || !telnet.isConnected()) {
     throw new Error(`${device.external_id} is not connected`);
@@ -613,6 +669,18 @@ export async function onSetValue(gladys, { device, feature, value }) {
     // against the Gladys core: device.setValue forwards it as-is, string or
     // number, to the integration), so `value` is already the SI code.
     command = buildSourceCommand(value);
+  } else if (key === FEATURE.SOURCE_INDEX) {
+    // Numeric alias of SOURCE — see the feature comment in buildFeatures().
+    // Same visible-list computation as the dropdown and as onLine()'s
+    // publish, so index N always means the same input both ways.
+    const codes = visibleSourceCodes(config?.sourceOverrides);
+    const index = Number(value);
+    if (!Number.isInteger(index) || index < 0 || index >= codes.length) {
+      throw new Error(
+        `${device.external_id}: source index ${value} is out of range (0-${codes.length - 1})`,
+      );
+    }
+    command = buildSourceCommand(codes[index].value);
   } else if (key === FEATURE.SOUND_MODE) {
     // Same TEXT.SELECT string-value case as SOURCE.
     command = buildSoundModeCommand(value);
@@ -662,8 +730,13 @@ export async function onSetValue(gladys, { device, feature, value }) {
   }
 }
 
-/** `test_connection` manifest action: query the device and report its last known state. */
-export async function runTestConnectionAction(gladys, { fields }) {
+/**
+ * `test_connection` manifest action: query the device and report its last
+ * known state. `config` is optional (same rationale as onSetValue() above)
+ * so the source index line is simply omitted for a caller that doesn't pass
+ * it.
+ */
+export async function runTestConnectionAction(gladys, { fields, config }) {
   const externalId = fields.device;
   const telnet = connections.get(externalId);
   if (!telnet || !telnet.isConnected()) {
@@ -686,9 +759,16 @@ export async function runTestConnectionAction(gladys, { fields }) {
   const state = lastKnownState.get(externalId) ?? {};
   const power = state.power === 1 ? 'ON' : state.power === 0 ? 'STANDBY' : '?';
   const mute = state.mute === 1 ? 'ON' : state.mute === 0 ? 'OFF' : '?';
+  // Same visible-list computation as buildFeatures()/onSetValue() — reports
+  // "?" rather than a wrong number when the current source isn't in it
+  // (hidden by source_overrides, or not yet known).
+  const sourceIndex = visibleSourceCodes(config?.sourceOverrides).findIndex(
+    (code) => code.value === state.source,
+  );
+  const sourceIndexText = sourceIndex === -1 ? '?' : sourceIndex;
   return {
-    en: `Power: ${power}, Volume: ${state.volume ?? '?'}%, Mute: ${mute}, Source: ${state.source ?? '?'}, Sound mode: ${state.sound_mode ?? '?'}.`,
-    fr: `Alimentation : ${power}, Volume : ${state.volume ?? '?'}%, Muet : ${mute}, Source : ${state.source ?? '?'}, Mode sonore : ${state.sound_mode ?? '?'}.`,
+    en: `Power: ${power}, Volume: ${state.volume ?? '?'}%, Mute: ${mute}, Source: ${state.source ?? '?'} (index ${sourceIndexText}), Sound mode: ${state.sound_mode ?? '?'}.`,
+    fr: `Alimentation : ${power}, Volume : ${state.volume ?? '?'}%, Muet : ${mute}, Source : ${state.source ?? '?'} (index ${sourceIndexText}), Mode sonore : ${state.sound_mode ?? '?'}.`,
   };
 }
 

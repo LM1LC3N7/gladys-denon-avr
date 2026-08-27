@@ -22,6 +22,13 @@ Voici ce qui apparaît par ampli :
   exactement la même chose et reste disponible en alternative — utile si votre instance Gladys
   est sur une version plus ancienne qui n'affiche pas encore le menu déroulant. Vous pouvez
   renommer ou masquer des entrées — voir Configuration ci-dessous.
+- **Index de source** — le même contrôle de source, mais sous forme de nombre plutôt qu'un menu
+  déroulant : 0 correspond à la première entrée actuellement affichée dans le menu Source
+  ci-dessus, 1 à la deuxième, etc. Si vous masquez une entrée (voir Configuration ci-dessous),
+  tout ce qui suit se décale d'un cran — la numérotation correspond toujours à ce qui est
+  réellement visible dans le menu au moment donné. Cette fonctionnalité existe pour les
+  **scènes** : voir « Automatiser la source/le mode sonore depuis une scène » ci-dessous pour
+  savoir si vous en avez besoin, selon votre version de Gladys.
 - **Mode sonore** — un menu déroulant des modes surround/sonores (ex. `MOVIE`, `STEREO`,
   `PURE DIRECT`). Moins uniforme d'un ampli à l'autre que les autres contrôles — si un mode que
   vous utilisez depuis la télécommande n'apparaît pas, il manque probablement à la liste
@@ -38,6 +45,27 @@ Voici ce qui apparaît par ampli :
   « Support HEOS » ci-dessous.
 - **En cours de lecture** — une ligne « Artiste - Titre » en lecture seule, renseignée
   automatiquement pendant la lecture en streaming.
+
+## Automatiser la source/le mode sonore depuis une scène
+
+Dans une scène, c'est l'action générique **« Contrôler un appareil »** qui permet de régler
+Source/Mode sonore/Index de source — il n'existe aucune action de scène pour les boutons propres
+au manifeste d'une intégration (**Sélectionner l'entrée** ici), sur aucune version de Gladys.
+
+- **Sur Gladys 4.86.1 ou plus récent**, « Contrôler un appareil » affiche déjà un vrai menu
+  déroulant avec les libellés pour Source et Mode sonore, exactement comme le tableau de bord :
+  choisissez l'appareil, puis la fonctionnalité, puis la valeur. L'Index de source fonctionne
+  aussi si vous préférez fixer un simple nombre.
+- **Sur une version plus ancienne de Gladys**, ce menu déroulant n'est soit pas proposé, soit
+  n'accepte pas la valeur — utilisez plutôt **l'Index de source** : c'est un simple nombre, que
+  « Contrôler un appareil » a toujours su régler, et qui correspond à la même entrée que le menu
+  déroulant (position dans la liste Source _actuellement visible_, 0 = première entrée).
+- **Si « Contrôler un appareil » n'affiche strictement rien pour cet ampli** (ni menu Source/Mode
+  sonore, ni Index de source) : la cause la plus probable est un appareil ajouté avant que cette
+  intégration ne propose l'Index de source, combiné à une version de Gladys antérieure à 4.86.1.
+  Ouvrez l'onglet **Découverte** de l'intégration, lancez un scan, puis cliquez sur **Mettre à
+  jour** sur l'appareil — une nouvelle fonctionnalité n'apparaît jamais toute seule sur un
+  appareil déjà ajouté, comme tout autre changement de structure (voir Configuration ci-dessous).
 
 ## Support HEOS
 
@@ -92,7 +120,7 @@ que ce soit corrigé.
    l'entrée manuelle ne suit pas automatiquement les changements d'IP.
 4. Deux actions sont disponibles depuis l'écran de configuration pour chaque ampli ajouté :
    - **Tester la connexion** — interroge l'ampli et rapporte son état actuel (alimentation,
-     volume, muet, source, mode sonore).
+     volume, muet, source avec son index — voir « Index de source » ci-dessus —, mode sonore).
    - **Sélectionner l'entrée** — choisissez une entrée dans la liste standard des codes source
      Denon/Marantz et basculez dessus.
 5. **Renommer ou masquer des sources dans le menu déroulant** (onglet Configuration, avancé) :

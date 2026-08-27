@@ -44,11 +44,11 @@ gladys.onScanRequest(async () => {
 // --- Command: the user acts on a controllable feature (power/volume/mute) ---
 gladys.onSetValue(async (device, feature, value) => {
   logger.info(`onSetValue <- ${feature.external_id} = ${value}`);
-  await dispatchSetValue(gladys, { device, feature, value });
+  await dispatchSetValue(gladys, { device, feature, value, config });
 });
 
 // --- Manifest actions: buttons in the Configuration screen -------------------
-gladys.onAction('test_connection', (fields) => runTestConnectionAction(gladys, { fields }));
+gladys.onAction('test_connection', (fields) => runTestConnectionAction(gladys, { fields, config }));
 gladys.onAction('select_source', (fields) => runSelectSourceAction(gladys, { fields }));
 
 // --- Device lifecycle: open/close the Telnet session as devices come and go -

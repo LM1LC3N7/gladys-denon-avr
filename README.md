@@ -30,6 +30,18 @@ TuneIn...) — see "Playback controls" below.
   **Select input** manifest action is kept as an equivalent second path regardless. The
   `source_overrides` config field lets you rename an entry (the input actually plugged into
   `SAT/CBL` might really be a Chromecast) or hide ones you never use.
+- **Source index**: a plain read/write integer feature (`TELEVISION` category,
+  `SENSOR.INTEGER` type — there's no neutral "just a number" category in the SDK, so this
+  reuses `TELEVISION` since it's this device's own category, paired with a type none of Gladys'
+  scene-editor special-casing (`DeviceSetValue.jsx`) hooks into, so it correctly falls through
+  to a plain bounded number input/slider) that mirrors `Source` as a 0-based index into the
+  dropdown's own `supported_options`, **as currently rendered — `source_overrides`-hidden
+  entries excluded, and everything after a hidden one renumbers down**. Both features are built
+  from the same `visibleSourceCodes()` helper in `src/devices/avr.js` so they can never disagree
+  on what index N means, and `onLine()`'s handler republishes it in lockstep with `Source` on
+  every push so it never goes stale. Exists specifically for scene automation — see "Scene
+  automation" below for why this is (and isn't, depending on your Gladys version) needed
+  alongside the `Source` dropdown itself.
 - **Sound mode**: same `TEXT.SELECT` dropdown mechanism as the source, built from
   `SOUND_MODE_CODES` in [`src/denon/protocol.js`](./src/denon/protocol.js) — the least certain
   part of this integration (mode naming shifted a lot across Denon/Marantz generations), see
@@ -74,7 +86,48 @@ TuneIn...) — see "Playback controls" below.
   than a bet on the push channel alone. Confirmed necessary on real hardware — the dashboard was
   observed stuck on "paused" indefinitely after playback started elsewhere (the Qobuz app), even
   though HEOS commands sent _from_ Gladys worked fine.
-- **Test connection** action: on-demand query + a summary of the receiver's current state.
+- **Test connection** action: on-demand query + a summary of the receiver's current state, now
+  including the current source's index (see "Source index" above) so it can be read off without
+  guessing.
+
+## Scene automation
+
+A scene's generic **"Control a device"** action (`ACTIONS.DEVICE.SET_VALUE` in Gladys core) is
+the only way to set `Source`/`Sound mode` from a scene — there is no scene-action type for a
+manifest's own custom actions (`select_source` here), on any Gladys version, and there never has
+been one; that part is a permanent Gladys-core limitation, not something this integration can
+work around.
+
+Whether the generic action can actually target `Source`/`Sound mode` **depends on your Gladys
+core version**, and this was misdiagnosed once already during this project's own development —
+worth stating precisely:
+
+- **Gladys >=4.86.1**: works directly. The scene editor's device/feature picker has no category
+  blacklist (`SelectDeviceFeature.jsx`), so `Source`/`Sound mode` are selectable like any other
+  feature, and once picked, the value editor (`DeviceSetValue.jsx`) reads the feature's own
+  `supported_options` and renders the same labeled dropdown as the dashboard
+  (`deviceFeatureValueOptions.js`). Server-side, the scene action explicitly exempts
+  `TEXT.SELECT` features from its otherwise-numeric-only value check
+  (`server/lib/scene/scene.actions.js`) and forwards the string value as-is. This landed in two
+  parts: [Gladys core #2869](https://github.com/GladysAssistant/Gladys/pull/2869) (v4.86.0)
+  added `TEXT.SELECT`/string `supported_options` support, and
+  [#2883](https://github.com/GladysAssistant/Gladys/pull/2883) (v4.86.1, the next day) fixed a
+  bug specific to `supported_options` **declared by an external integration** (exactly this
+  one's situation) — hence `gladys_version: ">=4.86.1"` in the manifest, not `>=4.86.0`.
+- **Older Gladys**: the generic scene action either doesn't offer a usable control for
+  `Source`/`Sound mode` at all, or (pre-#2869) rejects the string value outright. This is exactly
+  why **Source index** exists (see "What it does" above): a plain bounded integer, which the
+  generic scene action has always been able to set, on any Gladys version — set it to a number
+  and the corresponding input is selected, independent of the `TEXT.SELECT` story above. It's
+  also just a more stable number to hardcode into a scene than a label that changes when you edit
+  `source_overrides`.
+
+If your own scene shows **nothing at all** for this AVR under "Control a device" — no
+`Source`/`Sound mode` dropdown and no `Source index` slider either — the most likely cause is a
+Gladys core older than 4.86.1 combined with a device added before this integration shipped
+`Source index`: open the integration's Discovery tab, scan, and click **Update** on the
+device — like any structural change (see "Discovery" above), a new feature never appears on an
+already-created device without that step.
 
 ## New to this codebase? Start here
 
@@ -246,17 +299,20 @@ Add the GitHub topic `gladys-assistant-integration`, then **Actions → Release 
 [integration-template-js README](https://github.com/GladysAssistant/integration-template-js) for
 the full publishing flow — unchanged from the template.
 
-`gladys_version` is pinned to `>=4.86.0`: that's the floor `categories` needs to declare (checked
-against the store's `manifest.schema.json` — an older core "rejects unknown manifest fields"
-outright rather than ignoring just that one, so the two changes had to land together), and
-comfortably covers the `TEXT.SELECT`/`supported_options` the input-source dropdown needs too
-(exact minimum unconfirmed, but the feature already existed well before this core version).
+`gladys_version` is pinned to `>=4.86.1`. 4.86.0 is the floor `categories` needs to declare
+(checked against the store's `manifest.schema.json` — an older core "rejects unknown manifest
+fields" outright rather than ignoring just that one, so that change and `TEXT.SELECT` support
+had to land together), but the manifest is pinned one patch higher, to 4.86.1: that's the release
+that fixed [#2883](https://github.com/GladysAssistant/Gladys/pull/2883), a bug specific to
+`supported_options` declared by an _external_ integration (this one) rather than a built-in
+device type — see "Scene automation" above.
 
 ## v1 scope
 
-Power, volume, mute, input source (status + selection, with per-user renaming/hiding), sound
-mode, network/USB playback controls (HEOS CLI when available, legacy `NS9x` Telnet otherwise),
-now-playing metadata, SSDP discovery. Deliberately out of scope for now: multi-zone (Zone 2/3),
+Power, volume, mute, input source (status + selection, with per-user renaming/hiding, plus a
+numeric `Source index` alias for scene automation), sound mode, network/USB playback controls
+(HEOS CLI when available, legacy `NS9x` Telnet otherwise), now-playing metadata, SSDP discovery.
+Deliberately out of scope for now: multi-zone (Zone 2/3),
 HEOS-specific features beyond play/pause/next/previous (grouping, queue browsing, volume-per-
 player...), and an HTTP fallback control channel — see the design notes at the top of
 [`src/devices/avr.js`](./src/devices/avr.js) and
