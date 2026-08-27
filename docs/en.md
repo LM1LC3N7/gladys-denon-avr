@@ -20,6 +20,12 @@ These show up per receiver:
   the dashboard. The **Select input** action described below does the exact same thing and stays
   available as an alternative — useful if your Gladys instance is on an older version that
   doesn't render the dropdown yet. You can rename or hide entries — see Configuration below.
+- **Source index** — the same source control as a plain number instead of a dropdown: 0 is the
+  first entry currently shown in the Source dropdown above, 1 the second, and so on. If you hide
+  an entry (see Configuration below), every entry after it shifts down by one — the numbering
+  always matches what's actually visible in the dropdown at the time. This exists for **scenes**:
+  see "Automating source/sound mode from a scene" below for why you may or may not need it,
+  depending on your Gladys version.
 - **Sound mode** — a dropdown of surround/sound modes (e.g. `MOVIE`, `STEREO`, `PURE DIRECT`).
   Fewer receivers behave identically here than for the other controls — if a mode you use on the
   physical remote doesn't appear, it's likely just missing from the generic list this integration
@@ -34,6 +40,26 @@ These show up per receiver:
   actual control path for HEOS-managed sources like Qobuz or Spotify Connect — see "HEOS support"
   below.
 - **Now playing** — a read-only "Artist - Title" line, filled in automatically while streaming.
+
+## Automating source/sound mode from a scene
+
+In a scene, the generic **"Control a device"** action is what sets `Source`/`Sound mode`/
+`Source index` — there's no scene action for a manifest's own custom buttons (**Select input**
+here), on any Gladys version.
+
+- **On Gladys 4.86.1 or newer**, "Control a device" already shows a proper labeled dropdown for
+  `Source` and `Sound mode`, exactly like the dashboard — just pick the device, then the feature,
+  then the value. `Source index` still works too if you'd rather set a plain number.
+- **On an older Gladys**, that dropdown either isn't offered or doesn't accept the value — use
+  **Source index** instead: it's a plain number, which "Control a device" has always been able to
+  set, and it maps to the same input as the dropdown (position in the _currently visible_ Source
+  list, 0 = first entry).
+- **If "Control a device" shows nothing at all for this AVR** (no `Source`/`Sound mode` dropdown,
+  no `Source index` either): this most likely means the device was added before this integration
+  shipped `Source index`, combined with a Gladys core older than 4.86.1. Open this integration's
+  **Discovery** tab, run a scan, and click **Update** on the device — a new feature never appears
+  on an already-added device on its own, the same as any other structural change (see
+  Configuration below).
 
 ## HEOS support
 
@@ -82,8 +108,8 @@ reachable, please report it (with the debug logs mentioned below) so it can be f
    one becomes its own fallback entry. A fixed IP or a DHCP reservation for every receiver is
    recommended in that case, since the manual entry does not track IP changes automatically.
 4. Two actions are available from the Configuration screen for any AVR you added:
-   - **Test connection** — queries the receiver and reports its current power/volume/mute/source/
-     sound mode.
+   - **Test connection** — queries the receiver and reports its current power/volume/mute/source
+     (with its index, see "Source index" above)/sound mode.
    - **Select input** — pick an input from the standard list of Denon/Marantz source codes and
      switch to it.
 5. **Rename or hide sources on the dashboard dropdown** (Configuration tab, advanced): the

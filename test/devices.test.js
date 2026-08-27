@@ -66,7 +66,7 @@ test('buildDiscoveredDevice exposes power/volume/mute/source with the right cate
   assert.equal(device.name, 'Denon AVR-S970H (AVR-S970H)');
   assert.ok(device.external_id.includes('abc-123'));
   assert.deepEqual(device.params, [{ name: 'IP_ADDRESS', value: '192.168.1.50' }]);
-  assert.equal(device.features.length, 11);
+  assert.equal(device.features.length, 12);
 
   const byKey = Object.fromEntries(device.features.map((f) => [f.external_id, f]));
   const power = byKey[featureExternalId(device.external_id, FEATURE.POWER)];
@@ -98,6 +98,17 @@ test('buildDiscoveredDevice exposes power/volume/mute/source with the right cate
   // Every SI code must be representable, and only once.
   const optionValues = source.supported_options.map((o) => o.value);
   assert.equal(new Set(optionValues).size, optionValues.length);
+
+  const sourceIndex = byKey[featureExternalId(device.external_id, FEATURE.SOURCE_INDEX)];
+  assert.equal(sourceIndex.category, DEVICE_FEATURE_CATEGORIES.TELEVISION);
+  assert.equal(sourceIndex.type, DEVICE_FEATURE_TYPES.SENSOR.INTEGER);
+  assert.equal(sourceIndex.read_only, false);
+  assert.equal(sourceIndex.min, 0);
+  assert.equal(
+    sourceIndex.max,
+    source.supported_options.length - 1,
+    'bounds match the number of visible dropdown entries, index 0-based',
+  );
 
   const soundMode = byKey[featureExternalId(device.external_id, FEATURE.SOUND_MODE)];
   assert.equal(soundMode.category, DEVICE_FEATURE_CATEGORIES.TEXT);
@@ -147,6 +158,15 @@ test('buildDiscoveredDevice applies source_overrides: renames one entry, hides a
     'TUNER',
     'an entry with no override keeps its SI code as the label',
   );
+
+  const sourceIndex = device.features.find(
+    (f) => f.external_id === featureExternalId(device.external_id, FEATURE.SOURCE_INDEX),
+  );
+  assert.equal(
+    sourceIndex.max,
+    source.supported_options.length - 1,
+    'hiding GAME shrinks the visible list, so source_index bounds must shrink too',
+  );
 });
 
 test('every feature declares a non-null min/max (Gladys rejects a null one at "add device" time, not at publish)', () => {
@@ -164,7 +184,7 @@ test('every feature declares a non-null min/max (Gladys rejects a null one at "a
 test('buildManualDevice builds a stable device keyed on the configured host', () => {
   const device = buildManualDevice(gladys, '192.168.1.77');
   assert.deepEqual(device.params, [{ name: 'IP_ADDRESS', value: '192.168.1.77' }]);
-  assert.equal(device.features.length, 11);
+  assert.equal(device.features.length, 12);
 });
 
 test('onSetValue routes power/volume to the right telnet command', async () => {
@@ -214,6 +234,47 @@ test('onSetValue routes the source dropdown to SI<code>, using the value as-is (
 
   await onSetValue(gladys, { device, feature: sourceFeature, value: 'NET' });
   assert.equal(telnet.sent.at(-1), 'SINET');
+});
+
+test('onSetValue routes source_index to the SI<code> of the visible entry at that position', async () => {
+  const device = buildDiscoveredDevice(gladys, DISCOVERED);
+  const telnet = createFakeTelnetClient();
+  __setConnectionForTesting(device.external_id, telnet);
+  const indexFeature = {
+    external_id: featureExternalId(device.external_id, FEATURE.SOURCE_INDEX),
+  };
+
+  // Index 0 with no overrides is the first entry declared in buildFeatures()
+  // (PHONO, per the "exposes power/volume/mute/source" test above).
+  await onSetValue(gladys, { device, feature: indexFeature, value: 0 });
+  assert.equal(telnet.sent.at(-1), 'SIPHONO');
+
+  // With SAT/CBL hidden, the config threaded through onSetValue must use
+  // the same shrunk/renumbered list as buildFeatures() did for this device
+  // — index 5 (SAT/CBL's un-hidden position) now lands on the next entry.
+  const config = { sourceOverrides: { 'SAT/CBL': '' } };
+  await onSetValue(gladys, { device, feature: indexFeature, value: 5, config });
+  assert.equal(
+    telnet.sent.at(-1),
+    'SIMPLAY',
+    'MPLAY shifted down to index 5 once SAT/CBL is hidden',
+  );
+});
+
+test('onSetValue rejects a source_index outside the visible range', async () => {
+  const device = buildDiscoveredDevice(gladys, DISCOVERED);
+  const telnet = createFakeTelnetClient();
+  __setConnectionForTesting(device.external_id, telnet);
+  const indexFeature = {
+    external_id: featureExternalId(device.external_id, FEATURE.SOURCE_INDEX),
+  };
+
+  await assert.rejects(() => onSetValue(gladys, { device, feature: indexFeature, value: 999 }));
+  await assert.rejects(() => onSetValue(gladys, { device, feature: indexFeature, value: -1 }));
+  await assert.rejects(() =>
+    onSetValue(gladys, { device, feature: indexFeature, value: 'not-a-number' }),
+  );
+  assert.deepEqual(telnet.sent, [], 'an out-of-range/invalid index must never reach the receiver');
 });
 
 test('onSetValue routes the sound mode dropdown to MS<mode>', async () => {
@@ -371,6 +432,11 @@ test('connectDevice publishes the state pushed by a real Telnet session', async 
     assert.ok(
       gladys.published.some((p) => p.featureExternalId === sourceId && p.state?.text === 'TUNER'),
     );
+    const sourceIndexId = featureExternalId(device.external_id, FEATURE.SOURCE_INDEX);
+    assert.ok(
+      gladys.published.some((p) => p.featureExternalId === sourceIndexId && p.state === 2),
+      'source_index is published in lockstep with source (TUNER is visible entry #2)',
+    );
     assert.ok(
       gladys.published.some(
         (p) => p.featureExternalId === soundModeId && p.state?.text === 'MOVIE',
@@ -390,6 +456,40 @@ test('connectDevice publishes the state pushed by a real Telnet session', async 
     });
     assert.match(message.en, /Power: ON/);
     assert.match(message.en, /TUNER/);
+    assert.match(message.en, /index 2/, 'TUNER is visible entry #2');
+  } finally {
+    disconnectDevice(device.external_id);
+    server.close();
+  }
+});
+
+// end-to-end: a source the current config hides must not get a bogus index
+// published — the dashboard has nothing meaningful to show for it anyway.
+test('connectDevice does not publish source_index when the reported source is hidden by source_overrides', async () => {
+  const server = net.createServer((socket) => {
+    socket.write('SITUNER\r');
+  });
+  const port = await new Promise((resolve) =>
+    server.listen(0, '127.0.0.1', () => resolve(server.address().port)),
+  );
+
+  const device = buildDiscoveredDevice(gladys, { ...DISCOVERED, host: '127.0.0.1' });
+  const localConfig = normalizeConfig({ port, source_overrides: 'TUNER=' });
+  // `gladys.published` is a single array shared by every test in this file
+  // (DISCOVERED's fixed udn makes external_id deterministic across tests
+  // too), so a snapshot before connecting is needed to see only this test's
+  // publishes, not an unrelated earlier test's source_index for the same id.
+  const publishedBefore = gladys.published.length;
+
+  try {
+    connectDevice(gladys, device, localConfig);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    const sourceIndexId = featureExternalId(device.external_id, FEATURE.SOURCE_INDEX);
+    assert.ok(
+      !gladys.published.slice(publishedBefore).some((p) => p.featureExternalId === sourceIndexId),
+      'TUNER is hidden, so it has no index in the visible list to publish',
+    );
   } finally {
     disconnectDevice(device.external_id);
     server.close();
