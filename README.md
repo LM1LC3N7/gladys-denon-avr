@@ -19,9 +19,8 @@ lineup (Telnet, TCP port 23) — not hardcoded to a specific model.
 - **Input source**: a dropdown on the dashboard, backed by `TEXT.SELECT` +
   `supported_options` (the receiver's own SI codes) — **not** the generic `TELEVISION.SOURCE`
   type, which Gladys' front-end renders as a one-shot remote-control button with no way to pick
-  a specific input (see the design notes in [`src/devices/avr.js`](./src/devices/avr.js)). This
-  needs a fairly recent Gladys core; the **Select input** manifest action is kept as an
-  equivalent second path in case an older core doesn't know the `select` feature type.
+  a specific input (see the design notes in [`src/devices/avr.js`](./src/devices/avr.js)). The
+  **Select input** manifest action is kept as an equivalent second path regardless.
 - **Test connection** action: on-demand query + a summary of the receiver's current state.
 
 ## New to this codebase? Start here
@@ -178,6 +177,12 @@ Add the GitHub topic `gladys-assistant-integration`, then **Actions → Release 
 (bumps `package.json` + the manifest, tags, builds the multi-arch image). See the
 [integration-template-js README](https://github.com/GladysAssistant/integration-template-js) for
 the full publishing flow — unchanged from the template.
+
+`gladys_version` is pinned to `>=4.86.0`: that's the floor `categories` needs to declare (checked
+against the store's `manifest.schema.json` — an older core "rejects unknown manifest fields"
+outright rather than ignoring just that one, so the two changes had to land together), and
+comfortably covers the `TEXT.SELECT`/`supported_options` the input-source dropdown needs too
+(exact minimum unconfirmed, but the feature already existed well before this core version).
 
 ## v1 scope
 

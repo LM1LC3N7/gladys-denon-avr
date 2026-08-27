@@ -8,7 +8,8 @@
   },
   "version": "1.0.2",
   "docker_image": "ghcr.io/lm1lc3n7/gladys-denon-avr:1.0.2",
-  "gladys_version": ">=4.62.0",
+  "gladys_version": ">=4.86.0",
+  "categories": ["multimedia"],
   "cover_image": "https://raw.githubusercontent.com/lm1lc3n7/gladys-denon-avr/master/cover.png",
   "network_discovery": [
     {
