@@ -6,7 +6,10 @@ Marantz AV receiver: power, volume, mute and input source. Built on the JavaScri
 the official [`integration-template-js`](https://github.com/GladysAssistant/integration-template-js).
 
 Talks the "AVR Control" protocol shared by (almost) the whole Denon/Marantz networked receiver
-lineup (Telnet, TCP port 23) — not hardcoded to a specific model.
+lineup (Telnet, TCP port 23) — not hardcoded to a specific model. On a HEOS-equipped receiver it
+also opens a second, best-effort connection to the separate HEOS CLI service (port 1255) so that
+playback controls actually reach HEOS-managed streaming sources (Qobuz, Spotify Connect, TIDAL,
+TuneIn...) — see "Playback controls" below.
 
 ## What it does
 
@@ -31,8 +34,7 @@ lineup (Telnet, TCP port 23) — not hardcoded to a specific model.
   `SOUND_MODE_CODES` in [`src/denon/protocol.js`](./src/denon/protocol.js) — the least certain
   part of this integration (mode naming shifted a lot across Denon/Marantz generations), see
   "Tested and confirmed" below.
-- **Playback controls**: Play/Pause/Next/Previous buttons (`MUSIC` category), meaningful while a
-  NET/USB/streaming source (Qobuz, Spotify Connect via HEOS...) is active — a no-op otherwise.
+- **Playback controls**: Play/Pause/Next/Previous buttons (`MUSIC` category).
   **`MUSIC` features don't render in the plain device list** — Gladys' generic
   `SUPPORTED_FEATURE_TYPES` (`front/src/components/boxs/device-in-room/SupportedFeatureTypes.jsx`)
   doesn't include the `MUSIC` category at all, so there they fall back to a plain read-only row
@@ -40,6 +42,26 @@ lineup (Telnet, TCP port 23) — not hardcoded to a specific model.
   to get actual play/pause/skip buttons — that box also hard-requires a
   `MUSIC.PLAYBACK_STATE` feature to even initialize (`MusicBox.jsx` dereferences it
   unconditionally), which is why one is declared here even though nothing calls it a "button".
+  Two separate command paths feed these buttons, picked automatically per press
+  (`src/devices/avr.js`'s `onSetValue`, `src/heos/`):
+  - **HEOS CLI** (port 1255) — used whenever this AVR's own IP has been matched to a HEOS
+    `pid` (via `player/get_players`, on every connect). This is the path that actually reaches
+    HEOS-managed streaming sources: Qobuz, Spotify Connect, TIDAL, TuneIn, Amazon Music... The
+    receiver's own HEOS transport-state events (`event/player_state_changed`) also feed the
+    `MUSIC.PLAYBACK_STATE` feature directly when available, in preference to the Telnet-side
+    heuristic below.
+  - **Legacy `NS9x` Telnet commands** — the fallback whenever no HEOS `pid` is known yet, HEOS
+    CLI is unreachable (firewalled, or a non-HEOS/older model), or on a genuinely non-HEOS
+    Net/USB source. This is the only path that existed before 1.1.0, and real-hardware feedback
+    confirmed it has **no effect at all** on HEOS-managed sources — which is exactly why the HEOS
+    path above was added.
+  - **Limits**: this is implemented from the HEOS CLI protocol as documented by `pyheos`
+    (the library behind Home Assistant's own official HEOS integration) — cross-checked, not
+    directly verified on this project's own hardware, since exercising real Qobuz/Spotify
+    playback isn't something these unit tests can do. If it misbehaves on your receiver,
+    compare actual traffic with [`scripts/debug-heos.js`](./scripts/debug-heos.js) (next to
+    [`scripts/debug-telnet.js`](./scripts/debug-telnet.js) for the legacy path) — see "Tested and
+    confirmed" below.
 - **Now playing**: a read-only "Artist - Title" line, composed from the two status lines the
   receiver pushes while streaming.
 - **Test connection** action: on-demand query + a summary of the receiver's current state.
@@ -57,6 +79,11 @@ This integration then opens a **second, completely separate connection**: a plai
 socket (port 23) straight to the AV receiver on the local network. That's the actual point of
 the project — everything in `src/denon/` and `src/devices/avr.js` exists to manage that second
 connection and translate between "what the receiver says" and "what Gladys understands".
+
+On a HEOS-equipped receiver there's a **third connection**, to the separate HEOS CLI service
+(port 1255, `src/heos/`) — used only for the playback buttons, and only when it's actually
+reachable; see "Playback controls" above for why a second protocol turned out to be necessary
+instead of reusing the Telnet one.
 
 ```
 ┌────────────┐   WebSocket (SDK, handled for you)   ┌──────────────────────┐   Telnet :23   ┌──────────┐
@@ -76,11 +103,17 @@ Recommended reading order, each file assumes only the one(s) before it:
    nothing about Denon's protocol or about Gladys.
 3. [`src/denon/discovery.js`](./src/denon/discovery.js) — how a receiver is found on the LAN
    before you even have its IP address (SSDP/UPnP).
-4. [`src/devices/avr.js`](./src/devices/avr.js) — the glue: keeps one Telnet client per AVR the
-   user added, and wires `protocol.js` + `telnet.js` to what the SDK expects (features, actions).
-5. [`src/devices/index.js`](./src/devices/index.js) and [`src/config.js`](./src/config.js) —
+4. [`src/heos/protocol.js`](./src/heos/protocol.js) and
+   [`src/heos/client.js`](./src/heos/client.js) — same pure-functions/socket-client split as 1-2
+   above, for the separate HEOS CLI service (port 1255) used only by the playback buttons. Reuses
+   `telnet.js`'s socket/reconnect logic (`lineTerminator: '\r\n'` instead of `'\r'`); read this
+   after 1-2 since it leans on that split rather than repeating it.
+5. [`src/devices/avr.js`](./src/devices/avr.js) — the glue: keeps one Telnet client (and,
+   best-effort, one HEOS client) per AVR the user added, and wires `protocol.js`/`telnet.js`/
+   `heos/` to what the SDK expects (features, actions).
+6. [`src/devices/index.js`](./src/devices/index.js) and [`src/config.js`](./src/config.js) —
    small composition/config-normalization helpers used by the entry point.
-6. [`index.js`](./index.js) — the entry point. On purpose the shortest, least interesting file:
+7. [`index.js`](./index.js) — the entry point. On purpose the shortest, least interesting file:
    it only creates the SDK client and wires its events to the functions above.
 
 ## Dependencies
@@ -134,6 +167,9 @@ notes Dependabot links in the PR body) and merge it like any other PR once CI is
 │  │  ├─ protocol.js                 # PURE: parse Telnet lines <-> feature values, build commands
 │  │  ├─ telnet.js                   # raw net.Socket client: line framing, reconnect w/ backoff
 │  │  └─ discovery.js                # SSDP scan + UPnP description.xml parsing
+│  ├─ heos/
+│  │  ├─ protocol.js                 # PURE: parse HEOS CLI JSON lines, build heos:// commands
+│  │  └─ client.js                   # thin wrapper of denon/telnet.js for the HEOS CLI socket
 │  └─ config.js                      # config defaults + normalization
 ├─ test/                             # one *.test.js per src/ file above, node --test, no library
 ├─ test-fixtures/
@@ -141,8 +177,9 @@ notes Dependabot links in the PR body) and merge it like any other PR once CI is
 │                                     # — deliberately OUTSIDE test/: `node --test` treats every
 │                                     # .js file under test/ as a test file to run, fixtures included
 ├─ scripts/
-│  └─ debug-telnet.js                # talk to a real receiver's Telnet session directly, without
-│                                     # running Gladys at all — `node scripts/debug-telnet.js <host>`
+│  ├─ debug-telnet.js                # talk to a real receiver's Telnet session directly, without
+│  │                                  # running Gladys at all — `node scripts/debug-telnet.js <host>`
+│  └─ debug-heos.js                  # same, for the HEOS CLI service — `node scripts/debug-heos.js <host>`
 ├─ docs/
 │  └─ en.md / fr.md                  # END-USER documentation, re-hosted by Gladys itself in its
 │                                     # UI (not this README) — what someone installing the
@@ -208,9 +245,11 @@ comfortably covers the `TEXT.SELECT`/`supported_options` the input-source dropdo
 ## v1 scope
 
 Power, volume, mute, input source (status + selection, with per-user renaming/hiding), sound
-mode, network/USB playback controls, now-playing metadata, SSDP discovery. Deliberately out of
-scope for now: multi-zone (Zone 2/3) and an HTTP fallback control channel — see the design notes
-at the top of [`src/devices/avr.js`](./src/devices/avr.js) and
+mode, network/USB playback controls (HEOS CLI when available, legacy `NS9x` Telnet otherwise),
+now-playing metadata, SSDP discovery. Deliberately out of scope for now: multi-zone (Zone 2/3),
+HEOS-specific features beyond play/pause/next/previous (grouping, queue browsing, volume-per-
+player...), and an HTTP fallback control channel — see the design notes at the top of
+[`src/devices/avr.js`](./src/devices/avr.js) and
 [`src/denon/discovery.js`](./src/denon/discovery.js).
 
 ## Tested and confirmed
@@ -241,10 +280,22 @@ Honest status, so it's clear what "it works" actually rests on:
     a per-user "Maximum Volume" setting, so it shouldn't need calibration — see the comment above
     `DENON_VOLUME_MAX`).
   - The SSDP discovery flow itself (only the static-IP fallback has been confirmed so far).
+  - **HEOS CLI playback routing** (`src/heos/`, added to address real-hardware feedback that the
+    legacy `NS9x` commands do nothing on Qobuz/Spotify Connect streaming): the protocol details
+    (port 1255, `heos://` command paths, JSON response shape, matching a `pid` to the receiver's
+    IP via `player/get_players`, the `event/player_state_changed` push) are cross-checked against
+    `pyheos` (the library behind Home Assistant's own official HEOS integration) rather than
+    Denon's own documentation, which doesn't cover HEOS as cleanly as the base AVR Control PDF —
+    same tier of confidence as the `NS9x` codes above, and likewise not yet run against a real
+    HEOS session. The legacy-command fallback means a wrong assumption here degrades to the
+    pre-1.1.0 behavior (buttons that do nothing on HEOS sources), not a crash or a regression on
+    non-HEOS playback.
 
   Use [`scripts/debug-telnet.js`](./scripts/debug-telnet.js) against your own receiver to check
   any of the above — in particular, send `MS?` and start streaming on a NET/USB source to see
-  the real sound-mode and now-playing lines your model actually sends.
+  the real sound-mode and now-playing lines your model actually sends — and
+  [`scripts/debug-heos.js`](./scripts/debug-heos.js) to see the real HEOS CLI traffic (or confirm
+  the receiver doesn't run HEOS/isn't reachable on port 1255 at all).
 
 ## License
 

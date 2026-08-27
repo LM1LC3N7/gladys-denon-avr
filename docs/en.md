@@ -25,12 +25,33 @@ These show up per receiver:
   physical remote doesn't appear, it's likely just missing from the generic list this integration
   ships with.
 - **Play / Pause / Next / Previous** — buttons that control playback on a network/USB/streaming
-  source (Qobuz, Spotify Connect via HEOS, internet radio...). They do nothing on a source that
+  source (Qobuz, Spotify Connect, TIDAL, internet radio...). They do nothing on a source that
   isn't a player (a TV input, for instance). **These need a Music box, not the plain device
   list**: on your dashboard, add a box and pick **Music** as its type, then this AVR as its
   device — that's what actually renders the play/pause/skip buttons. In the regular device list
-  they only show up as plain rows with no visible value, which is expected there.
+  they only show up as plain rows with no visible value, which is expected there. On a
+  HEOS-equipped receiver, these buttons are sent over HEOS whenever possible, since that's the
+  actual control path for HEOS-managed sources like Qobuz or Spotify Connect — see "HEOS support"
+  below.
 - **Now playing** — a read-only "Artist - Title" line, filled in automatically while streaming.
+
+## HEOS support
+
+Denon/Marantz receivers with a HEOS module (most current network models) run HEOS as a separate
+service alongside the classic Telnet control used for everything else on this page. Streaming
+sources like Qobuz, Spotify Connect, TIDAL or TuneIn are actually played back _through_ HEOS —
+the classic transport commands this integration used before have no effect on them at all.
+
+Starting with this version, the Play/Pause/Next/Previous buttons talk to HEOS automatically when
+the receiver supports it: no configuration needed, nothing to turn on. If HEOS isn't reachable
+(no HEOS module, or its network port is blocked), the buttons transparently fall back to the
+classic commands, which still work for the receiver's own non-HEOS Net/USB sources.
+
+**Limits**: this is implemented from HEOS's own (unofficial, but widely used) network protocol,
+cross-checked against the library behind Home Assistant's official HEOS integration — not tested
+by the developer against a live HEOS streaming session, since that requires an actual paid
+streaming account. If the buttons don't do anything on your setup even though the receiver is
+reachable, please report it (with the debug logs mentioned below) so it can be fixed.
 
 ## Prerequisites
 
@@ -84,3 +105,8 @@ These show up per receiver:
 - **Sound mode, playback buttons or now-playing don't work as expected**: these rely on parts of
   the protocol that vary more across models/firmware than power/volume/mute/source. Compare what
   your remote actually sends against what this integration expects using the debug logs above.
+- **Playback buttons still do nothing on Qobuz/Spotify Connect/TIDAL**: check the debug logs for
+  a line mentioning "HEOS player id ... matched" shortly after the AVR connects — if it's not
+  there, this receiver's HEOS CLI service (port 1255) wasn't reachable (firewall, older
+  non-HEOS model, or HEOS momentarily not ready) and the integration silently fell back to the
+  classic commands, which don't reach HEOS-managed sources.

@@ -18,6 +18,7 @@ import {
   runSelectSourceAction,
   __setConnectionForTesting,
   __setLastKnownStateForTesting,
+  __setHeosConnectionForTesting,
   __clearConnectionsForTesting,
 } from '../src/devices/avr.js';
 import { normalizeConfig } from '../src/config.js';
@@ -241,6 +242,59 @@ test('onSetValue routes the transport buttons to their fixed NS9x command, ignor
     await onSetValue(gladys, { device, feature, value: 1 });
     assert.equal(telnet.sent.at(-1), expectedCommand, `${key} -> ${expectedCommand}`);
   }
+});
+
+test('onSetValue routes the transport buttons to HEOS when a player id is known and connected', async () => {
+  const device = buildDiscoveredDevice(gladys, DISCOVERED);
+  const telnet = createFakeTelnetClient();
+  __setConnectionForTesting(device.external_id, telnet);
+
+  const heosSent = [];
+  __setHeosConnectionForTesting(device.external_id, {
+    pid: 12345,
+    client: {
+      sendCommand: (commandPath) => {
+        heosSent.push(commandPath);
+        return true;
+      },
+      isConnected: () => true,
+    },
+  });
+
+  const cases = [
+    [FEATURE.PLAY, 'player/set_play_state?pid=12345&state=play'],
+    [FEATURE.PAUSE, 'player/set_play_state?pid=12345&state=pause'],
+    [FEATURE.NEXT, 'player/play_next?pid=12345'],
+    [FEATURE.PREVIOUS, 'player/play_previous?pid=12345'],
+  ];
+  for (const [key, expectedCommand] of cases) {
+    const feature = { external_id: featureExternalId(device.external_id, key) };
+    await onSetValue(gladys, { device, feature, value: 1 });
+    assert.equal(heosSent.at(-1), expectedCommand, `${key} -> ${expectedCommand}`);
+  }
+  // None of these went through the legacy Telnet session.
+  assert.deepEqual(telnet.sent, []);
+});
+
+test('onSetValue falls back to the legacy NS9x command when HEOS has no pid yet or is disconnected', async () => {
+  const device = buildDiscoveredDevice(gladys, DISCOVERED);
+  const telnet = createFakeTelnetClient();
+  __setConnectionForTesting(device.external_id, telnet);
+  __setHeosConnectionForTesting(device.external_id, {
+    pid: null,
+    client: { sendCommand: () => true, isConnected: () => true },
+  });
+
+  const playFeature = { external_id: featureExternalId(device.external_id, FEATURE.PLAY) };
+  await onSetValue(gladys, { device, feature: playFeature, value: 1 });
+  assert.equal(telnet.sent.at(-1), 'NS9A');
+
+  __setHeosConnectionForTesting(device.external_id, {
+    pid: 12345,
+    client: { sendCommand: () => true, isConnected: () => false },
+  });
+  await onSetValue(gladys, { device, feature: playFeature, value: 1 });
+  assert.equal(telnet.sent.at(-1), 'NS9A');
 });
 
 test('onSetValue throws when the device has no open connection', async () => {

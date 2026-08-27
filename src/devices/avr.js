@@ -45,6 +45,18 @@ import {
   SOURCE_CODES,
   SOUND_MODE_CODES,
 } from '../denon/protocol.js';
+import { createHeosClient } from '../heos/client.js';
+import {
+  buildGetPlayersCommand,
+  buildGetPlayStateCommand,
+  buildPlayCommand as buildHeosPlayCommand,
+  buildPauseCommand as buildHeosPauseCommand,
+  buildPlayNextCommand as buildHeosPlayNextCommand,
+  buildPlayPreviousCommand as buildHeosPlayPreviousCommand,
+  buildRegisterForChangeEventsCommand,
+  findPlayerIdByIp,
+  heosPlayStateToPlaybackState,
+} from '../heos/protocol.js';
 
 // DEVICE_FEATURE_TYPES.TEXT.SELECT ('select'): a dynamic dropdown among
 // string values the integration itself declares via `supported_options`
@@ -85,6 +97,11 @@ const logger = createLogger({ name: DEVICE_TYPE });
 const connections = new Map();
 // external_id -> last known state, used by the "Test connection" action.
 const lastKnownState = new Map();
+// external_id -> { client, pid }. `pid` is null until a `get_players` reply
+// matches our IP (or forever, on a non-HEOS model / unreachable HEOS CLI) —
+// every caller must treat a missing/null pid as "fall back to legacy
+// Telnet", never as an error. See connectDevice()/onSetValue() below.
+const heosConnections = new Map();
 
 export function featureExternalId(deviceExternalId, key) {
   return `${deviceExternalId}:${key}`;
@@ -361,6 +378,63 @@ export function connectDevice(gladys, device, config) {
   });
 
   connections.set(device.external_id, telnet);
+
+  // Best-effort HEOS CLI connection, entirely separate from (and never
+  // allowed to affect the status of) the legacy Telnet session above: a
+  // non-HEOS model, or one with the HEOS CLI port firewalled, simply never
+  // confirms a `pid` and every HEOS-routed feature below transparently
+  // falls back to the legacy NS9x transport commands (see onSetValue()).
+  const heosState = { client: null, pid: null };
+  heosConnections.set(device.external_id, heosState);
+  heosState.client = createHeosClient({
+    host,
+    reconnectIntervalSeconds: config.reconnect_interval_seconds,
+    onConnect: () => {
+      logger.debug(
+        `${device.external_id}: HEOS CLI connected, looking up this receiver's player id`,
+      );
+      heosState.client.sendCommand(buildGetPlayersCommand());
+      heosState.client.sendCommand(buildRegisterForChangeEventsCommand());
+    },
+    onMessage: (parsed) => {
+      if (parsed.command === 'player/get_players' && parsed.result !== 'fail') {
+        const pid = findPlayerIdByIp(parsed.payload, host);
+        if (pid != null) {
+          heosState.pid = pid;
+          logger.info(`${device.external_id}: HEOS player id ${pid} matched to ${host}`);
+          heosState.client.sendCommand(buildGetPlayStateCommand(pid));
+        }
+        return;
+      }
+
+      // Prefer HEOS's own real transport-state event over the NSE0
+      // "Now Playing ..." banner heuristic (protocol.js) whenever we have
+      // it: it is an actual play/pause/stop signal, not a text-banner guess.
+      const isOurPlayer = heosState.pid != null && Number(parsed.message?.pid) === heosState.pid;
+      if (
+        isOurPlayer &&
+        (parsed.command === 'event/player_state_changed' ||
+          parsed.command === 'player/get_play_state')
+      ) {
+        const id = featureExternalId(device.external_id, FEATURE.PLAYBACK_STATE);
+        const value = heosPlayStateToPlaybackState(parsed.message?.state);
+        const state = { ...lastKnownState.get(device.external_id) };
+        state[FEATURE.PLAYBACK_STATE] = value;
+        lastKnownState.set(device.external_id, state);
+        gladys
+          .publishState(id, value)
+          .catch((err) => logger.error(`publishState failed for ${id}: ${err.message}`));
+      }
+    },
+    onDisconnect: () => {
+      // Deliberately no gladys.setConnectionStatus() call here: HEOS is an
+      // optional bonus channel, its absence must never be surfaced as this
+      // AVR being unreachable (that is entirely the legacy Telnet session's
+      // job, above). Losing the pid just resumes the legacy-command
+      // fallback in onSetValue() until (if ever) HEOS reconnects.
+      heosState.pid = null;
+    },
+  });
 }
 
 /**
@@ -382,10 +456,21 @@ export function __setLastKnownStateForTesting(externalId, state) {
   lastKnownState.set(externalId, state);
 }
 
+/**
+ * Test-only hook: inject a fake `{ pid, client: { sendCommand, isConnected } }`
+ * HEOS connection for a given external_id, so the HEOS-routing branch of
+ * onSetValue() can be unit tested without a real HEOS socket.
+ * Not used by production code.
+ */
+export function __setHeosConnectionForTesting(externalId, heosState) {
+  heosConnections.set(externalId, heosState);
+}
+
 /** Test-only hook: drop every registered connection between tests. */
 export function __clearConnectionsForTesting() {
   connections.clear();
   lastKnownState.clear();
+  heosConnections.clear();
 }
 
 /** Close and forget the persistent session of one device, if any. */
@@ -393,6 +478,8 @@ export function disconnectDevice(externalId) {
   connections.get(externalId)?.stop();
   connections.delete(externalId);
   lastKnownState.delete(externalId);
+  heosConnections.get(externalId)?.client?.stop();
+  heosConnections.delete(externalId);
 }
 
 /** Close every open session (graceful shutdown). */
@@ -434,14 +521,43 @@ export async function onSetValue(gladys, { device, feature, value }) {
   } else if (key === FEATURE.SOUND_MODE) {
     // Same TEXT.SELECT string-value case as SOURCE.
     command = buildSoundModeCommand(value);
-  } else if (key === FEATURE.PLAY) {
-    command = buildPlayCommand();
-  } else if (key === FEATURE.PAUSE) {
-    command = buildPauseCommand();
-  } else if (key === FEATURE.NEXT) {
-    command = buildNextCommand();
-  } else if (key === FEATURE.PREVIOUS) {
-    command = buildPreviousCommand();
+  } else if (
+    key === FEATURE.PLAY ||
+    key === FEATURE.PAUSE ||
+    key === FEATURE.NEXT ||
+    key === FEATURE.PREVIOUS
+  ) {
+    // Qobuz/Spotify Connect/TIDAL/TuneIn... on a HEOS-equipped AVR are
+    // actually driven by the separate HEOS CLI service (see src/heos/), not
+    // by these legacy Telnet transport commands — confirmed on real
+    // hardware to have no effect on that kind of playback. Route through
+    // HEOS whenever we've matched a player id for this receiver; otherwise
+    // (non-HEOS model, HEOS CLI unreachable, or discovery hasn't completed
+    // yet) fall back to the legacy commands, which remain correct for the
+    // receiver's own non-HEOS Net/USB playback.
+    const heos = heosConnections.get(device.external_id);
+    if (heos?.pid != null && heos.client?.isConnected()) {
+      const heosCommand =
+        key === FEATURE.PLAY
+          ? buildHeosPlayCommand(heos.pid)
+          : key === FEATURE.PAUSE
+            ? buildHeosPauseCommand(heos.pid)
+            : key === FEATURE.NEXT
+              ? buildHeosPlayNextCommand(heos.pid)
+              : buildHeosPlayPreviousCommand(heos.pid);
+      if (!heos.client.sendCommand(heosCommand)) {
+        throw new Error(`Failed to send HEOS command to ${device.external_id}`);
+      }
+      return;
+    }
+    command =
+      key === FEATURE.PLAY
+        ? buildPlayCommand()
+        : key === FEATURE.PAUSE
+          ? buildPauseCommand()
+          : key === FEATURE.NEXT
+            ? buildNextCommand()
+            : buildPreviousCommand();
   } else {
     throw new Error(`Feature "${key}" is not controllable`);
   }

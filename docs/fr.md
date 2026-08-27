@@ -27,14 +27,38 @@ Voici ce qui apparaît par ampli :
   vous utilisez depuis la télécommande n'apparaît pas, il manque probablement à la liste
   générique fournie par cette intégration.
 - **Lecture / Pause / Suivant / Précédent** — des boutons qui contrôlent la lecture sur une
-  source réseau/USB/streaming (Qobuz, Spotify Connect via HEOS, radio internet...). Sans effet
+  source réseau/USB/streaming (Qobuz, Spotify Connect, TIDAL, radio internet...). Sans effet
   sur une source qui n'est pas un lecteur (une entrée TV, par exemple). **Il faut une carte
   Musique, pas la liste d'appareils classique** : sur votre tableau de bord, ajoutez une carte et
   choisissez le type **Musique**, puis cet ampli comme appareil — c'est ce qui affiche
   réellement les boutons lecture/pause/suivant. Dans la liste d'appareils classique, ils
-  apparaissent juste comme des lignes sans valeur visible, c'est normal à cet endroit.
+  apparaissent juste comme des lignes sans valeur visible, c'est normal à cet endroit. Sur un
+  ampli équipé HEOS, ces boutons passent par HEOS dès que possible, car c'est le seul chemin qui
+  fonctionne réellement pour les sources gérées par HEOS comme Qobuz ou Spotify Connect — voir
+  « Support HEOS » ci-dessous.
 - **En cours de lecture** — une ligne « Artiste - Titre » en lecture seule, renseignée
   automatiquement pendant la lecture en streaming.
+
+## Support HEOS
+
+Les amplis Denon/Marantz équipés d'un module HEOS (la plupart des modèles réseau récents) font
+tourner HEOS comme un service séparé, à côté du contrôle Telnet classique utilisé pour tout le
+reste de cette page. Les sources de streaming comme Qobuz, Spotify Connect, TIDAL ou TuneIn sont
+en réalité lues _via_ HEOS — les commandes de transport classiques que cette intégration
+utilisait auparavant n'ont strictement aucun effet dessus.
+
+Depuis cette version, les boutons Lecture/Pause/Suivant/Précédent parlent automatiquement à HEOS
+quand l'ampli le supporte : rien à configurer, rien à activer. Si HEOS n'est pas joignable (pas
+de module HEOS, ou son port réseau bloqué), les boutons basculent automatiquement sur les
+commandes classiques, qui continuent de fonctionner pour les sources Net/USB non-HEOS de
+l'ampli.
+
+**Limites** : ceci est implémenté à partir du protocole réseau propre à HEOS (non officiel, mais
+largement utilisé), recoupé avec la bibliothèque derrière l'intégration HEOS officielle de Home
+Assistant — non testé par le développeur sur une vraie session de streaming HEOS, car cela
+nécessite un compte de streaming payant réel. Si les boutons ne font rien chez vous alors que
+l'ampli est joignable, merci de le signaler (avec les logs de débogage mentionnés plus bas) pour
+que ce soit corrigé.
 
 ## Prérequis
 
@@ -91,3 +115,8 @@ Voici ce qui apparaît par ampli :
   fonctions reposent sur des parties du protocole qui varient plus d'un modèle/firmware à l'autre
   que alimentation/volume/muet/source. Comparez ce que votre télécommande envoie réellement avec
   ce que cette intégration attend, via les logs de débogage ci-dessus.
+- **Les boutons de lecture ne font toujours rien sur Qobuz/Spotify Connect/TIDAL** : vérifiez les
+  logs de débogage à la recherche d'une ligne mentionnant « HEOS player id ... matched » peu
+  après la connexion de l'ampli — si elle n'y est pas, le service HEOS CLI de cet ampli (port 1255) n'était pas joignable (pare-feu, modèle plus ancien sans HEOS, ou HEOS pas encore prêt)
+  et l'intégration est repassée silencieusement sur les commandes classiques, qui n'atteignent
+  pas les sources gérées par HEOS.

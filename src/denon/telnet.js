@@ -1,22 +1,27 @@
 // -----------------------------------------------------------------------------
-// Raw Telnet client for the Denon/Marantz AVR Control protocol.
+// Raw line-based TCP client, originally for the Denon/Marantz AVR Control
+// protocol (Telnet, port 23): plain-ASCII commands terminated by "\r", one
+// line pushed back for every reply AND every asynchronous state change
+// (physical remote, app, another controller...) — nothing to poll, see
+// src/devices/avr.js.
 //
-// The receiver keeps ONE line-based session open on TCP port 23: we write
-// plain-ASCII commands terminated by "\r", and it pushes a line back for
-// every reply AND for every asynchronous state change (physical remote, app,
-// another controller...) — there is nothing to poll, see src/devices/avr.js.
+// Also reused as-is for the HEOS CLI connection (src/heos/client.js,
+// port 1255): same shape (line in, line out, reconnect with backoff), only
+// the outgoing line terminator differs ("\r\n" instead of "\r" — see
+// `lineTerminator` below); the receive side already splits on `\r\n?` so it
+// needs no change either way.
 //
 // This module owns the socket lifecycle only (connect, line framing,
-// reconnect with a capped backoff); protocol.js owns parsing/building the
-// command lines themselves.
+// reconnect with a capped backoff); protocol.js/heos/protocol.js own
+// parsing/building the command lines themselves.
 // -----------------------------------------------------------------------------
 
 import net from 'node:net';
 import { createLogger } from '@gladysassistant/integration-sdk';
 
-const logger = createLogger({ name: 'denon-telnet' });
-
 const DEFAULT_PORT = 23;
+const DEFAULT_LINE_TERMINATOR = '\r';
+const DEFAULT_LOGGER_NAME = 'denon-telnet';
 const MAX_RECONNECT_DELAY_SECONDS = 120;
 
 /**
@@ -37,6 +42,10 @@ export function computeReconnectDelayMs(attempt, baseIntervalSeconds) {
  * @param {string} opts.host
  * @param {number} [opts.port]
  * @param {number} [opts.reconnectIntervalSeconds]
+ * @param {string} [opts.lineTerminator] appended to every outgoing command;
+ *   "\r" for Denon Telnet (default), "\r\n" for HEOS CLI.
+ * @param {string} [opts.loggerName] log line prefix, so a HEOS client can be
+ *   told apart from the Denon Telnet client in the logs.
  * @param {(line: string) => void} [opts.onLine] one parsed line (no CR/LF)
  * @param {() => void} [opts.onConnect]
  * @param {(consecutiveFailures: number) => void} [opts.onDisconnect] called
@@ -49,10 +58,13 @@ export function createTelnetClient({
   host,
   port = DEFAULT_PORT,
   reconnectIntervalSeconds = 10,
+  lineTerminator = DEFAULT_LINE_TERMINATOR,
+  loggerName = DEFAULT_LOGGER_NAME,
   onLine,
   onConnect,
   onDisconnect,
 }) {
+  const logger = createLogger({ name: loggerName });
   let socket = null;
   let buffer = '';
   let stopped = false;
@@ -120,7 +132,7 @@ export function createTelnetClient({
         logger.debug(`Cannot send "${command}": not connected`);
         return false;
       }
-      socket.write(`${command}\r`);
+      socket.write(`${command}${lineTerminator}`);
       return true;
     },
     isConnected() {
