@@ -86,6 +86,25 @@ TuneIn...) — see "Playback controls" below.
   than a bet on the push channel alone. Confirmed necessary on real hardware — the dashboard was
   observed stuck on "paused" indefinitely after playback started elsewhere (the Qobuz app), even
   though HEOS commands sent _from_ Gladys worked fine.
+- **Setup-menu remote-control keys**: cursor Up/Down/Left/Right, Enter, Return, Info, Menu and
+  relative Volume Up/Down, all `TELEVISION`-category push buttons (`REMOTE_KEYS` in
+  [`src/devices/avr.js`](./src/devices/avr.js)). Unlike `MUSIC`, `TELEVISION` push-button types
+  render directly as clickable buttons in the plain device list — confirmed by reading Gladys
+  core's own `isPushButtonFeature`/`TelevisionPushButtonFeatureTypes`
+  (`front/src/utils/consts.js`): every `TELEVISION` type except `BINARY`/`VOLUME`/`CHANNEL` is
+  classified as a push button, no dashboard box required, unlike the `Play`/`Pause`/`Next`/
+  `Previous` buttons above. `Menu` is the one key that's a real toggle rather than fire-and-forget
+  (`has_feedback: true`, same toggle-off-the-last-known-state pattern as `Mute`): the receiver's
+  own `MNMEN` push tells it whether the on-screen Setup menu is currently open. These `MN*`
+  commands are, like the `NS9x` transport commands, not in the same official protocol PDF as
+  power/volume/mute/source/sound mode — cross-checked instead against the actively maintained
+  `python-denonavr` project (the library behind Home Assistant's own Denon integration); verify
+  against your own receiver with [`scripts/debug-telnet.js`](./scripts/debug-telnet.js) (open the
+  Setup menu on the receiver's own screen to see the real `MNMEN` line) before fully trusting it —
+  see "Tested and confirmed" below. Which of these rows actually show up on a given dashboard is
+  entirely up to the user: Gladys already lets you hide individual device features per box, so
+  this integration declares all of them rather than picking favorites or adding its own
+  show/hide config option.
 - **Test connection** action: on-demand query + a summary of the receiver's current state, now
   including the current source's index (see "Source index" above) so it can be read off without
   guessing.
@@ -315,7 +334,8 @@ device type — see "Scene automation" above.
 
 Power, volume, mute, input source (status + selection, with per-user renaming/hiding, plus a
 numeric `Source index` alias for scene automation), sound mode, network/USB playback controls
-(HEOS CLI when available, legacy `NS9x` Telnet otherwise), now-playing metadata, SSDP discovery.
+(HEOS CLI when available, legacy `NS9x` Telnet otherwise), now-playing metadata, Setup-menu
+remote-control keys (cursor pad, Enter/Return/Info/Menu, relative Volume Up/Down), SSDP discovery.
 Deliberately out of scope for now: multi-zone (Zone 2/3),
 HEOS-specific features beyond play/pause/next/previous (grouping, queue browsing, volume-per-
 player...), and an HTTP fallback control channel — see the design notes at the top of
@@ -367,10 +387,15 @@ Honest status, so it's clear what "it works" actually rests on:
     Same fallback safety as everything else HEOS-side — a wrong assumption here just means a
     blank/stale title or a state that only self-heals every 30s instead of instantly, never a
     crash or a regression on non-HEOS playback.
+  - The Setup-menu remote-control keys (cursor pad, Enter/Return/Info, the Menu toggle, relative
+    Volume Up/Down): the `MN*`/`MVUP`/`MVDOWN` commands are cross-checked against
+    `python-denonavr`, same as the `NS9x` transport commands above, but not yet pressed against a
+    real receiver's actual Setup menu from this project's own hardware.
 
   Use [`scripts/debug-telnet.js`](./scripts/debug-telnet.js) against your own receiver to check
   any of the above — in particular, send `MS?` and start streaming on a NET/USB source to see
-  the real sound-mode and now-playing lines your model actually sends — and
+  the real sound-mode and now-playing lines your model actually sends, or open the Setup menu on
+  the receiver's own screen to see the real `MNMEN` line — and
   [`scripts/debug-heos.js`](./scripts/debug-heos.js) to see the real HEOS CLI traffic (or confirm
   the receiver doesn't run HEOS/isn't reachable on port 1255 at all).
 

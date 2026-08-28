@@ -15,16 +15,22 @@
 //   MS?   / MS<MODE>                   -> surround/sound mode
 //   NS9A / NS9B / NS9D / NS9E          -> network/USB transport: play/pause/next/previous
 //   NSE0<text> / NSE1<text> / NSE2<text> -> pushed while playing: playback state / title / artist
+//   MNCUP / MNCDN / MNCLT / MNCRT      -> Setup menu cursor: up/down/left/right
+//   MNENT / MNRTN / MNINF              -> Setup menu: enter / return / info
+//   MNMEN ON / MNMEN OFF               -> Setup menu open/close
+//   MVUP / MVDOWN                      -> relative volume step (the remote's +/- keys)
 //
-// The last three groups are NOT in the same official reference PDF the first
-// four come from (network/HEOS control was added to the protocol later, and
-// Denon never published as clean a spec for it) — cross-checked against two
-// independent, actively-maintained community implementations instead
-// (python denonavr, used by Home Assistant; the node denon-remote CLI) that
-// agree on the NS9x codes. Genuinely lower confidence than the rest of this
-// file: verify with `node scripts/debug-telnet.js <host>` (send `MS?` and
-// start playback on a NET/USB source to see the real NSE lines) before
-// relying on this against your own receiver.
+// The last four groups are NOT in the same official reference PDF the first
+// four come from (network/HEOS control and the Setup-menu remote keys were
+// both added to the protocol later, and Denon never published as clean a
+// spec for either) — cross-checked against two independent, actively-
+// maintained community implementations instead (python denonavr, used by
+// Home Assistant; the node denon-remote CLI) that agree on these codes.
+// Genuinely lower confidence than the rest of this file: verify with
+// `node scripts/debug-telnet.js <host>` (send `MS?` and start playback on a
+// NET/USB source to see the real NSE lines; open the Setup menu on the
+// receiver's own screen to see the real MNMEN line) before relying on this
+// against your own receiver.
 // -----------------------------------------------------------------------------
 
 // Denon's raw master-volume scale: roughly 0-98, where each unit is 1 dB and
@@ -152,6 +158,21 @@ export function parseLine(rawLine) {
     return { feature: 'volume', value: denonVolumeToPercent(rawVolume) };
   }
 
+  // MNMEN<space>ON / MNMEN<space>OFF: the on-screen Setup menu opened/closed
+  // — by this integration, the physical remote, or the receiver itself.
+  // Also tolerates the no-space form (MNMENON), matching how PWON/MUON never
+  // carry the space their own send-command syntax doesn't require either.
+  if (line.startsWith('MNMEN')) {
+    const state = line.slice(5).replace(/\s+/g, '');
+    if (state === 'ON') {
+      return { feature: 'menu', value: 1 };
+    }
+    if (state === 'OFF') {
+      return { feature: 'menu', value: 0 };
+    }
+    return null;
+  }
+
   if (line.startsWith('SI')) {
     const code = line.slice(2).trim();
     if (code.length === 0) {
@@ -267,4 +288,55 @@ export function buildNextCommand() {
 }
 export function buildPreviousCommand() {
   return 'NS9E';
+}
+
+/**
+ * Setup-menu remote-control keys (no trailing CR): the cursor pad, Enter,
+ * Return, Info and the Menu open/close toggle a physical Denon/Marantz
+ * remote sends while navigating the on-screen Setup menu. Not in the same
+ * official protocol PDF as PW/MV/MU/SI/MS (Denon never published as clean a
+ * spec for these either) — cross-checked instead against the actively
+ * maintained python-denonavr project (the library behind Home Assistant's
+ * own Denon integration), same lower-confidence flag as the NS9x transport
+ * commands above: verify with scripts/debug-telnet.js against your own
+ * receiver before relying on it.
+ */
+export function buildCursorUpCommand() {
+  return 'MNCUP';
+}
+export function buildCursorDownCommand() {
+  return 'MNCDN';
+}
+export function buildCursorLeftCommand() {
+  return 'MNCLT';
+}
+export function buildCursorRightCommand() {
+  return 'MNCRT';
+}
+export function buildEnterCommand() {
+  return 'MNENT';
+}
+export function buildReturnCommand() {
+  return 'MNRTN';
+}
+export function buildInfoCommand() {
+  return 'MNINF';
+}
+
+/** Build the command that queries the current Setup-menu open/closed state (no trailing CR). */
+export function buildMenuQuery() {
+  return 'MNMEN?';
+}
+
+/** Build the command that opens/closes the on-screen Setup menu (no trailing CR). */
+export function buildMenuCommand(open) {
+  return open ? 'MNMEN ON' : 'MNMEN OFF';
+}
+
+/** Build the relative volume step commands (no trailing CR) — mirrors the remote's +/- keys. */
+export function buildVolumeUpCommand() {
+  return 'MVUP';
+}
+export function buildVolumeDownCommand() {
+  return 'MVDOWN';
 }

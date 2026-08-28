@@ -45,6 +45,13 @@ Voici ce qui apparaît par ampli :
   « Support HEOS » ci-dessous.
 - **En cours de lecture** — une ligne « Artiste - Titre » en lecture seule, renseignée
   automatiquement pendant la lecture en streaming.
+- **Télécommande du menu de configuration** — curseur Haut/Bas/Gauche/Droite, Entrée, Retour,
+  Info, Menu et Volume +/- relatif, affichés comme boutons cliquables directement dans la liste
+  d'appareils (pas besoin d'une carte de tableau de bord supplémentaire). Pratique pour naviguer
+  dans le menu de configuration à l'écran de l'ampli depuis Gladys, sans chercher la télécommande
+  physique. Vous ne voulez pas de tous ces boutons sur votre tableau de bord ? Masquez ceux dont
+  vous ne vous servez pas comme n'importe quelle autre fonctionnalité d'appareil — rien à
+  configurer du côté de cette intégration.
 
 ## Automatiser la source/le mode sonore depuis une scène
 
