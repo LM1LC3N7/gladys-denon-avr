@@ -16,6 +16,17 @@ import {
   buildPauseCommand,
   buildNextCommand,
   buildPreviousCommand,
+  buildCursorUpCommand,
+  buildCursorDownCommand,
+  buildCursorLeftCommand,
+  buildCursorRightCommand,
+  buildEnterCommand,
+  buildReturnCommand,
+  buildInfoCommand,
+  buildMenuQuery,
+  buildMenuCommand,
+  buildVolumeUpCommand,
+  buildVolumeDownCommand,
   percentToDenonVolume,
   denonVolumeToPercent,
   SOURCE_CODES,
@@ -87,6 +98,17 @@ test('parseLine: other NSE rows (position, station name...) are ignored, only 0/
   assert.equal(parseLine('NSE3Some Album'), null);
 });
 
+test('parseLine: Setup menu open/closed (MNMEN), with and without the space', () => {
+  assert.deepEqual(parseLine('MNMEN ON'), { feature: 'menu', value: 1 });
+  assert.deepEqual(parseLine('MNMEN OFF'), { feature: 'menu', value: 0 });
+  assert.deepEqual(parseLine('MNMENON'), { feature: 'menu', value: 1 });
+  assert.deepEqual(parseLine('MNMENOFF'), { feature: 'menu', value: 0 });
+});
+
+test('parseLine: an MNMEN reply that is neither ON nor OFF (e.g. an echoed query) is ignored', () => {
+  assert.equal(parseLine('MNMEN?'), null);
+});
+
 test('parseLine: unrecognized or empty lines are ignored', () => {
   assert.equal(parseLine(''), null);
   assert.equal(parseLine('   '), null);
@@ -128,6 +150,18 @@ test('command builders produce the exact protocol strings, no trailing CR', () =
   assert.equal(buildPauseCommand(), 'NS9B');
   assert.equal(buildNextCommand(), 'NS9D');
   assert.equal(buildPreviousCommand(), 'NS9E');
+  assert.equal(buildCursorUpCommand(), 'MNCUP');
+  assert.equal(buildCursorDownCommand(), 'MNCDN');
+  assert.equal(buildCursorLeftCommand(), 'MNCLT');
+  assert.equal(buildCursorRightCommand(), 'MNCRT');
+  assert.equal(buildEnterCommand(), 'MNENT');
+  assert.equal(buildReturnCommand(), 'MNRTN');
+  assert.equal(buildInfoCommand(), 'MNINF');
+  assert.equal(buildMenuQuery(), 'MNMEN?');
+  assert.equal(buildMenuCommand(true), 'MNMEN ON');
+  assert.equal(buildMenuCommand(false), 'MNMEN OFF');
+  assert.equal(buildVolumeUpCommand(), 'MVUP');
+  assert.equal(buildVolumeDownCommand(), 'MVDOWN');
 });
 
 test('buildVolumeCommand always pads to two digits', () => {

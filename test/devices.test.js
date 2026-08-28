@@ -66,7 +66,7 @@ test('buildDiscoveredDevice exposes power/volume/mute/source with the right cate
   assert.equal(device.name, 'Denon AVR-S970H (AVR-S970H)');
   assert.ok(device.external_id.includes('abc-123'));
   assert.deepEqual(device.params, [{ name: 'IP_ADDRESS', value: '192.168.1.50' }]);
-  assert.equal(device.features.length, 12);
+  assert.equal(device.features.length, 22);
 
   const byKey = Object.fromEntries(device.features.map((f) => [f.external_id, f]));
   const power = byKey[featureExternalId(device.external_id, FEATURE.POWER)];
@@ -115,6 +115,44 @@ test('buildDiscoveredDevice exposes power/volume/mute/source with the right cate
   assert.equal(soundMode.type, 'select');
   assert.equal(soundMode.read_only, false);
   assert.ok(soundMode.supported_options.length > 0);
+
+  // Setup-menu remote-control keys: TELEVISION-category push buttons, no
+  // dashboard box required (unlike MUSIC) — see the comment on REMOTE_KEYS
+  // in src/devices/avr.js.
+  const remoteKeyCases = [
+    [FEATURE.CURSOR_UP, DEVICE_FEATURE_TYPES.TELEVISION.UP],
+    [FEATURE.CURSOR_DOWN, DEVICE_FEATURE_TYPES.TELEVISION.DOWN],
+    [FEATURE.CURSOR_LEFT, DEVICE_FEATURE_TYPES.TELEVISION.LEFT],
+    [FEATURE.CURSOR_RIGHT, DEVICE_FEATURE_TYPES.TELEVISION.RIGHT],
+    [FEATURE.ENTER, DEVICE_FEATURE_TYPES.TELEVISION.ENTER],
+    [FEATURE.RETURN, DEVICE_FEATURE_TYPES.TELEVISION.RETURN],
+    [FEATURE.INFO, DEVICE_FEATURE_TYPES.TELEVISION.INFO],
+    [FEATURE.VOLUME_UP, DEVICE_FEATURE_TYPES.TELEVISION.VOLUME_UP],
+    [FEATURE.VOLUME_DOWN, DEVICE_FEATURE_TYPES.TELEVISION.VOLUME_DOWN],
+  ];
+  for (const [key, type] of remoteKeyCases) {
+    const feature = byKey[featureExternalId(device.external_id, key)];
+    assert.equal(
+      feature.category,
+      DEVICE_FEATURE_CATEGORIES.TELEVISION,
+      `${key} is a TELEVISION feature`,
+    );
+    assert.equal(feature.type, type, `${key} has the right push-button type`);
+    assert.equal(feature.read_only, false, `${key} must be controllable to appear as a button`);
+    assert.equal(feature.has_feedback, false, `${key} is fire-and-forget, no state to report back`);
+  }
+
+  // Menu is the one remote key that's a real toggle, not a fire-and-forget
+  // press — see the comment on it in buildFeatures().
+  const menu = byKey[featureExternalId(device.external_id, FEATURE.MENU)];
+  assert.equal(menu.category, DEVICE_FEATURE_CATEGORIES.TELEVISION);
+  assert.equal(menu.type, DEVICE_FEATURE_TYPES.TELEVISION.MENU);
+  assert.equal(menu.read_only, false);
+  assert.equal(
+    menu.has_feedback,
+    true,
+    'unlike the other remote keys, Menu reports its open/closed state',
+  );
 
   for (const key of [FEATURE.PLAY, FEATURE.PAUSE, FEATURE.NEXT, FEATURE.PREVIOUS]) {
     const button = byKey[featureExternalId(device.external_id, key)];
@@ -184,7 +222,7 @@ test('every feature declares a non-null min/max (Gladys rejects a null one at "a
 test('buildManualDevice builds a stable device keyed on the configured host', () => {
   const device = buildManualDevice(gladys, '192.168.1.77');
   assert.deepEqual(device.params, [{ name: 'IP_ADDRESS', value: '192.168.1.77' }]);
-  assert.equal(device.features.length, 12);
+  assert.equal(device.features.length, 22);
 });
 
 test('onSetValue routes power/volume to the right telnet command', async () => {
@@ -287,6 +325,51 @@ test('onSetValue routes the sound mode dropdown to MS<mode>', async () => {
 
   await onSetValue(gladys, { device, feature: soundModeFeature, value: 'MOVIE' });
   assert.equal(telnet.sent.at(-1), 'MSMOVIE');
+});
+
+test('onSetValue routes the Setup-menu remote keys to their fixed MN command, ignoring the value', async () => {
+  const device = buildDiscoveredDevice(gladys, DISCOVERED);
+  const telnet = createFakeTelnetClient();
+  __setConnectionForTesting(device.external_id, telnet);
+
+  const cases = [
+    [FEATURE.CURSOR_UP, 'MNCUP'],
+    [FEATURE.CURSOR_DOWN, 'MNCDN'],
+    [FEATURE.CURSOR_LEFT, 'MNCLT'],
+    [FEATURE.CURSOR_RIGHT, 'MNCRT'],
+    [FEATURE.ENTER, 'MNENT'],
+    [FEATURE.RETURN, 'MNRTN'],
+    [FEATURE.INFO, 'MNINF'],
+    [FEATURE.VOLUME_UP, 'MVUP'],
+    [FEATURE.VOLUME_DOWN, 'MVDOWN'],
+  ];
+  for (const [key, expectedCommand] of cases) {
+    const feature = { external_id: featureExternalId(device.external_id, key) };
+    await onSetValue(gladys, { device, feature, value: 1 });
+    assert.equal(telnet.sent.at(-1), expectedCommand, `${key} -> ${expectedCommand}`);
+  }
+});
+
+test("onSetValue toggles Menu off the receiver's last-reported state, ignoring the incoming value", async () => {
+  // Same toggle rationale as Mute: a single button press is a "pressed"
+  // signal, not a target open/closed state.
+  const device = buildDiscoveredDevice(gladys, DISCOVERED);
+  const telnet = createFakeTelnetClient();
+  __setConnectionForTesting(device.external_id, telnet);
+  const menuFeature = { external_id: featureExternalId(device.external_id, FEATURE.MENU) };
+
+  __setLastKnownStateForTesting(device.external_id, { menu: 0 });
+  await onSetValue(gladys, { device, feature: menuFeature, value: 0 });
+  assert.equal(telnet.sent.at(-1), 'MNMEN ON');
+
+  __setLastKnownStateForTesting(device.external_id, { menu: 1 });
+  await onSetValue(gladys, { device, feature: menuFeature, value: 0 });
+  assert.equal(telnet.sent.at(-1), 'MNMEN OFF');
+
+  // Nothing known yet: defaults to "currently closed" -> first press opens.
+  __setLastKnownStateForTesting(device.external_id, undefined);
+  await onSetValue(gladys, { device, feature: menuFeature, value: 1 });
+  assert.equal(telnet.sent.at(-1), 'MNMEN ON');
 });
 
 test('onSetValue routes the transport buttons to their fixed NS9x command, ignoring the value', async () => {
@@ -403,7 +486,7 @@ test('disconnectDevice makes onSetValue fail again', async () => {
 test('connectDevice publishes the state pushed by a real Telnet session', async () => {
   const server = net.createServer((socket) => {
     socket.write(
-      'PWON\rMV50\rMUOFF\rSITUNER\rMSMOVIE\rNSE0Now Playing USB\rNSE1Come Away With Me\rNSE2Norah Jones\r',
+      'PWON\rMV50\rMUOFF\rSITUNER\rMSMOVIE\rMNMEN ON\rNSE0Now Playing USB\rNSE1Come Away With Me\rNSE2Norah Jones\r',
     );
   });
   const port = await new Promise((resolve) =>
@@ -441,6 +524,11 @@ test('connectDevice publishes the state pushed by a real Telnet session', async 
       gladys.published.some(
         (p) => p.featureExternalId === soundModeId && p.state?.text === 'MOVIE',
       ),
+    );
+    const menuId = featureExternalId(device.external_id, FEATURE.MENU);
+    assert.ok(
+      gladys.published.some((p) => p.featureExternalId === menuId && p.state === 1),
+      "the receiver's own MNMEN push is published as a plain 0/1, same as power/mute",
     );
     assert.ok(
       gladys.published.some(

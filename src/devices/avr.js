@@ -42,6 +42,17 @@ import {
   buildPauseCommand,
   buildNextCommand,
   buildPreviousCommand,
+  buildCursorUpCommand,
+  buildCursorDownCommand,
+  buildCursorLeftCommand,
+  buildCursorRightCommand,
+  buildEnterCommand,
+  buildReturnCommand,
+  buildInfoCommand,
+  buildMenuQuery,
+  buildMenuCommand,
+  buildVolumeUpCommand,
+  buildVolumeDownCommand,
   SOURCE_CODES,
   SOUND_MODE_CODES,
 } from '../denon/protocol.js';
@@ -70,6 +81,16 @@ export const FEATURE = {
   SOURCE: 'source',
   SOURCE_INDEX: 'source_index',
   SOUND_MODE: 'sound_mode',
+  CURSOR_UP: 'cursor_up',
+  CURSOR_DOWN: 'cursor_down',
+  CURSOR_LEFT: 'cursor_left',
+  CURSOR_RIGHT: 'cursor_right',
+  ENTER: 'enter',
+  RETURN: 'return',
+  INFO: 'info',
+  MENU: 'menu',
+  VOLUME_UP: 'volume_up',
+  VOLUME_DOWN: 'volume_down',
   PLAY: 'play',
   PAUSE: 'pause',
   NEXT: 'next',
@@ -132,6 +153,78 @@ function ipAddressOf(device) {
 function visibleSourceCodes(sourceOverrides = {}) {
   return SOURCE_CODES.filter((code) => sourceOverrides[code.value] !== '');
 }
+
+/**
+ * Setup-menu remote-control keys: one-shot buttons (no target value to set,
+ * same as the NS9x transport buttons below), declared under DEVICE_FEATURE_
+ * CATEGORIES.TELEVISION with one of the SDK's TELEVISION "push button"
+ * types (front/src/utils/consts.js#isPushButtonFeature in Gladys core) —
+ * unlike MUSIC, that category renders its buttons directly in the plain
+ * device list, no dashboard box required. Menu is deliberately NOT in this
+ * table: unlike these, it is a real ON/OFF toggle (see FEATURE.MENU in
+ * buildFeatures()/onSetValue() below), not a fire-and-forget key press.
+ */
+const REMOTE_KEYS = [
+  {
+    feature: FEATURE.CURSOR_UP,
+    name: 'Cursor up',
+    type: DEVICE_FEATURE_TYPES.TELEVISION.UP,
+    command: buildCursorUpCommand,
+  },
+  {
+    feature: FEATURE.CURSOR_DOWN,
+    name: 'Cursor down',
+    type: DEVICE_FEATURE_TYPES.TELEVISION.DOWN,
+    command: buildCursorDownCommand,
+  },
+  {
+    feature: FEATURE.CURSOR_LEFT,
+    name: 'Cursor left',
+    type: DEVICE_FEATURE_TYPES.TELEVISION.LEFT,
+    command: buildCursorLeftCommand,
+  },
+  {
+    feature: FEATURE.CURSOR_RIGHT,
+    name: 'Cursor right',
+    type: DEVICE_FEATURE_TYPES.TELEVISION.RIGHT,
+    command: buildCursorRightCommand,
+  },
+  {
+    feature: FEATURE.ENTER,
+    name: 'Enter',
+    type: DEVICE_FEATURE_TYPES.TELEVISION.ENTER,
+    command: buildEnterCommand,
+  },
+  {
+    feature: FEATURE.RETURN,
+    name: 'Return',
+    type: DEVICE_FEATURE_TYPES.TELEVISION.RETURN,
+    command: buildReturnCommand,
+  },
+  {
+    feature: FEATURE.INFO,
+    name: 'Info',
+    type: DEVICE_FEATURE_TYPES.TELEVISION.INFO,
+    command: buildInfoCommand,
+  },
+  {
+    feature: FEATURE.VOLUME_UP,
+    name: 'Volume up',
+    type: DEVICE_FEATURE_TYPES.TELEVISION.VOLUME_UP,
+    command: buildVolumeUpCommand,
+  },
+  {
+    feature: FEATURE.VOLUME_DOWN,
+    name: 'Volume down',
+    type: DEVICE_FEATURE_TYPES.TELEVISION.VOLUME_DOWN,
+    command: buildVolumeDownCommand,
+  },
+];
+
+// O(1) command lookup for onSetValue(), keyed the same way REMOTE_KEYS.feature is.
+const REMOTE_KEY_COMMAND_BY_FEATURE = Object.fromEntries(
+  REMOTE_KEYS.map((remoteKey) => [remoteKey.feature, remoteKey.command]),
+);
 
 function buildFeatures(deviceExternalId, sourceOverrides = {}) {
   const visibleSources = visibleSourceCodes(sourceOverrides);
@@ -252,6 +345,34 @@ function buildFeatures(deviceExternalId, sourceOverrides = {}) {
       max: 1,
       read_only: false,
       has_feedback: true,
+    },
+    ...REMOTE_KEYS.map(({ feature, name, type }) => ({
+      name,
+      external_id: featureExternalId(deviceExternalId, feature),
+      category: DEVICE_FEATURE_CATEGORIES.TELEVISION,
+      type,
+      min: 0,
+      max: 1,
+      read_only: false,
+      has_feedback: false,
+      keep_history: false,
+    })),
+    {
+      // The only remote-control key that's a real toggle rather than a
+      // fire-and-forget press: connectDevice()'s onLine handler publishes
+      // its actual state from the receiver's own MNMEN push (protocol.js),
+      // and onSetValue() reads that back to decide open vs close — same
+      // toggle pattern as Mute above, for the same reason (a single button
+      // press is not itself a target state).
+      name: 'Menu',
+      external_id: featureExternalId(deviceExternalId, FEATURE.MENU),
+      category: DEVICE_FEATURE_CATEGORIES.TELEVISION,
+      type: DEVICE_FEATURE_TYPES.TELEVISION.MENU,
+      min: 0,
+      max: 1,
+      read_only: false,
+      has_feedback: true,
+      keep_history: false,
     },
     {
       // Network/USB transport buttons (NS9x, see protocol.js) — one-shot
@@ -394,6 +515,7 @@ export function connectDevice(gladys, device, config) {
       telnet.send(buildMuteQuery());
       telnet.send(buildSourceQuery());
       telnet.send(buildSoundModeQuery());
+      telnet.send(buildMenuQuery());
       gladys.setConnectionStatus(true).catch(() => {});
     },
     onLine: (line) => {
@@ -684,6 +806,15 @@ export async function onSetValue(gladys, { device, feature, value, config }) {
   } else if (key === FEATURE.SOUND_MODE) {
     // Same TEXT.SELECT string-value case as SOURCE.
     command = buildSoundModeCommand(value);
+  } else if (REMOTE_KEY_COMMAND_BY_FEATURE[key]) {
+    // Setup-menu remote keys — fire-and-forget, `value` carries nothing
+    // meaningful (see the comment on REMOTE_KEYS above).
+    command = REMOTE_KEY_COMMAND_BY_FEATURE[key]();
+  } else if (key === FEATURE.MENU) {
+    // Toggle off the receiver's last-reported Setup-menu state, exactly
+    // like Mute above — value is just a "pressed" signal, not a target.
+    const menuCurrentlyOpen = lastKnownState.get(device.external_id)?.menu === 1;
+    command = buildMenuCommand(!menuCurrentlyOpen);
   } else if (
     key === FEATURE.PLAY ||
     key === FEATURE.PAUSE ||

@@ -40,6 +40,12 @@ These show up per receiver:
   actual control path for HEOS-managed sources like Qobuz or Spotify Connect — see "HEOS support"
   below.
 - **Now playing** — a read-only "Artist - Title" line, filled in automatically while streaming.
+- **Setup-menu remote control** — cursor Up/Down/Left/Right, Enter, Return, Info, Menu and
+  relative Volume Up/Down, shown as clickable buttons directly in the device list (no extra
+  dashboard box needed). Handy for navigating the receiver's on-screen Setup menu from Gladys
+  instead of hunting for the physical remote. Don't want all of them cluttering a dashboard? Hide
+  the ones you don't use the same way you'd hide any other device feature — nothing to configure
+  on this integration's side.
 
 ## Automating source/sound mode from a scene
 
