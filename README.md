@@ -123,11 +123,15 @@ worth stating precisely:
   `source_overrides`.
 
 If your own scene shows **nothing at all** for this AVR under "Control a device" — no
-`Source`/`Sound mode` dropdown and no `Source index` slider either — the most likely cause is a
-Gladys core older than 4.86.1 combined with a device added before this integration shipped
-`Source index`: open the integration's Discovery tab, scan, and click **Update** on the
-device — like any structural change (see "Discovery" above), a new feature never appears on an
-already-created device without that step.
+`Source`/`Sound mode` dropdown and no `Source index` slider either — try a **hard refresh / clear
+the browser cache** first: confirmed on real-world feedback to be the actual cause once, a stale
+cached front-end bundle showed a completely empty picker for this device while other integrations
+(MQTT, Zigbee2MQTT) still worked fine, and a cache-cleared browser fixed it immediately with no
+config change at all. If that doesn't help, the next suspect is a Gladys core older than 4.86.1
+combined with a device added before this integration shipped `Source index`: open the
+integration's Discovery tab, scan, and click **Update** on the device — like any structural
+change (see "Discovery" above), a new feature never appears on an already-created device without
+that step.
 
 ## New to this codebase? Start here
 

@@ -55,11 +55,13 @@ here), on any Gladys version.
   set, and it maps to the same input as the dropdown (position in the _currently visible_ Source
   list, 0 = first entry).
 - **If "Control a device" shows nothing at all for this AVR** (no `Source`/`Sound mode` dropdown,
-  no `Source index` either): this most likely means the device was added before this integration
-  shipped `Source index`, combined with a Gladys core older than 4.86.1. Open this integration's
-  **Discovery** tab, run a scan, and click **Update** on the device — a new feature never appears
-  on an already-added device on its own, the same as any other structural change (see
-  Configuration below).
+  no `Source index` either): try a **hard refresh / clear your browser cache** first — confirmed
+  once to be the actual cause, a stale cached front-end bundle showed a completely empty picker
+  for this device while other integrations (MQTT, Zigbee2MQTT) still worked fine, fixed instantly
+  by clearing the cache, no configuration change needed. Still nothing after that? The device was
+  likely added before this integration shipped `Source index`, combined with a Gladys core older
+  than 4.86.1 — open this integration's **Discovery** tab, run a scan, and click **Update** on the
+  device, the same as any other structural change (see Configuration below).
 
 ## HEOS support
 
