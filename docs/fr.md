@@ -61,11 +61,15 @@ au manifeste d'une intégration (**Sélectionner l'entrée** ici), sur aucune ve
   « Contrôler un appareil » a toujours su régler, et qui correspond à la même entrée que le menu
   déroulant (position dans la liste Source _actuellement visible_, 0 = première entrée).
 - **Si « Contrôler un appareil » n'affiche strictement rien pour cet ampli** (ni menu Source/Mode
-  sonore, ni Index de source) : la cause la plus probable est un appareil ajouté avant que cette
-  intégration ne propose l'Index de source, combiné à une version de Gladys antérieure à 4.86.1.
-  Ouvrez l'onglet **Découverte** de l'intégration, lancez un scan, puis cliquez sur **Mettre à
-  jour** sur l'appareil — une nouvelle fonctionnalité n'apparaît jamais toute seule sur un
-  appareil déjà ajouté, comme tout autre changement de structure (voir Configuration ci-dessous).
+  sonore, ni Index de source) : essayez d'abord un **rafraîchissement forcé / de vider le cache
+  du navigateur** — confirmé une fois comme étant la vraie cause : un bundle front mis en cache
+  affichait un sélecteur totalement vide pour cet appareil alors que d'autres intégrations (MQTT,
+  Zigbee2MQTT) fonctionnaient normalement, corrigé instantanément en vidant le cache, sans aucun
+  changement de configuration. Toujours rien après ça ? L'appareil a probablement été ajouté avant
+  que cette intégration ne propose l'Index de source, combiné à une version de Gladys antérieure à
+  4.86.1 — ouvrez l'onglet **Découverte** de l'intégration, lancez un scan, puis cliquez sur
+  **Mettre à jour** sur l'appareil, comme tout autre changement de structure (voir Configuration
+  ci-dessous).
 
 ## Support HEOS
 
