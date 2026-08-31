@@ -108,6 +108,26 @@ TuneIn...) — see "Playback controls" below.
 - **Test connection** action: on-demand query + a summary of the receiver's current state, now
   including the current source's index (see "Source index" above) so it can be read off without
   guessing.
+- **Speak on a speaker**: a `MUSIC`-category, `MUSIC.PLAY_NOTIFICATION`-type feature
+  (`FEATURE.PLAY_NOTIFICATION` in `src/devices/avr.js`) — the exact category+type Gladys core's
+  own **"Speak on a speaker"** scene action (`ACTIONS.MUSIC.PLAY_NOTIFICATION`,
+  `editScene.actions.music.play-notification` = _"Parler sur une enceinte"_) filters its device
+  picker on (`front/src/routes/scene/edit-scene/actions/PlayNotification.jsx` in Gladys core),
+  so this AVR simply shows up there like any other speaker once the feature exists. The value that
+  action hands `onSetValue()` is a ready-made TTS audio file URL
+  (`self.gateway.getTTSApiUrl({ text })`, server-side); this integration plays it via HEOS's
+  `browse/play_stream?pid=<pid>&url=<url>` — the same mechanism used for direct-URL/TuneIn-style
+  playback — since there is no legacy Telnet command that can play an arbitrary URL. **Requires a
+  matched HEOS player id** (see "Playback controls" above): a non-HEOS model, or one whose HEOS
+  CLI is unreachable, cannot speak at all — `onSetValue()` throws a clear error in that case rather
+  than silently doing nothing. **Volume is not adjustable for the announcement**, even though the
+  scene action's own editor always shows a volume slider: checked against Gladys core
+  (`server/lib/external-integration/externalIntegration.registerProxyService.js`), the proxy that
+  external (Docker-based) integrations go through only ever forwards `device.setValue`'s `value`
+  to `onSetValue()` — the `options` object carrying `volume` is dropped before it ever reaches the
+  WebSocket, unlike the in-process built-in services (Sonos, Google Cast, AirPlay) that get it as
+  a normal function argument. The announcement plays at the receiver's current volume; there is no
+  way for this integration to see or act on the slider's value.
 
 ## Scene automation
 
@@ -334,13 +354,23 @@ device type — see "Scene automation" above.
 
 Power, volume, mute, input source (status + selection, with per-user renaming/hiding, plus a
 numeric `Source index` alias for scene automation), sound mode, network/USB playback controls
-(HEOS CLI when available, legacy `NS9x` Telnet otherwise), now-playing metadata, Setup-menu
+(HEOS CLI when available, legacy `NS9x` Telnet otherwise), speak-on-a-speaker TTS playback (HEOS
+`browse/play_stream`, see "Speak on a speaker" above), now-playing metadata, Setup-menu
 remote-control keys (cursor pad, Enter/Return/Info/Menu, relative Volume Up/Down), SSDP discovery.
 Deliberately out of scope for now: multi-zone (Zone 2/3),
 HEOS-specific features beyond play/pause/next/previous (grouping, queue browsing, volume-per-
 player...), and an HTTP fallback control channel — see the design notes at the top of
 [`src/devices/avr.js`](./src/devices/avr.js) and
 [`src/denon/discovery.js`](./src/denon/discovery.js).
+
+Every other generic Gladys scene action that could plausibly target this kind of device
+(`server/utils/constants.js`'s `ACTIONS` map in Gladys core) was checked against what this
+integration already declares: `ACTIONS.DEVICE.SET_VALUE`/`GET_VALUE` (the generic "Control a
+device"/read-a-value actions) already work against every feature declared here, and
+`ACTIONS.MUSIC.PLAY_NOTIFICATION` ("Speak on a speaker") is the one covered above — it was the
+only gap. Everything else in that map (`LIGHT.*`, `SWITCH.*`, `ALARM.*`, `CALENDAR.*`, `SMS.*`...)
+targets a different device category entirely, or isn't device-specific at all (delays, HTTP
+requests, variables...), so there is nothing else this device type could plug into.
 
 ## Tested and confirmed
 

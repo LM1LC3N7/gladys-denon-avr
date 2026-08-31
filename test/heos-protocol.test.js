@@ -12,6 +12,7 @@ import {
   buildPlayNextCommand,
   buildPlayPreviousCommand,
   buildGetNowPlayingMediaCommand,
+  buildPlayStreamCommand,
   buildRegisterForChangeEventsCommand,
   parseMessage,
   findPlayerIdByIp,
@@ -42,6 +43,17 @@ test('command builders produce the exact heos:// path (without the scheme, added
   assert.equal(
     buildRegisterForChangeEventsCommand(false),
     'system/register_for_change_events?enable=off',
+  );
+});
+
+test('buildPlayStreamCommand URL-encodes the stream URL so its own query string cannot be mistaken for HEOS parameters', () => {
+  assert.equal(
+    buildPlayStreamCommand(12345, 'https://tts.example.com/say.mp3'),
+    'browse/play_stream?pid=12345&url=https%3A%2F%2Ftts.example.com%2Fsay.mp3',
+  );
+  assert.equal(
+    buildPlayStreamCommand(12345, 'https://tts.example.com/say.mp3?token=abc&voice=fr'),
+    'browse/play_stream?pid=12345&url=https%3A%2F%2Ftts.example.com%2Fsay.mp3%3Ftoken%3Dabc%26voice%3Dfr',
   );
 });
 

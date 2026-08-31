@@ -65,6 +65,7 @@ import {
   buildPauseCommand as buildHeosPauseCommand,
   buildPlayNextCommand as buildHeosPlayNextCommand,
   buildPlayPreviousCommand as buildHeosPlayPreviousCommand,
+  buildPlayStreamCommand,
   buildRegisterForChangeEventsCommand,
   findPlayerIdByIp,
   heosPlayStateToPlaybackState,
@@ -97,6 +98,7 @@ export const FEATURE = {
   PREVIOUS: 'previous',
   PLAYBACK_STATE: 'playback_state',
   NOW_PLAYING: 'now_playing',
+  PLAY_NOTIFICATION: 'play_notification',
 };
 
 // Own state keys (never published directly, only combined into
@@ -452,6 +454,39 @@ function buildFeatures(deviceExternalId, sourceOverrides = {}) {
       max: 1,
       read_only: true,
       has_feedback: false,
+    },
+    {
+      // Backs Gladys' generic "Speak on a speaker" scene action
+      // (device_feature_category MUSIC + device_feature_type
+      // PLAY_NOTIFICATION is exactly what that action's device picker
+      // filters on — see PlayNotification.jsx in Gladys core's front-end).
+      // The value Gladys sends is a ready-made TTS audio file URL (it calls
+      // its own gateway to render the text first); onSetValue() below plays
+      // it via HEOS's browse/play_stream, the same mechanism TuneIn/direct
+      // URL playback uses, so this only works once a HEOS pid is matched
+      // (see the HEOS-routing comment on FEATURE.PLAY/PAUSE/NEXT/PREVIOUS
+      // in onSetValue()) — a non-HEOS model, or one with the HEOS CLI
+      // unreachable, cannot be made to speak an arbitrary URL at all: there
+      // is no legacy Telnet equivalent to fall back to, unlike the
+      // transport buttons.
+      //
+      // No volume control here even though the scene action's UI always
+      // asks for one: external (Docker-based) integrations never receive
+      // it at all — Gladys core's proxy service for external integrations
+      // (server/lib/external-integration/externalIntegration.registerProxyService.js)
+      // forwards device.setValue's `value` only, dropping `options`
+      // entirely, unlike the volume argument built-in services (Sonos,
+      // Google Cast, AirPlay) get from being called in-process. The
+      // announcement plays at the receiver's current volume.
+      name: 'Play notification',
+      external_id: featureExternalId(deviceExternalId, FEATURE.PLAY_NOTIFICATION),
+      category: DEVICE_FEATURE_CATEGORIES.MUSIC,
+      type: DEVICE_FEATURE_TYPES.MUSIC.PLAY_NOTIFICATION,
+      min: 1,
+      max: 1,
+      read_only: false,
+      has_feedback: false,
+      keep_history: false,
     },
   ];
 }
@@ -852,6 +887,21 @@ export async function onSetValue(gladys, { device, feature, value, config }) {
           : key === FEATURE.NEXT
             ? buildNextCommand()
             : buildPreviousCommand();
+  } else if (key === FEATURE.PLAY_NOTIFICATION) {
+    // Unlike the transport buttons above, there is no legacy Telnet
+    // fallback: playing an arbitrary TTS URL only exists as a HEOS concept
+    // (browse/play_stream). `value` is the TTS audio file URL Gladys core
+    // already rendered — see the feature comment in buildFeatures().
+    const heos = heosConnections.get(device.external_id);
+    if (!heos?.pid || !heos.client?.isConnected()) {
+      throw new Error(
+        `${device.external_id}: cannot speak, HEOS is not connected or this receiver has no matched player id`,
+      );
+    }
+    if (!heos.client.sendCommand(buildPlayStreamCommand(heos.pid, value))) {
+      throw new Error(`Failed to send HEOS play_stream command to ${device.external_id}`);
+    }
+    return;
   } else {
     throw new Error(`Feature "${key}" is not controllable`);
   }
