@@ -40,6 +40,13 @@ These show up per receiver:
   actual control path for HEOS-managed sources like Qobuz or Spotify Connect — see "HEOS support"
   below.
 - **Now playing** — a read-only "Artist - Title" line, filled in automatically while streaming.
+- **Play notification** — backs Gladys' built-in **"Speak on a speaker"** scene action: pick this
+  AVR from that action's speaker dropdown and it reads your text out loud. Requires HEOS (see
+  "HEOS support" below) — there is no legacy-Telnet way to play an arbitrary audio URL, so this
+  only appears/works once a HEOS player id has been matched for this receiver. The volume slider
+  in that scene action has no effect here: Gladys does not forward it to this kind of integration
+  (a core limitation, not something this integration can work around) — the announcement plays at
+  the receiver's current volume.
 - **Setup-menu remote control** — cursor Up/Down/Left/Right, Enter, Return, Info, Menu and
   relative Volume Up/Down, shown as clickable buttons directly in the device list (no extra
   dashboard box needed). Handy for navigating the receiver's on-screen Setup menu from Gladys
@@ -150,3 +157,8 @@ reachable, please report it (with the debug logs mentioned below) so it can be f
   there, this receiver's HEOS CLI service (port 1255) wasn't reachable (firewall, older
   non-HEOS model, or HEOS momentarily not ready) and the integration silently fell back to the
   classic commands, which don't reach HEOS-managed sources.
+- **"Speak on a speaker" fails or this AVR doesn't show up in its speaker list**: same HEOS
+  player-id requirement as the playback buttons above — check for the "HEOS player id ... matched"
+  debug log line. It never appears at all in that scene action's dropdown until the device has
+  been created in Gladys with the current image version (see "Re-publishing a device" note under
+  Discovery if you added this AVR before this feature shipped).

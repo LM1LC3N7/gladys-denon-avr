@@ -66,7 +66,7 @@ test('buildDiscoveredDevice exposes power/volume/mute/source with the right cate
   assert.equal(device.name, 'Denon AVR-S970H (AVR-S970H)');
   assert.ok(device.external_id.includes('abc-123'));
   assert.deepEqual(device.params, [{ name: 'IP_ADDRESS', value: '192.168.1.50' }]);
-  assert.equal(device.features.length, 22);
+  assert.equal(device.features.length, 23);
 
   const byKey = Object.fromEntries(device.features.map((f) => [f.external_id, f]));
   const power = byKey[featureExternalId(device.external_id, FEATURE.POWER)];
@@ -176,6 +176,14 @@ test('buildDiscoveredDevice exposes power/volume/mute/source with the right cate
     true,
     'now playing is receiver-pushed only, never set by the user',
   );
+
+  // Backs Gladys' "Speak on a speaker" scene action — its device picker
+  // filters on exactly this category+type, see the comment on this feature
+  // in src/devices/avr.js.
+  const playNotification = byKey[featureExternalId(device.external_id, FEATURE.PLAY_NOTIFICATION)];
+  assert.equal(playNotification.category, DEVICE_FEATURE_CATEGORIES.MUSIC);
+  assert.equal(playNotification.type, DEVICE_FEATURE_TYPES.MUSIC.PLAY_NOTIFICATION);
+  assert.equal(playNotification.read_only, false);
 });
 
 test('buildDiscoveredDevice applies source_overrides: renames one entry, hides another, leaves the rest untouched', () => {
@@ -222,7 +230,7 @@ test('every feature declares a non-null min/max (Gladys rejects a null one at "a
 test('buildManualDevice builds a stable device keyed on the configured host', () => {
   const device = buildManualDevice(gladys, '192.168.1.77');
   assert.deepEqual(device.params, [{ name: 'IP_ADDRESS', value: '192.168.1.77' }]);
-  assert.equal(device.features.length, 22);
+  assert.equal(device.features.length, 23);
 });
 
 test('onSetValue routes power/volume to the right telnet command', async () => {
@@ -441,6 +449,61 @@ test('onSetValue falls back to the legacy NS9x command when HEOS has no pid yet 
   });
   await onSetValue(gladys, { device, feature: playFeature, value: 1 });
   assert.equal(telnet.sent.at(-1), 'NS9A');
+});
+
+test('onSetValue plays a notification URL via HEOS browse/play_stream when a player id is matched', async () => {
+  const device = buildDiscoveredDevice(gladys, DISCOVERED);
+  const telnet = createFakeTelnetClient();
+  __setConnectionForTesting(device.external_id, telnet);
+
+  const heosSent = [];
+  __setHeosConnectionForTesting(device.external_id, {
+    pid: 12345,
+    client: {
+      sendCommand: (commandPath) => {
+        heosSent.push(commandPath);
+        return true;
+      },
+      isConnected: () => true,
+    },
+  });
+
+  const feature = { external_id: featureExternalId(device.external_id, FEATURE.PLAY_NOTIFICATION) };
+  await onSetValue(gladys, {
+    device,
+    feature,
+    value: 'https://tts.example.com/announcement.mp3?token=abc&x=1',
+  });
+
+  assert.equal(
+    heosSent.at(-1),
+    'browse/play_stream?pid=12345&url=https%3A%2F%2Ftts.example.com%2Fannouncement.mp3%3Ftoken%3Dabc%26x%3D1',
+  );
+  // Never touches the legacy Telnet session: no NS9x/other equivalent exists.
+  assert.deepEqual(telnet.sent, []);
+});
+
+test('onSetValue throws for a notification when no HEOS player id is matched or HEOS is disconnected', async () => {
+  const device = buildDiscoveredDevice(gladys, DISCOVERED);
+  const telnet = createFakeTelnetClient();
+  __setConnectionForTesting(device.external_id, telnet);
+  const feature = { external_id: featureExternalId(device.external_id, FEATURE.PLAY_NOTIFICATION) };
+
+  __setHeosConnectionForTesting(device.external_id, {
+    pid: null,
+    client: { sendCommand: () => true, isConnected: () => true },
+  });
+  await assert.rejects(() =>
+    onSetValue(gladys, { device, feature, value: 'https://x.test/a.mp3' }),
+  );
+
+  __setHeosConnectionForTesting(device.external_id, {
+    pid: 12345,
+    client: { sendCommand: () => true, isConnected: () => false },
+  });
+  await assert.rejects(() =>
+    onSetValue(gladys, { device, feature, value: 'https://x.test/a.mp3' }),
+  );
 });
 
 test('onSetValue throws when the device has no open connection', async () => {

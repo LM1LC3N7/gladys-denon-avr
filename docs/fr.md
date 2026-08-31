@@ -45,6 +45,14 @@ Voici ce qui apparaît par ampli :
   « Support HEOS » ci-dessous.
 - **En cours de lecture** — une ligne « Artiste - Titre » en lecture seule, renseignée
   automatiquement pendant la lecture en streaming.
+- **Diffuser une notification** — alimente l'action de scène native de Gladys **« Parler sur une
+  enceinte »** : choisissez cet ampli dans le menu déroulant des enceintes de cette action, et il
+  lira votre texte à voix haute. Nécessite HEOS (voir « Support HEOS » ci-dessous) — il n'existe
+  aucun moyen via le Telnet classique de lire une URL audio arbitraire, donc ceci n'apparaît/ne
+  fonctionne qu'une fois qu'un identifiant de lecteur HEOS a été trouvé pour cet ampli. Le curseur
+  de volume de cette action de scène n'a aucun effet ici : Gladys ne le transmet pas à ce type
+  d'intégration (une limitation du cœur de Gladys, pas quelque chose que cette intégration peut
+  contourner) — l'annonce est lue au volume actuel de l'ampli.
 - **Télécommande du menu de configuration** — curseur Haut/Bas/Gauche/Droite, Entrée, Retour,
   Info, Menu et Volume +/- relatif, affichés comme boutons cliquables directement dans la liste
   d'appareils (pas besoin d'une carte de tableau de bord supplémentaire). Pratique pour naviguer
@@ -166,3 +174,9 @@ que ce soit corrigé.
   après la connexion de l'ampli — si elle n'y est pas, le service HEOS CLI de cet ampli (port 1255) n'était pas joignable (pare-feu, modèle plus ancien sans HEOS, ou HEOS pas encore prêt)
   et l'intégration est repassée silencieusement sur les commandes classiques, qui n'atteignent
   pas les sources gérées par HEOS.
+- **« Parler sur une enceinte » échoue, ou cet ampli n'apparaît pas dans la liste des enceintes** :
+  même exigence d'identifiant de lecteur HEOS que pour les boutons de lecture ci-dessus —
+  vérifiez la ligne de log « HEOS player id ... matched ». L'ampli n'apparaît jamais dans le menu
+  déroulant de cette action de scène tant que l'appareil n'a pas été recréé/mis à jour dans Gladys
+  avec la version actuelle de l'image (voir la remarque « Re-publishing a device » de la section
+  Découverte si vous avez ajouté cet ampli avant l'arrivée de cette fonctionnalité).

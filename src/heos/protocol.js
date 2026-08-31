@@ -95,6 +95,20 @@ export function buildGetNowPlayingMediaCommand(pid) {
 }
 
 /**
+ * `heos://browse/play_stream?pid=<pid>&url=<url>` — play an arbitrary HTTP(S)
+ * audio URL directly on one player, bypassing any music source/browse tree.
+ * This is what backs Gladys' generic "Speak on a speaker" scene action
+ * (`ACTIONS.MUSIC.PLAY_NOTIFICATION`): the core hands the integration a
+ * ready-made TTS file URL (`self.gateway.getTTSApiUrl()`) and expects it
+ * played immediately — see FEATURE.PLAY_NOTIFICATION in ../devices/avr.js.
+ * `url` must be query-encoded: an unencoded `&`/`?` inside it (a signed TTS
+ * URL, for instance) would otherwise be parsed as extra HEOS parameters.
+ */
+export function buildPlayStreamCommand(pid, url) {
+  return `browse/play_stream?pid=${pid}&url=${encodeURIComponent(url)}`;
+}
+
+/**
  * `heos://system/register_for_change_events?enable=on` — ask the HEOS
  * system to push `event/player_state_changed` (and other `event/*` lines)
  * unprompted, the same "push, don't poll" model as the legacy Telnet
