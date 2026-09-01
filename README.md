@@ -342,6 +342,16 @@ Add the GitHub topic `gladys-assistant-integration`, then **Actions → Release 
 [integration-template-js README](https://github.com/GladysAssistant/integration-template-js) for
 the full publishing flow — unchanged from the template.
 
+**Merging a PR to `main` never publishes anything by itself, and Gladys will show no "Update"
+button until it does.** `gladys-assistant-integration.json`'s `version`/`docker_image` — the only
+two fields Gladys actually compares to decide whether an update exists — are only ever rewritten
+by the **Release** workflow above, which is exclusively `workflow_dispatch` (manual, from the
+Actions tab): there is no CI step that runs it automatically on a push/merge to `main`. So it's
+entirely normal, not a bug, for several merged PRs to sit on `main` with real feature commits
+while the manifest still points at the last released version/image — run the Release workflow
+(any release type; nothing else forces `package.json`'s version to match how many PRs merged
+since) whenever you want those changes to actually reach users.
+
 `gladys_version` is pinned to `>=4.86.1`. 4.86.0 is the floor `categories` needs to declare
 (checked against the store's `manifest.schema.json` — an older core "rejects unknown manifest
 fields" outright rather than ignoring just that one, so that change and `TEXT.SELECT` support
