@@ -44,7 +44,24 @@ gladys.onScanRequest(async () => {
 // --- Command: the user acts on a controllable feature (power/volume/mute) ---
 gladys.onSetValue(async (device, feature, value) => {
   logger.info(`onSetValue <- ${feature.external_id} = ${value}`);
-  await dispatchSetValue(gladys, { device, feature, value, config });
+  try {
+    await dispatchSetValue(gladys, { device, feature, value, config });
+  } catch (err) {
+    // The SDK acks a thrown error back to Gladys core as a failed command,
+    // but never logs it itself (checked against @gladysassistant/
+    // integration-sdk's _runCommand: it catches, sends the ack, and moves
+    // on) — and a scene that triggers this command swallows that failure
+    // just as silently (server/lib/scene/scene.executeActions.js in Gladys
+    // core: a non-AbortScene error is logger.warn()'d server-side and the
+    // scene still reports as having run). Without this log line, a command
+    // that throws before doing anything — e.g. FEATURE.PLAY_NOTIFICATION
+    // when no HEOS player id is matched yet, see src/devices/avr.js — left
+    // literally no trace anywhere a user could see, container logs
+    // included: real-world feedback was a scene that "looked like it
+    // worked" with the Denon staying completely silent.
+    logger.error(`onSetValue failed for ${feature.external_id}: ${err.message}`);
+    throw err;
+  }
 });
 
 // --- Manifest actions: buttons in the Configuration screen -------------------
