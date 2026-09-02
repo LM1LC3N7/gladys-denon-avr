@@ -718,13 +718,22 @@ export function connectDevice(gladys, device, config) {
       // player busy...) apart from "played fine, nothing else went wrong" —
       // both look identical from Gladys' side, since a scene logs a failed
       // action server-side and reports the scene as run regardless.
+      //
+      // Both branches log at `info`, not `debug`: Gladys never sets
+      // LOG_LEVEL for an external integration's container (checked against
+      // core's externalIntegration.buildContainerDescriptor.js — its fixed
+      // Env list has no debug toggle, and none of the manifest's
+      // config_schema fields map to it either), so `debug` is effectively
+      // unreachable for anyone running this from the Gladys UI rather than
+      // `npm start` locally. This line is the only confirmation a user has
+      // that HEOS actually accepted the stream at all.
       if (parsed.command === 'browse/play_stream') {
         if (parsed.result === 'fail') {
           logger.error(
             `${device.external_id}: HEOS rejected the "Speak on a speaker" stream (eid=${parsed.message?.eid}): ${parsed.message?.text}`,
           );
         } else {
-          logger.debug(`${device.external_id}: HEOS accepted the "Speak on a speaker" stream`);
+          logger.info(`${device.external_id}: HEOS accepted the "Speak on a speaker" stream`);
         }
         return;
       }

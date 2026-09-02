@@ -111,7 +111,7 @@ connexion inactive).
 largement utilisé), recoupé avec la bibliothèque derrière l'intégration HEOS officielle de Home
 Assistant — non testé par le développeur sur une vraie session de streaming HEOS, car cela
 nécessite un compte de streaming payant réel. Si les boutons ne font rien chez vous alors que
-l'ampli est joignable, merci de le signaler (avec les logs de débogage mentionnés plus bas) pour
+l'ampli est joignable, merci de le signaler (avec les logs mentionnés plus bas) pour
 que ce soit corrigé.
 
 ## Prérequis
@@ -163,14 +163,26 @@ que ce soit corrigé.
 - **Ampli injoignable une fois éteint** : activez la veille réseau / veille ECO dans le menu de
   configuration de l'ampli (voir Prérequis).
 - L'intégration journalise tout ce qu'elle fait : consultez les logs de l'intégration depuis
-  l'interface Gladys (ou `docker logs` sur l'hôte) avec `LOG_LEVEL=debug` pour le détail complet,
-  y compris chaque ligne Telnet envoyée et reçue.
+  l'interface Gladys (ou `docker logs` sur l'hôte). Notez que Gladys lui-même n'offre aucun moyen
+  de régler `LOG_LEVEL=debug` sur le conteneur d'une intégration installée (ce n'est ni une des
+  variables d'environnement fixes que Gladys définit, ni un champ de configuration) — ce réglage
+  ne s'applique que si vous lancez cette intégration vous-même en dehors de Gladys (voir « Run it
+  locally » dans le README développeur). Toute ligne de log réellement utile pour le dépannage
+  (une connexion à l'ampli, un identifiant de lecteur HEOS trouvé, un flux « Parler sur une
+  enceinte » accepté ou rejeté...) est volontairement journalisée au niveau `info` ou plus pour
+  cette raison précise, afin qu'elle s'affiche sans `debug` ; seul le détail très verbeux ligne par
+  ligne du protocole Telnet est réservé à `debug` et donc hors de portée depuis une installation
+  Gladys classique.
 - **Mode sonore, boutons de lecture ou lecture en cours ne fonctionnent pas comme attendu** : ces
   fonctions reposent sur des parties du protocole qui varient plus d'un modèle/firmware à l'autre
   que alimentation/volume/muet/source. Comparez ce que votre télécommande envoie réellement avec
-  ce que cette intégration attend, via les logs de débogage ci-dessus.
+  ce que cette intégration attend — le détail ligne par ligne nécessaire pour ça n'existe qu'en
+  `debug` (voir ci-dessus), donc utilisez directement
+  [`scripts/debug-telnet.js`](../scripts/debug-telnet.js)/
+  [`scripts/debug-heos.js`](../scripts/debug-heos.js) contre l'ampli plutôt que les logs du
+  conteneur.
 - **Les boutons de lecture ne font toujours rien sur Qobuz/Spotify Connect/TIDAL** : vérifiez les
-  logs de débogage à la recherche d'une ligne mentionnant « HEOS player id ... matched » peu
+  logs à la recherche d'une ligne mentionnant « HEOS player id ... matched » peu
   après la connexion de l'ampli — si elle n'y est pas, le service HEOS CLI de cet ampli (port 1255) n'était pas joignable (pare-feu, modèle plus ancien sans HEOS, ou HEOS pas encore prêt)
   et l'intégration est repassée silencieusement sur les commandes classiques, qui n'atteignent
   pas les sources gérées par HEOS.
@@ -189,11 +201,11 @@ que ce soit corrigé.
      causes que pour les boutons de lecture ci-dessus (port 1255 bloqué par un pare-feu, modèle
      plus ancien sans HEOS, ou HEOS pas encore prêt après un redémarrage).
   2. Si HEOS est connecté mais qu'**aucun identifiant lecteur n'est trouvé**, regardez dans les
-     logs de débogage la ligne qui liste les IP vues par HEOS (« HEOS reports: ... ») — un ampli
+     logs la ligne qui liste les IP vues par HEOS (« HEOS reports: ... ») — un ampli
      avec plusieurs interfaces réseau (Ethernet + Wi-Fi) peut annoncer à HEOS une adresse
      différente de celle utilisée par cette intégration, ce qui empêche la correspondance
      définitivement.
-  3. Si un identifiant lecteur **est** trouvé, regardez dans les logs de débogage le résultat du
+  3. Si un identifiant lecteur **est** trouvé, regardez dans les logs le résultat du
      flux lui-même : une ligne indiquant que HEOS a _rejeté_ le flux (avec un code d'erreur/texte
      venant de l'ampli) signifie que l'URL de synthèse vocale n'était pas lisible du point de vue
      de l'ampli (injoignable depuis le réseau de l'ampli, format non supporté...) ; une ligne
