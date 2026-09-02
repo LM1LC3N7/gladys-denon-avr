@@ -174,9 +174,30 @@ que ce soit corrigé.
   après la connexion de l'ampli — si elle n'y est pas, le service HEOS CLI de cet ampli (port 1255) n'était pas joignable (pare-feu, modèle plus ancien sans HEOS, ou HEOS pas encore prêt)
   et l'intégration est repassée silencieusement sur les commandes classiques, qui n'atteignent
   pas les sources gérées par HEOS.
-- **« Parler sur une enceinte » échoue, ou cet ampli n'apparaît pas dans la liste des enceintes** :
-  même exigence d'identifiant de lecteur HEOS que pour les boutons de lecture ci-dessus —
-  vérifiez la ligne de log « HEOS player id ... matched ». L'ampli n'apparaît jamais dans le menu
-  déroulant de cette action de scène tant que l'appareil n'a pas été recréé/mis à jour dans Gladys
-  avec la version actuelle de l'image (voir la remarque « Re-publishing a device » de la section
-  Découverte si vous avez ajouté cet ampli avant l'arrivée de cette fonctionnalité).
+- **« Parler sur une enceinte » n'apparaît pas du tout dans la liste des enceintes** : l'appareil a
+  probablement été créé avant l'arrivée de cette fonctionnalité — ouvrez l'onglet Découverte de
+  cette intégration, lancez un scan, et cliquez sur **Mettre à jour** sur l'appareil (voir
+  « Re-publishing a device » dans la section Découverte).
+- **La scène s'exécute sans erreur, mais rien ne sort de l'ampli Denon** : c'est normal côté
+  Gladys même en cas d'échec — une scène journalise une action en échec et se signale comme
+  exécutée quand même, sans jamais remonter d'erreur visible pour cette action précise. Vérifiez,
+  dans l'ordre :
+  1. Lancez **Tester la connexion** depuis l'écran Configuration de cette intégration : sa réponse
+     se termine maintenant par une ligne du type « HEOS : identifiant lecteur 12345 trouvé » ou
+     « HEOS : non connecté »/« aucun identifiant lecteur trouvé ». Tout ce qui n'est pas
+     « identifiant lecteur ... trouvé » signifie que le problème vient de HEOS lui-même — mêmes
+     causes que pour les boutons de lecture ci-dessus (port 1255 bloqué par un pare-feu, modèle
+     plus ancien sans HEOS, ou HEOS pas encore prêt après un redémarrage).
+  2. Si HEOS est connecté mais qu'**aucun identifiant lecteur n'est trouvé**, regardez dans les
+     logs de débogage la ligne qui liste les IP vues par HEOS (« HEOS reports: ... ») — un ampli
+     avec plusieurs interfaces réseau (Ethernet + Wi-Fi) peut annoncer à HEOS une adresse
+     différente de celle utilisée par cette intégration, ce qui empêche la correspondance
+     définitivement.
+  3. Si un identifiant lecteur **est** trouvé, regardez dans les logs de débogage le résultat du
+     flux lui-même : une ligne indiquant que HEOS a _rejeté_ le flux (avec un code d'erreur/texte
+     venant de l'ampli) signifie que l'URL de synthèse vocale n'était pas lisible du point de vue
+     de l'ampli (injoignable depuis le réseau de l'ampli, format non supporté...) ; une ligne
+     indiquant que HEOS l'a _acceptée_ alors que vous n'entendez toujours rien pointe vers l'ampli
+     lui-même — vérifiez qu'il n'est pas en muet, vérifiez son volume, et notez que certains
+     firmwares restent silencieux sur un flux démarré alors que l'ampli était complètement éteint
+     plutôt qu'en veille réseau.

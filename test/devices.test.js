@@ -535,6 +535,35 @@ test('runTestConnectionAction reports "not connected" without a session', async 
   assert.match(message.en, /not connected/i);
 });
 
+test('runTestConnectionAction reports the HEOS status: not connected, connected without a pid, and matched', async () => {
+  const device = buildDiscoveredDevice(gladys, DISCOVERED);
+  __setConnectionForTesting(device.external_id, createFakeTelnetClient());
+
+  __setHeosConnectionForTesting(device.external_id, {
+    pid: null,
+    client: { sendCommand: () => true, isConnected: () => false },
+  });
+  let message = await runTestConnectionAction(gladys, { fields: { device: device.external_id } });
+  assert.match(message.en, /HEOS: not connected/);
+  assert.match(message.fr, /HEOS : non connecté/);
+
+  __setHeosConnectionForTesting(device.external_id, {
+    pid: null,
+    client: { sendCommand: () => true, isConnected: () => true },
+  });
+  message = await runTestConnectionAction(gladys, { fields: { device: device.external_id } });
+  assert.match(message.en, /no player id matched/);
+  assert.match(message.fr, /aucun identifiant lecteur trouvé/);
+
+  __setHeosConnectionForTesting(device.external_id, {
+    pid: 12345,
+    client: { sendCommand: () => true, isConnected: () => true },
+  });
+  message = await runTestConnectionAction(gladys, { fields: { device: device.external_id } });
+  assert.match(message.en, /player id 12345 matched/);
+  assert.match(message.fr, /identifiant lecteur 12345 trouvé/);
+});
+
 test('disconnectDevice makes onSetValue fail again', async () => {
   const device = buildDiscoveredDevice(gladys, DISCOVERED);
   __setConnectionForTesting(device.external_id, createFakeTelnetClient());

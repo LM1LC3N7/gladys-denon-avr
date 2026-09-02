@@ -668,6 +668,23 @@ export function connectDevice(gladys, device, config) {
           logger.info(`${device.external_id}: HEOS player id ${pid} matched to ${host}`);
           heosState.client.sendCommand(buildGetPlayStateCommand(pid));
           heosState.client.sendCommand(buildGetNowPlayingMediaCommand(pid));
+        } else {
+          // Not an error (this device may simply not run HEOS), but worth a
+          // log line: this is the single most common reason "Speak on a
+          // speaker"/the playback buttons silently do nothing — no pid ever
+          // means every HEOS-routed feature falls back to the legacy
+          // commands (or, for FEATURE.PLAY_NOTIFICATION, has nothing to fall
+          // back to at all) with zero feedback in the Gladys UI, since a
+          // scene logs a failed action and moves on rather than surfacing
+          // it. The reported IPs help spot a multi-NIC/IP mismatch (the
+          // receiver advertising a different address over HEOS than the one
+          // SSDP/the config gave this integration).
+          const reportedIps = (parsed.payload ?? []).map((p) => p?.ip).filter(Boolean);
+          logger.warn(
+            `${device.external_id}: HEOS CLI reachable but no player matches ${host} (HEOS reports: ${
+              reportedIps.length > 0 ? reportedIps.join(', ') : 'no players at all'
+            })`,
+          );
         }
         return;
       }
@@ -690,6 +707,25 @@ export function connectDevice(gladys, device, config) {
 
       if (parsed.command === 'player/get_now_playing_media') {
         publishNowPlayingMedia(parsed.payload);
+        return;
+      }
+
+      // "Speak on a speaker" (FEATURE.PLAY_NOTIFICATION, see onSetValue())
+      // fires this and never checks the reply itself — sendCommand() only
+      // confirms the socket accepted the bytes, not that the receiver could
+      // actually play the URL. Logging the outcome here is the only way to
+      // tell "HEOS rejected the stream" (bad/unreachable URL, wrong format,
+      // player busy...) apart from "played fine, nothing else went wrong" —
+      // both look identical from Gladys' side, since a scene logs a failed
+      // action server-side and reports the scene as run regardless.
+      if (parsed.command === 'browse/play_stream') {
+        if (parsed.result === 'fail') {
+          logger.error(
+            `${device.external_id}: HEOS rejected the "Speak on a speaker" stream (eid=${parsed.message?.eid}): ${parsed.message?.text}`,
+          );
+        } else {
+          logger.debug(`${device.external_id}: HEOS accepted the "Speak on a speaker" stream`);
+        }
         return;
       }
 
@@ -947,9 +983,30 @@ export async function runTestConnectionAction(gladys, { fields, config }) {
     (code) => code.value === state.source,
   );
   const sourceIndexText = sourceIndex === -1 ? '?' : sourceIndex;
+
+  // Surfaced here specifically so a user whose "Speak on a speaker"/playback
+  // buttons silently do nothing has one place to check without digging
+  // through debug logs: those features require a matched HEOS player id
+  // (see FEATURE.PLAY_NOTIFICATION/onSetValue()), and a scene swallows a
+  // failed action without showing an error, so this line is often the only
+  // visible confirmation of whether HEOS actually works for this receiver.
+  const heos = heosConnections.get(externalId);
+  const heosStatusEn =
+    heos?.pid != null
+      ? `player id ${heos.pid} matched${heos.client?.isConnected() ? '' : ', but currently disconnected'}`
+      : heos?.client?.isConnected()
+        ? 'connected, but no player id matched — Speak on a speaker will not work on this receiver'
+        : 'not connected (no HEOS module, unreachable, or not confirmed yet)';
+  const heosStatusFr =
+    heos?.pid != null
+      ? `identifiant lecteur ${heos.pid} trouvé${heos.client?.isConnected() ? '' : ', mais actuellement déconnecté'}`
+      : heos?.client?.isConnected()
+        ? 'connecté, mais aucun identifiant lecteur trouvé — Parler sur une enceinte ne fonctionnera pas sur cet ampli'
+        : 'non connecté (pas de module HEOS, injoignable, ou pas encore confirmé)';
+
   return {
-    en: `Power: ${power}, Volume: ${state.volume ?? '?'}%, Mute: ${mute}, Source: ${state.source ?? '?'} (index ${sourceIndexText}), Sound mode: ${state.sound_mode ?? '?'}.`,
-    fr: `Alimentation : ${power}, Volume : ${state.volume ?? '?'}%, Muet : ${mute}, Source : ${state.source ?? '?'} (index ${sourceIndexText}), Mode sonore : ${state.sound_mode ?? '?'}.`,
+    en: `Power: ${power}, Volume: ${state.volume ?? '?'}%, Mute: ${mute}, Source: ${state.source ?? '?'} (index ${sourceIndexText}), Sound mode: ${state.sound_mode ?? '?'}. HEOS: ${heosStatusEn}.`,
+    fr: `Alimentation : ${power}, Volume : ${state.volume ?? '?'}%, Muet : ${mute}, Source : ${state.source ?? '?'} (index ${sourceIndexText}), Mode sonore : ${state.sound_mode ?? '?'}. HEOS : ${heosStatusFr}.`,
   };
 }
 

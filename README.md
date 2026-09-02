@@ -120,7 +120,19 @@ TuneIn...) — see "Playback controls" below.
   playback — since there is no legacy Telnet command that can play an arbitrary URL. **Requires a
   matched HEOS player id** (see "Playback controls" above): a non-HEOS model, or one whose HEOS
   CLI is unreachable, cannot speak at all — `onSetValue()` throws a clear error in that case rather
-  than silently doing nothing. **Volume is not adjustable for the announcement**, even though the
+  than silently doing nothing on this integration's side. That error is nonetheless invisible from
+  the scene that triggered it: checked against Gladys core
+  (`server/lib/scene/scene.executeActions.js`'s `executeAction()`), a thrown action error that
+  isn't an `AbortScene` is caught, `logger.warn()`-logged server-side, and otherwise swallowed —
+  the scene still reports as having run. So a "Speak on a speaker" scene that "seems to work" but
+  produces no sound is the expected shape of this failure, not a sign something else is wrong;
+  see "Playback controls" for the log line confirming a pid match, and note two more diagnostics
+  added specifically for this: the `test_connection` manifest action's reply now ends with a HEOS
+  status line (`player id ... matched` / `no player id matched` / `not connected`), and the HEOS
+  `onMessage` handler now logs the actual `browse/play_stream` response — success, or the
+  receiver's own rejection reason (`eid`/`text`) — since `sendCommand()` only confirms the socket
+  accepted the bytes, never that the receiver could actually play the URL. **Volume is not
+  adjustable for the announcement**, even though the
   scene action's own editor always shows a volume slider: checked against Gladys core
   (`server/lib/external-integration/externalIntegration.registerProxyService.js`), the proxy that
   external (Docker-based) integrations go through only ever forwards `device.setValue`'s `value`

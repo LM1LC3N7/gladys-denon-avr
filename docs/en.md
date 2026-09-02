@@ -157,8 +157,25 @@ reachable, please report it (with the debug logs mentioned below) so it can be f
   there, this receiver's HEOS CLI service (port 1255) wasn't reachable (firewall, older
   non-HEOS model, or HEOS momentarily not ready) and the integration silently fell back to the
   classic commands, which don't reach HEOS-managed sources.
-- **"Speak on a speaker" fails or this AVR doesn't show up in its speaker list**: same HEOS
-  player-id requirement as the playback buttons above — check for the "HEOS player id ... matched"
-  debug log line. It never appears at all in that scene action's dropdown until the device has
-  been created in Gladys with the current image version (see "Re-publishing a device" note under
-  Discovery if you added this AVR before this feature shipped).
+- **"Speak on a speaker" doesn't show up in the speaker list at all**: the device was likely
+  created before this feature shipped — open this integration's Discovery tab, scan, and click
+  **Update** on the device (see "Re-publishing a device" under Discovery).
+- **The scene runs with no error, but nothing plays on the Denon**: this is normal-looking on the
+  Gladys side even on failure — a scene logs a failed action and reports as having run either way,
+  it never surfaces an error to the user for this particular action. Check, in order:
+  1. Run **Test connection** from this integration's Configuration screen: its reply now ends with
+     a line like `HEOS: player id 12345 matched` or `HEOS: not connected`/`no player id matched`.
+     Anything other than "player id ... matched" means HEOS itself is the problem — same
+     requirement, same causes as the playback buttons above (firewalled port 1255, older non-HEOS
+     model, or HEOS not ready yet after a restart).
+  2. If HEOS is connected but reports **no player id matched**, check the debug logs for a line
+     naming the IPs HEOS actually sees (`HEOS reports: ...`) — a receiver with more than one
+     network interface (Ethernet + Wi-Fi) can advertise a different address to HEOS than the one
+     this integration is using, which prevents the match forever.
+  3. If a player id **is** matched, check the debug logs for the outcome of the stream itself: a
+     line saying HEOS _rejected_ the stream (with an error code/text from the receiver) means the
+     TTS URL wasn't playable as far as the receiver is concerned (unreachable from the receiver's
+     own network, wrong format...); a line saying HEOS _accepted_ it but you still heard nothing
+     points at the receiver itself — check it isn't muted, check its volume, and note that some
+     firmwares stay silent on a stream started while the amp was powered fully off rather than in
+     Network Standby.
