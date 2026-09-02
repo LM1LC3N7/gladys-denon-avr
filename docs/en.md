@@ -98,7 +98,7 @@ known HEOS behavior on an idle connection).
 cross-checked against the library behind Home Assistant's official HEOS integration — not tested
 by the developer against a live HEOS streaming session, since that requires an actual paid
 streaming account. If the buttons don't do anything on your setup even though the receiver is
-reachable, please report it (with the debug logs mentioned below) so it can be fixed.
+reachable, please report it (with the logs mentioned below) so it can be fixed.
 
 ## Prerequisites
 
@@ -147,12 +147,22 @@ reachable, please report it (with the debug logs mentioned below) so it can be f
 - **Receiver unreachable while powered off**: enable Network Standby / ECO standby in the
   receiver's setup menu (see Prerequisites).
 - The integration logs everything it does: check the integration logs from the Gladys UI (or
-  `docker logs` on the host) with `LOG_LEVEL=debug` for the full detail, including every Telnet
-  line sent and received.
+  `docker logs` on the host). Note that Gladys itself has no way to set `LOG_LEVEL=debug` on an
+  installed integration's container (it isn't one of the fixed environment variables Gladys sets,
+  nor a config field) — that flag only applies when running this integration yourself outside
+  Gladys (see "Run it locally" in the developer README). Every log line that actually matters for
+  troubleshooting (a receiver connecting, a HEOS player id being matched, a "Speak on a speaker"
+  stream being accepted or rejected...) is deliberately kept at `info` level or above for exactly
+  this reason, so it shows up without `debug`; only the very verbose Telnet-line-by-line detail is
+  `debug`-only and effectively out of reach from a normal Gladys install.
 - **Sound mode, playback buttons or now-playing don't work as expected**: these rely on parts of
   the protocol that vary more across models/firmware than power/volume/mute/source. Compare what
-  your remote actually sends against what this integration expects using the debug logs above.
-- **Playback buttons still do nothing on Qobuz/Spotify Connect/TIDAL**: check the debug logs for
+  your remote actually sends against what this integration expects — since the raw line-by-line
+  detail needed for that is `debug`-only (see above), use
+  [`scripts/debug-telnet.js`](../scripts/debug-telnet.js)/
+  [`scripts/debug-heos.js`](../scripts/debug-heos.js) directly against the receiver instead of the
+  container logs.
+- **Playback buttons still do nothing on Qobuz/Spotify Connect/TIDAL**: check the logs for
   a line mentioning "HEOS player id ... matched" shortly after the AVR connects — if it's not
   there, this receiver's HEOS CLI service (port 1255) wasn't reachable (firewall, older
   non-HEOS model, or HEOS momentarily not ready) and the integration silently fell back to the
@@ -168,11 +178,11 @@ reachable, please report it (with the debug logs mentioned below) so it can be f
      Anything other than "player id ... matched" means HEOS itself is the problem — same
      requirement, same causes as the playback buttons above (firewalled port 1255, older non-HEOS
      model, or HEOS not ready yet after a restart).
-  2. If HEOS is connected but reports **no player id matched**, check the debug logs for a line
+  2. If HEOS is connected but reports **no player id matched**, check the logs for a line
      naming the IPs HEOS actually sees (`HEOS reports: ...`) — a receiver with more than one
      network interface (Ethernet + Wi-Fi) can advertise a different address to HEOS than the one
      this integration is using, which prevents the match forever.
-  3. If a player id **is** matched, check the debug logs for the outcome of the stream itself: a
+  3. If a player id **is** matched, check the logs for the outcome of the stream itself: a
      line saying HEOS _rejected_ the stream (with an error code/text from the receiver) means the
      TTS URL wasn't playable as far as the receiver is concerned (unreachable from the receiver's
      own network, wrong format...); a line saying HEOS _accepted_ it but you still heard nothing
