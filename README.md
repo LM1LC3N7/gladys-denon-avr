@@ -131,7 +131,16 @@ TuneIn...) — see "Playback controls" below.
   status line (`player id ... matched` / `no player id matched` / `not connected`), and the HEOS
   `onMessage` handler now logs the actual `browse/play_stream` response — success, or the
   receiver's own rejection reason (`eid`/`text`) — since `sendCommand()` only confirms the socket
-  accepted the bytes, never that the receiver could actually play the URL. **Volume is not
+  accepted the bytes, never that the receiver could actually play the URL. Even a logged HEOS
+  `result: success` used to not be proof of anything either: `buildPlayStreamCommand()`
+  (`src/heos/protocol.js`) originally percent-encoded the `url` parameter, which real-hardware
+  testing showed a receiver will happily accept (registering a generic "Url Stream" placeholder in
+  its queue) and then never actually fetch — `get_play_state` stays `stop` forever, no matter the
+  input source, power, volume, or mute state. Root-caused against `pyheos`'s own `HeosCommand`
+  query encoder (`message.py`): the HEOS CLI spec requires `url` to be the last parameter and sent
+  **raw, never percent-encoded** — that positional rule, not encoding, is what lets an `&`/`?`
+  inside the URL coexist with `pid=` before it. Fixed; `pid` must stay first if any parameter is
+  ever added after this. **Volume is not
   adjustable for the announcement**, even though the
   scene action's own editor always shows a volume slider: checked against Gladys core
   (`server/lib/external-integration/externalIntegration.registerProxyService.js`), the proxy that

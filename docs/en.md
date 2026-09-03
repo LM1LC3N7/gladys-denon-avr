@@ -185,7 +185,10 @@ reachable, please report it (with the logs mentioned below) so it can be fixed.
   3. If a player id **is** matched, check the logs for the outcome of the stream itself: a
      line saying HEOS _rejected_ the stream (with an error code/text from the receiver) means the
      TTS URL wasn't playable as far as the receiver is concerned (unreachable from the receiver's
-     own network, wrong format...); a line saying HEOS _accepted_ it but you still heard nothing
-     points at the receiver itself — check it isn't muted, check its volume, and note that some
-     firmwares stay silent on a stream started while the amp was powered fully off rather than in
-     Network Standby.
+     own network, wrong format...). A line saying HEOS _accepted_ it and you still hear nothing
+     should not happen any more (confirmed and fixed on real hardware: an earlier version
+     percent-encoded the stream URL, which some receivers accept without complaint — result:
+     success, a generic "Url Stream" placeholder even shows up as the current track — and then
+     never actually fetch, so nothing plays no matter the input, power, volume, or mute state; see
+     the developer README's "Speak on a speaker" section for the root cause). If it still happens
+     on an up-to-date install, please report it.

@@ -101,11 +101,20 @@ export function buildGetNowPlayingMediaCommand(pid) {
  * (`ACTIONS.MUSIC.PLAY_NOTIFICATION`): the core hands the integration a
  * ready-made TTS file URL (`self.gateway.getTTSApiUrl()`) and expects it
  * played immediately — see FEATURE.PLAY_NOTIFICATION in ../devices/avr.js.
- * `url` must be query-encoded: an unencoded `&`/`?` inside it (a signed TTS
- * URL, for instance) would otherwise be parsed as extra HEOS parameters.
+ *
+ * `url` is sent RAW, never percent-encoded — confirmed on real hardware
+ * (an encoded URL was silently accepted by the receiver, registered a
+ * generic "Url Stream" placeholder in its queue, and then never actually
+ * played: `get_play_state` stayed `stop` forever) and against `pyheos`'s own
+ * `HeosCommand` query encoder (`message.py`): every other parameter gets a
+ * minimal `&`/`=`/`%` escape, but `url` is explicitly exempted and MUST be
+ * the last parameter in the command instead — that positional rule, not
+ * percent-encoding, is what lets an `&`/`?` inside the URL coexist with the
+ * `pid=` parameter before it, since nothing follows `url=` for a receiver
+ * parsing left-to-right to misinterpret. `pid` therefore must stay first.
  */
 export function buildPlayStreamCommand(pid, url) {
-  return `browse/play_stream?pid=${pid}&url=${encodeURIComponent(url)}`;
+  return `browse/play_stream?pid=${pid}&url=${url}`;
 }
 
 /**
