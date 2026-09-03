@@ -209,6 +209,16 @@ export function heosPlayStateToPlaybackState(state) {
  * Returns `null` when there's nothing playing (a station with no song
  * metadata yet, an empty payload...), so callers can tell "know it's
  * blank" apart from "haven't asked yet".
+ *
+ * `artist` falls back to HEOS's own separate `station` field (confirmed on
+ * real hardware) when the receiver doesn't report one: many internet radio
+ * streams carry no ICY/ID3 metadata, so `song` ends up holding a generic
+ * stream description ("63 kbps aac") instead of an actual track, and
+ * `artist` is empty — leaving Gladys' "Now playing" showing just
+ * "63 kbps aac" with no indication of which station that even is, while the
+ * receiver's own front display shows the station name it has separately
+ * (e.g. "Oui FM"). Only used as a fallback, never overwriting a real artist
+ * HEOS did report (a station playing an actual tagged track).
  */
 export function parseNowPlayingMedia(payload) {
   if (!payload || typeof payload !== 'object') {
@@ -216,8 +226,9 @@ export function parseNowPlayingMedia(payload) {
   }
   const title = typeof payload.song === 'string' ? payload.song.trim() : '';
   const artist = typeof payload.artist === 'string' ? payload.artist.trim() : '';
-  if (!title && !artist) {
+  const station = typeof payload.station === 'string' ? payload.station.trim() : '';
+  if (!title && !artist && !station) {
     return null;
   }
-  return { title, artist };
+  return { title, artist: artist || station };
 }

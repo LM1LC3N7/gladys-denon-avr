@@ -40,6 +40,9 @@ These show up per receiver:
   actual control path for HEOS-managed sources like Qobuz or Spotify Connect — see "HEOS support"
   below.
 - **Now playing** — a read-only "Artist - Title" line, filled in automatically while streaming.
+  For an internet radio station with no track metadata, the "Artist" slot falls back to the
+  station's own name (e.g. "Oui FM") — the same name the receiver's front display shows — instead
+  of staying blank next to a generic stream description like "63 kbps aac".
 - **Play notification** — backs Gladys' built-in **"Speak on a speaker"** scene action: pick this
   AVR from that action's speaker dropdown and it reads your text out loud. Requires HEOS (see
   "HEOS support" below) — there is no legacy-Telnet way to play an arbitrary audio URL, so this

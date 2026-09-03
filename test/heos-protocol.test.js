@@ -144,3 +144,24 @@ test('parseNowPlayingMedia: tolerates a title with no artist, or an artist with 
     artist: 'Norah Jones',
   });
 });
+
+test("parseNowPlayingMedia: falls back to HEOS's own station field when the receiver reports no artist", () => {
+  // Real-world case: an internet radio stream with no ICY/ID3 metadata —
+  // `song` ends up holding a generic stream description, not a track, and
+  // `artist` is empty; `station` is the only field carrying the actual
+  // station name (matches what the receiver's own front display shows).
+  assert.deepEqual(parseNowPlayingMedia({ song: '63 kbps aac', artist: '', station: 'Oui FM' }), {
+    title: '63 kbps aac',
+    artist: 'Oui FM',
+  });
+  // A real artist HEOS did report is never overwritten by the station name.
+  assert.deepEqual(
+    parseNowPlayingMedia({ song: 'Come Away With Me', artist: 'Norah Jones', station: 'Oui FM' }),
+    { title: 'Come Away With Me', artist: 'Norah Jones' },
+  );
+  // station alone (no song/artist at all) still counts as "something playing".
+  assert.deepEqual(parseNowPlayingMedia({ station: 'Oui FM' }), {
+    title: '',
+    artist: 'Oui FM',
+  });
+});

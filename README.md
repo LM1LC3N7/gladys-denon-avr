@@ -74,7 +74,13 @@ TuneIn...) — see "Playback controls" below.
 - **Now playing**: a read-only "Artist - Title" line. Same two-path split as the buttons above:
   HEOS's `get_now_playing_media`/`event/player_now_playing_changed` when a `pid` is matched,
   otherwise the legacy `NSE1`/`NSE2` Telnet lines — HEOS-managed sources generally don't push
-  those either, same root cause as the buttons.
+  those either, same root cause as the buttons. When HEOS is the source, the `artist` slot falls
+  back to HEOS's own separate `station` payload field (`parseNowPlayingMedia()` in
+  `src/heos/protocol.js`) whenever HEOS doesn't report a real artist — confirmed on real hardware:
+  an internet radio stream with no ICY/ID3 metadata otherwise showed just a generic stream
+  description ("63 kbps aac") with no indication of which station, even though the receiver's own
+  front display shows the station name (e.g. "Oui FM") it gets from that same field. Never
+  overwrites an artist HEOS did report.
 - **Playback state / now-playing refresh**: once a HEOS `pid` is matched, it becomes the
   _authoritative_ source for `MUSIC.PLAYBACK_STATE` and "Now playing" — the legacy `NSE0`/`NSE1`/
   `NSE2` lines are ignored for those two features from then on (they don't track HEOS-managed
