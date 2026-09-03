@@ -483,6 +483,36 @@ test('onSetValue plays a notification URL via HEOS browse/play_stream when a pla
   assert.deepEqual(telnet.sent, []);
 });
 
+test('onSetValue plays a notification even with no Telnet session at all (a HEOS-only speaker like Denon Home)', async () => {
+  // Real-hardware feedback: a Denon Home speaker has no "AVR Control"
+  // Telnet service whatsoever (port 23 actively refused) — it only ever
+  // speaks HEOS. FEATURE.PLAY_NOTIFICATION must not require a Telnet
+  // session at all, unlike every other feature in this file.
+  const device = buildDiscoveredDevice(gladys, DISCOVERED);
+  // Deliberately no __setConnectionForTesting(): connections.get() returns
+  // undefined for this device, matching a Telnet session that never connects.
+
+  const heosSent = [];
+  __setHeosConnectionForTesting(device.external_id, {
+    pid: 12345,
+    client: {
+      sendCommand: (commandPath) => {
+        heosSent.push(commandPath);
+        return true;
+      },
+      isConnected: () => true,
+    },
+  });
+
+  const feature = { external_id: featureExternalId(device.external_id, FEATURE.PLAY_NOTIFICATION) };
+  await onSetValue(gladys, { device, feature, value: 'https://tts.example.com/announcement.mp3' });
+
+  assert.equal(
+    heosSent.at(-1),
+    'browse/play_stream?pid=12345&url=https://tts.example.com/announcement.mp3',
+  );
+});
+
 test('onSetValue throws for a notification when no HEOS player id is matched or HEOS is disconnected', async () => {
   const device = buildDiscoveredDevice(gladys, DISCOVERED);
   const telnet = createFakeTelnetClient();

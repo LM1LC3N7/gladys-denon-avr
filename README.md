@@ -155,8 +155,14 @@ TuneIn...) — see "Playback controls" below.
   WebSocket, unlike the in-process built-in services (Sonos, Google Cast, AirPlay) that get it as
   a normal function argument. The announcement plays at the receiver's current volume; there is no
   way for this integration to see or act on the slider's value.
-
-## Scene automation
+  **Works on a HEOS-only speaker (Denon Home, HEOS 1/3/5/7, Bar...) added through the manual IP
+  fallback**, not just a real AV receiver: `onSetValue()` dispatches this feature before its
+  Telnet-connectivity check, not after, specifically because a pure HEOS speaker has no "AVR
+  Control" Telnet service at all (port 23 is actively refused — confirmed on real hardware, a
+  Denon Home 150) and would otherwise never be able to speak despite its HEOS CLI being perfectly
+  reachable. This is a narrow, deliberate exception: every other feature this integration declares
+  (Power, Volume, Source...) still requires Telnet and simply won't work on that kind of device —
+  see the "v1 scope" note below.
 
 A scene's generic **"Control a device"** action (`ACTIONS.DEVICE.SET_VALUE` in Gladys core) is
 the only way to set `Source`/`Sound mode` from a scene — there is no scene-action type for a
@@ -399,6 +405,14 @@ HEOS-specific features beyond play/pause/next/previous (grouping, queue browsing
 player...), and an HTTP fallback control channel — see the design notes at the top of
 [`src/devices/avr.js`](./src/devices/avr.js) and
 [`src/denon/discovery.js`](./src/denon/discovery.js).
+
+This integration targets AV receivers, not standalone HEOS speakers (Denon Home, HEOS 1/3/5/7,
+Bar, Subwoofer...): those have no "AVR Control" Telnet service at all, so Power, Volume, Mute,
+Source and everything else built on `src/denon/protocol.js` simply cannot work against one, no
+matter how it's added. **Speak on a speaker is the sole, deliberate exception** — it's pure HEOS,
+so it works on either kind of device — see the note on it above. Full support for HEOS speakers as
+their own device type (their own discovery, their own HEOS-native feature set for Power/Volume/
+playback) is a separate, bigger piece of work, not attempted here.
 
 Every other generic Gladys scene action that could plausibly target this kind of device
 (`server/utils/constants.js`'s `ACTIONS` map in Gladys core) was checked against what this

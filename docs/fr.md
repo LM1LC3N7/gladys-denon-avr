@@ -55,7 +55,12 @@ Voici ce qui apparaît par ampli :
   fonctionne qu'une fois qu'un identifiant de lecteur HEOS a été trouvé pour cet ampli. Le curseur
   de volume de cette action de scène n'a aucun effet ici : Gladys ne le transmet pas à ce type
   d'intégration (une limitation du cœur de Gladys, pas quelque chose que cette intégration peut
-  contourner) — l'annonce est lue au volume actuel de l'ampli.
+  contourner) — l'annonce est lue au volume actuel de l'ampli. C'est aussi la seule fonctionnalité
+  de cette page qui fonctionne sur une enceinte HEOS autonome (Denon Home, HEOS 1/3/5/7, Bar...)
+  ajoutée via l'IP manuelle dans la Configuration, et pas seulement sur un vrai ampli-tuner — tout
+  le reste ici (alimentation, volume, source...) nécessite le service Telnet « AVR Control » que
+  ces enceintes n'ont pas, donc cette intégration ne fonctionnera sinon pas du tout avec ce type
+  d'appareil.
 - **Télécommande du menu de configuration** — curseur Haut/Bas/Gauche/Droite, Entrée, Retour,
   Info, Menu et Volume +/- relatif, affichés comme boutons cliquables directement dans la liste
   d'appareils (pas besoin d'une carte de tableau de bord supplémentaire). Pratique pour naviguer
