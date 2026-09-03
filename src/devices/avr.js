@@ -844,12 +844,39 @@ export function disconnectAllDevices() {
  * unchanged; index.js passes its live, hot-reloaded config through.
  */
 export async function onSetValue(gladys, { device, feature, value, config }) {
+  const key = feature.external_id.slice(device.external_id.length + 1);
+
+  // FEATURE.PLAY_NOTIFICATION is purely HEOS — there is no legacy Telnet
+  // fallback for it at all (see its own branch below) — so it must be
+  // dispatched before the Telnet connectivity gate, not after. Real-hardware
+  // feedback: a HEOS-only speaker (Denon Home, no "AVR Control" service at
+  // all — Telnet on port 23 is actively refused, `ECONNREFUSED`, which is
+  // simply what that product category is) added via the manual IP fallback
+  // could never speak, even though its HEOS CLI was perfectly reachable,
+  // purely because this function used to require Telnet for every feature
+  // indiscriminately. Every other feature below is still Telnet-based (or,
+  // for the transport buttons, HEOS-with-a-Telnet-fallback) and keeps the
+  // gate right where it was.
+  if (key === FEATURE.PLAY_NOTIFICATION) {
+    // `value` is the TTS audio file URL Gladys core already rendered — see
+    // the feature comment in buildFeatures().
+    const heos = heosConnections.get(device.external_id);
+    if (!heos?.pid || !heos.client?.isConnected()) {
+      throw new Error(
+        `${device.external_id}: cannot speak, HEOS is not connected or this receiver has no matched player id`,
+      );
+    }
+    if (!heos.client.sendCommand(buildPlayStreamCommand(heos.pid, value))) {
+      throw new Error(`Failed to send HEOS play_stream command to ${device.external_id}`);
+    }
+    return;
+  }
+
   const telnet = connections.get(device.external_id);
   if (!telnet || !telnet.isConnected()) {
     throw new Error(`${device.external_id} is not connected`);
   }
 
-  const key = feature.external_id.slice(device.external_id.length + 1);
   let command;
   if (key === FEATURE.POWER) {
     command = buildPowerCommand(value === 1);
@@ -932,21 +959,6 @@ export async function onSetValue(gladys, { device, feature, value, config }) {
           : key === FEATURE.NEXT
             ? buildNextCommand()
             : buildPreviousCommand();
-  } else if (key === FEATURE.PLAY_NOTIFICATION) {
-    // Unlike the transport buttons above, there is no legacy Telnet
-    // fallback: playing an arbitrary TTS URL only exists as a HEOS concept
-    // (browse/play_stream). `value` is the TTS audio file URL Gladys core
-    // already rendered — see the feature comment in buildFeatures().
-    const heos = heosConnections.get(device.external_id);
-    if (!heos?.pid || !heos.client?.isConnected()) {
-      throw new Error(
-        `${device.external_id}: cannot speak, HEOS is not connected or this receiver has no matched player id`,
-      );
-    }
-    if (!heos.client.sendCommand(buildPlayStreamCommand(heos.pid, value))) {
-      throw new Error(`Failed to send HEOS play_stream command to ${device.external_id}`);
-    }
-    return;
   } else {
     throw new Error(`Feature "${key}" is not controllable`);
   }

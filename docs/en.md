@@ -49,7 +49,11 @@ These show up per receiver:
   only appears/works once a HEOS player id has been matched for this receiver. The volume slider
   in that scene action has no effect here: Gladys does not forward it to this kind of integration
   (a core limitation, not something this integration can work around) — the announcement plays at
-  the receiver's current volume.
+  the receiver's current volume. This is also the one feature here that works on a standalone HEOS
+  speaker (Denon Home, HEOS 1/3/5/7, Bar...) added through the manual IP fallback in
+  Configuration, not just a real AV receiver — everything else on this page (Power, Volume,
+  Source...) still needs the Telnet-based "AVR Control" service those speakers don't have, so this
+  integration otherwise won't work with one at all.
 - **Setup-menu remote control** — cursor Up/Down/Left/Right, Enter, Return, Info, Menu and
   relative Volume Up/Down, shown as clickable buttons directly in the device list (no extra
   dashboard box needed). Handy for navigating the receiver's on-screen Setup menu from Gladys
