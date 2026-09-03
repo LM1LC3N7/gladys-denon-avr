@@ -6,8 +6,8 @@
     "en": "Control a Denon or Marantz AV receiver: power, volume, mute, source — auto-discovered, no cloud.",
     "fr": "Contrôlez un ampli Denon ou Marantz : alimentation, volume, muet, source — découverte automatique."
   },
-  "version": "1.0.14",
-  "docker_image": "ghcr.io/lm1lc3n7/gladys-denon-avr:1.0.14",
+  "version": "1.0.15",
+  "docker_image": "ghcr.io/lm1lc3n7/gladys-denon-avr:1.0.15",
   "gladys_version": ">=4.86.1",
   "categories": ["multimedia"],
   "transports": ["local"],
