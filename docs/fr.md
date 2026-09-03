@@ -208,8 +208,11 @@ que ce soit corrigé.
   3. Si un identifiant lecteur **est** trouvé, regardez dans les logs le résultat du
      flux lui-même : une ligne indiquant que HEOS a _rejeté_ le flux (avec un code d'erreur/texte
      venant de l'ampli) signifie que l'URL de synthèse vocale n'était pas lisible du point de vue
-     de l'ampli (injoignable depuis le réseau de l'ampli, format non supporté...) ; une ligne
-     indiquant que HEOS l'a _acceptée_ alors que vous n'entendez toujours rien pointe vers l'ampli
-     lui-même — vérifiez qu'il n'est pas en muet, vérifiez son volume, et notez que certains
-     firmwares restent silencieux sur un flux démarré alors que l'ampli était complètement éteint
-     plutôt qu'en veille réseau.
+     de l'ampli (injoignable depuis le réseau de l'ampli, format non supporté...). Une ligne
+     indiquant que HEOS l'a _acceptée_ alors que vous n'entendez toujours rien ne devrait plus se
+     produire (confirmé et corrigé sur du matériel réel : une version précédente encodait l'URL du
+     flux, ce que certains amplis acceptent sans broncher — succès annoncé, un « Url Stream »
+     générique apparaît même comme piste en cours — sans jamais réellement la récupérer, donc rien
+     ne joue quels que soient l'entrée, l'alimentation, le volume ou l'état muet ; voir la section
+     « Speak on a speaker » du README développeur pour la cause exacte). Si ça se reproduit avec
+     une installation à jour, merci de le signaler.

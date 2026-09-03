@@ -46,14 +46,19 @@ test('command builders produce the exact heos:// path (without the scheme, added
   );
 });
 
-test('buildPlayStreamCommand URL-encodes the stream URL so its own query string cannot be mistaken for HEOS parameters', () => {
+test('buildPlayStreamCommand sends the URL raw, as the last parameter, per the HEOS CLI spec', () => {
+  // Confirmed on real hardware: a percent-encoded URL was silently accepted
+  // (result: success) but never actually played (get_play_state stuck on
+  // "stop" forever) — pyheos's own HeosCommand query encoder exempts `url`
+  // from its minimal escaping and requires it last, precisely so an `&`/`?`
+  // inside the URL is never mistaken for another HEOS parameter.
   assert.equal(
     buildPlayStreamCommand(12345, 'https://tts.example.com/say.mp3'),
-    'browse/play_stream?pid=12345&url=https%3A%2F%2Ftts.example.com%2Fsay.mp3',
+    'browse/play_stream?pid=12345&url=https://tts.example.com/say.mp3',
   );
   assert.equal(
     buildPlayStreamCommand(12345, 'https://tts.example.com/say.mp3?token=abc&voice=fr'),
-    'browse/play_stream?pid=12345&url=https%3A%2F%2Ftts.example.com%2Fsay.mp3%3Ftoken%3Dabc%26voice%3Dfr',
+    'browse/play_stream?pid=12345&url=https://tts.example.com/say.mp3?token=abc&voice=fr',
   );
 });
 

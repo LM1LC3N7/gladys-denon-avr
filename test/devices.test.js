@@ -477,7 +477,7 @@ test('onSetValue plays a notification URL via HEOS browse/play_stream when a pla
 
   assert.equal(
     heosSent.at(-1),
-    'browse/play_stream?pid=12345&url=https%3A%2F%2Ftts.example.com%2Fannouncement.mp3%3Ftoken%3Dabc%26x%3D1',
+    'browse/play_stream?pid=12345&url=https://tts.example.com/announcement.mp3?token=abc&x=1',
   );
   // Never touches the legacy Telnet session: no NS9x/other equivalent exists.
   assert.deepEqual(telnet.sent, []);
