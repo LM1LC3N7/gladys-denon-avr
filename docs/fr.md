@@ -44,7 +44,10 @@ Voici ce qui apparaît par ampli :
   fonctionne réellement pour les sources gérées par HEOS comme Qobuz ou Spotify Connect — voir
   « Support HEOS » ci-dessous.
 - **En cours de lecture** — une ligne « Artiste - Titre » en lecture seule, renseignée
-  automatiquement pendant la lecture en streaming.
+  automatiquement pendant la lecture en streaming. Pour une radio internet sans métadonnées de
+  morceau, le champ « Artiste » reprend le nom de la station elle-même (ex. « Oui FM ») — le même
+  nom que celui affiché sur l'écran de l'ampli — plutôt que de rester vide à côté d'une simple
+  description technique du flux comme « 63 kbps aac ».
 - **Diffuser une notification** — alimente l'action de scène native de Gladys **« Parler sur une
   enceinte »** : choisissez cet ampli dans le menu déroulant des enceintes de cette action, et il
   lira votre texte à voix haute. Nécessite HEOS (voir « Support HEOS » ci-dessous) — il n'existe
