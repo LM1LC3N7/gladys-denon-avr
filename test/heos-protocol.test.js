@@ -13,6 +13,7 @@ import {
   buildPlayPreviousCommand,
   buildGetNowPlayingMediaCommand,
   buildPlayStreamCommand,
+  buildClearQueueCommand,
   buildRegisterForChangeEventsCommand,
   parseMessage,
   findPlayerIdByIp,
@@ -60,6 +61,10 @@ test('buildPlayStreamCommand sends the URL raw, as the last parameter, per the H
     buildPlayStreamCommand(12345, 'https://tts.example.com/say.mp3?token=abc&voice=fr'),
     'browse/play_stream?pid=12345&url=https://tts.example.com/say.mp3?token=abc&voice=fr',
   );
+});
+
+test('buildClearQueueCommand builds the exact protocol string', () => {
+  assert.equal(buildClearQueueCommand(12345), 'player/clear_queue?pid=12345');
 });
 
 test('parseMessage: a get_players response, message and payload parsed', () => {

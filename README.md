@@ -22,7 +22,18 @@ TuneIn...) — see "Playback controls" below.
   otherwise never shows the **Update** button that applies them — see "Re-publishing a device"
   in the SDK README for why a config/image change alone never does.
 - **Power / Volume / Mute**: controllable features (`TELEVISION` category), fed in real time by
-  the Telnet session the receiver itself pushes state changes to — no polling.
+  the Telnet session the receiver itself pushes state changes to — no polling. **Volume: 25% and
+  75% can never be displayed as themselves** — confirmed on real hardware (a slider that "jumps
+  from 24% to 26%, can't land on 25%") and in the math: `percentToDenonVolume()`/
+  `denonVolumeToPercent()` (`src/denon/protocol.js`) round-trip a plain 0-100 percent through the
+  receiver's raw 0-`DENON_VOLUME_MAX` (98) scale, and compressing 101 possible percent values onto
+  99 raw ones forces at least two collisions (pigeonhole principle) — raw `25` is the value both
+  25% and 26% round to, but it reads back as 26%, so setting 25% is immediately overwritten by the
+  receiver's own echo of what it actually did. This is an inherent consequence of the hardware only
+  having 99 discrete volume steps for a 101-position percent scale, not a rounding bug to fix — the
+  "gap" can be moved but never removed. The exact two percents affected depend on
+  `DENON_VOLUME_MAX`, which is itself a generic default (see the comment above it), so don't expect
+  25/75 to necessarily be the affected pair on every model/configuration.
 - **Input source**: a dropdown on the dashboard, backed by `TEXT.SELECT` +
   `supported_options` (the receiver's own SI codes) — **not** the generic `TELEVISION.SOURCE`
   type, which Gladys' front-end renders as a one-shot remote-control button with no way to pick
@@ -146,7 +157,16 @@ TuneIn...) — see "Playback controls" below.
   query encoder (`message.py`): the HEOS CLI spec requires `url` to be the last parameter and sent
   **raw, never percent-encoded** — that positional rule, not encoding, is what lets an `&`/`?`
   inside the URL coexist with `pid=` before it. Fixed; `pid` must stay first if any parameter is
-  ever added after this. **Volume is not
+  ever added after this. **Each announcement clears the HEOS queue first**
+  (`buildClearQueueCommand()`, `player/clear_queue?pid=<pid>`, sent right before
+  `browse/play_stream`): also confirmed on real hardware, `browse/play_stream` appends to the
+  queue rather than replacing it despite the HEOS protocol spec documenting "Play URL" as its own
+  command distinct from the explicit "add to queue" ones — triggering this scene action more than
+  once in quick succession queued every announcement instead of replacing the previous one, so a
+  receiver still working through announcement #1 would play it, then #2, then #3..., each stacking
+  behind the last rather than the latest one winning. The accepted tradeoff: this also clears any
+  other HEOS content genuinely queued (a playlist mid-playback), the same disruption any
+  announcement system causes by interrupting regular playback. **Volume is not
   adjustable for the announcement**, even though the
   scene action's own editor always shows a volume slider: checked against Gladys core
   (`server/lib/external-integration/externalIntegration.registerProxyService.js`), the proxy that

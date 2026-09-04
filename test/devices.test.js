@@ -475,12 +475,44 @@ test('onSetValue plays a notification URL via HEOS browse/play_stream when a pla
     value: 'https://tts.example.com/announcement.mp3?token=abc&x=1',
   });
 
-  assert.equal(
-    heosSent.at(-1),
+  // Queue cleared first — see the comment on buildClearQueueCommand() for
+  // why: browse/play_stream appends rather than replaces, so without this
+  // a second announcement would queue behind the first instead of
+  // replacing it (confirmed on real hardware).
+  assert.deepEqual(heosSent, [
+    'player/clear_queue?pid=12345',
     'browse/play_stream?pid=12345&url=https://tts.example.com/announcement.mp3?token=abc&x=1',
-  );
+  ]);
   // Never touches the legacy Telnet session: no NS9x/other equivalent exists.
   assert.deepEqual(telnet.sent, []);
+});
+
+test('onSetValue clears the HEOS queue before every notification, so repeated scene triggers never stack', async () => {
+  const device = buildDiscoveredDevice(gladys, DISCOVERED);
+  __setConnectionForTesting(device.external_id, createFakeTelnetClient());
+
+  const heosSent = [];
+  __setHeosConnectionForTesting(device.external_id, {
+    pid: 12345,
+    client: {
+      sendCommand: (commandPath) => {
+        heosSent.push(commandPath);
+        return true;
+      },
+      isConnected: () => true,
+    },
+  });
+
+  const feature = { external_id: featureExternalId(device.external_id, FEATURE.PLAY_NOTIFICATION) };
+  await onSetValue(gladys, { device, feature, value: 'https://tts.example.com/one.mp3' });
+  await onSetValue(gladys, { device, feature, value: 'https://tts.example.com/two.mp3' });
+
+  assert.deepEqual(heosSent, [
+    'player/clear_queue?pid=12345',
+    'browse/play_stream?pid=12345&url=https://tts.example.com/one.mp3',
+    'player/clear_queue?pid=12345',
+    'browse/play_stream?pid=12345&url=https://tts.example.com/two.mp3',
+  ]);
 });
 
 test('onSetValue plays a notification even with no Telnet session at all (a HEOS-only speaker like Denon Home)', async () => {
@@ -507,10 +539,10 @@ test('onSetValue plays a notification even with no Telnet session at all (a HEOS
   const feature = { external_id: featureExternalId(device.external_id, FEATURE.PLAY_NOTIFICATION) };
   await onSetValue(gladys, { device, feature, value: 'https://tts.example.com/announcement.mp3' });
 
-  assert.equal(
-    heosSent.at(-1),
+  assert.deepEqual(heosSent, [
+    'player/clear_queue?pid=12345',
     'browse/play_stream?pid=12345&url=https://tts.example.com/announcement.mp3',
-  );
+  ]);
 });
 
 test('onSetValue throws for a notification when no HEOS player id is matched or HEOS is disconnected', async () => {

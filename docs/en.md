@@ -15,6 +15,9 @@ These show up per receiver:
 
 - **Power** — on/off, controllable.
 - **Volume** — 0-100%, controllable (mapped from the receiver's internal -80 dB to +18 dB scale).
+  Confirmed on real hardware: one specific percent (25% on the default scale) can never stay put —
+  setting it snaps to 26% instead. This is a genuine hardware limit (the receiver only has 99
+  discrete volume steps for the 101 possible percent values), not a bug this integration can fix.
 - **Mute** — on/off, controllable.
 - **Source** — a dropdown of the receiver's input codes (e.g. `TUNER`, `BD`, `NET`), directly on
   the dashboard. The **Select input** action described below does the exact same thing and stays
@@ -53,7 +56,10 @@ These show up per receiver:
   speaker (Denon Home, HEOS 1/3/5/7, Bar...) added through the manual IP fallback in
   Configuration, not just a real AV receiver — everything else on this page (Power, Volume,
   Source...) still needs the Telnet-based "AVR Control" service those speakers don't have, so this
-  integration otherwise won't work with one at all.
+  integration otherwise won't work with one at all. Triggering this scene action repeatedly in
+  quick succession replaces whatever is currently speaking rather than queuing behind it — the
+  queue is cleared before every announcement, confirmed necessary on real hardware (without it,
+  a burst of announcements played back one after another instead of just the last one).
 - **Setup-menu remote control** — cursor Up/Down/Left/Right, Enter, Return, Info, Menu and
   relative Volume Up/Down, shown as clickable buttons directly in the device list (no extra
   dashboard box needed). Handy for navigating the receiver's on-screen Setup menu from Gladys

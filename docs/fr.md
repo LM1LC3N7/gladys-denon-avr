@@ -16,6 +16,10 @@ Voici ce qui apparaît par ampli :
 
 - **Alimentation** — marche/arrêt, contrôlable.
 - **Volume** — 0-100 %, contrôlable (converti depuis l'échelle interne de l'ampli, -80 dB à +18 dB).
+  Confirmé sur du matériel réel : un pourcentage précis (25 % sur l'échelle par défaut) ne peut
+  jamais rester tel quel — le régler bascule immédiatement à 26 %. C'est une vraie limite
+  matérielle (l'ampli n'a que 99 crans de volume pour les 101 valeurs de pourcentage possibles),
+  pas un bug que cette intégration peut corriger.
 - **Muet** — marche/arrêt, contrôlable.
 - **Source** — un menu déroulant des codes d'entrée de l'ampli (ex. `TUNER`, `BD`, `NET`),
   directement sur le tableau de bord. L'action **Sélectionner l'entrée** décrite ci-dessous fait
@@ -60,7 +64,10 @@ Voici ce qui apparaît par ampli :
   ajoutée via l'IP manuelle dans la Configuration, et pas seulement sur un vrai ampli-tuner — tout
   le reste ici (alimentation, volume, source...) nécessite le service Telnet « AVR Control » que
   ces enceintes n'ont pas, donc cette intégration ne fonctionnera sinon pas du tout avec ce type
-  d'appareil.
+  d'appareil. Déclencher cette action de scène plusieurs fois rapidement remplace ce qui est en
+  train d'être dit au lieu de s'accumuler derrière — la file d'attente est vidée avant chaque
+  annonce, confirmé nécessaire sur du matériel réel (sans ça, une rafale d'annonces se relisait
+  l'une après l'autre au lieu que seule la dernière ne compte).
 - **Télécommande du menu de configuration** — curseur Haut/Bas/Gauche/Droite, Entrée, Retour,
   Info, Menu et Volume +/- relatif, affichés comme boutons cliquables directement dans la liste
   d'appareils (pas besoin d'une carte de tableau de bord supplémentaire). Pratique pour naviguer
