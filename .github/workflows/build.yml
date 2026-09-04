@@ -99,6 +99,23 @@ jobs:
           echo "image_ref=${image}:${version}" >> "$GITHUB_OUTPUT"
           echo "tags=$tags" >> "$GITHUB_OUTPUT"
 
+      - name: Read the manifest for the image label
+        id: manifest
+        run: |
+          # Gladys reads the manifest from the io.gladysassistant.manifest
+          # image label for a "dev install by image name" (Developer mode
+          # without a GitHub repo) and for "Force update" of such an install:
+          # embed it here (with the docker_image of THIS build) so config
+          # schema / actions / containers changes ship with the image.
+          set -euo pipefail
+          image_ref="${{ steps.meta.outputs.image_ref }}"
+          manifest="$(jq -c --arg image "$image_ref" '.docker_image = $image' gladys-assistant-integration.json)"
+          {
+            echo "json<<MANIFEST_EOF"
+            echo "$manifest"
+            echo "MANIFEST_EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build and push (amd64 + arm64)
         uses: docker/build-push-action@v7
         with:
@@ -106,6 +123,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
+          labels: |
+            io.gladysassistant.manifest=${{ steps.manifest.outputs.json }}
 
       - name: Docker build summary
         env:
