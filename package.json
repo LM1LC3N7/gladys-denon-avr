@@ -1,6 +1,6 @@
 {
   "name": "gladys-denon-avr",
-  "version": "1.0.16",
+  "version": "1.0.17",
   "private": true,
   "description": "Gladys Assistant external integration to control Denon/Marantz AV receivers over the network.",
   "type": "module",
