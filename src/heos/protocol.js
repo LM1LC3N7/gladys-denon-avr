@@ -118,6 +118,25 @@ export function buildPlayStreamCommand(pid, url) {
 }
 
 /**
+ * `heos://player/clear_queue?pid=<pid>` — empty one player's play queue.
+ *
+ * Confirmed on real hardware: despite "4.4.10 Play URL" being documented as
+ * its own command distinct from the explicit "add to queue" ones,
+ * `browse/play_stream` in practice appends to the existing queue rather than
+ * replacing it — triggering "Speak on a speaker" more than once in quick
+ * succession queued every announcement instead of replacing the previous
+ * one, so a receiver that hadn't finished playing announcement #1 yet would
+ * play it, then #2, then #3..., each stacking behind the last. Called right
+ * before buildPlayStreamCommand() in onSetValue() so every announcement
+ * starts from an empty queue — the accepted tradeoff is that any other
+ * HEOS-queued content (a playlist genuinely mid-playback) is cleared too,
+ * same as any other announcement system interrupting regular playback.
+ */
+export function buildClearQueueCommand(pid) {
+  return `player/clear_queue?pid=${pid}`;
+}
+
+/**
  * `heos://system/register_for_change_events?enable=on` — ask the HEOS
  * system to push `event/player_state_changed` (and other `event/*` lines)
  * unprompted, the same "push, don't poll" model as the legacy Telnet

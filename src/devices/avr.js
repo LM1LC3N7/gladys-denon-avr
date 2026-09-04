@@ -66,6 +66,7 @@ import {
   buildPlayNextCommand as buildHeosPlayNextCommand,
   buildPlayPreviousCommand as buildHeosPlayPreviousCommand,
   buildPlayStreamCommand,
+  buildClearQueueCommand,
   buildRegisterForChangeEventsCommand,
   findPlayerIdByIp,
   heosPlayStateToPlaybackState,
@@ -865,6 +866,16 @@ export async function onSetValue(gladys, { device, feature, value, config }) {
       throw new Error(
         `${device.external_id}: cannot speak, HEOS is not connected or this receiver has no matched player id`,
       );
+    }
+    // Real-hardware feedback: browse/play_stream appends to the queue
+    // rather than replacing it, so triggering this scene action more than
+    // once in quick succession queued every announcement instead of
+    // replacing the previous one — clearing the queue first is what
+    // actually makes each new announcement the only thing that plays. See
+    // the comment on buildClearQueueCommand() for the accepted tradeoff
+    // (this also clears any other HEOS content genuinely queued).
+    if (!heos.client.sendCommand(buildClearQueueCommand(heos.pid))) {
+      throw new Error(`Failed to clear the HEOS queue on ${device.external_id}`);
     }
     if (!heos.client.sendCommand(buildPlayStreamCommand(heos.pid, value))) {
       throw new Error(`Failed to send HEOS play_stream command to ${device.external_id}`);
