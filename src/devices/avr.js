@@ -68,8 +68,15 @@ import {
   buildPlayStreamCommand,
   buildClearQueueCommand,
   buildRegisterForChangeEventsCommand,
+  buildGetVolumeCommand as buildHeosGetVolumeCommand,
+  buildSetVolumeCommand as buildHeosSetVolumeCommand,
+  buildVolumeUpCommand as buildHeosVolumeUpCommand,
+  buildVolumeDownCommand as buildHeosVolumeDownCommand,
+  buildGetMuteCommand as buildHeosGetMuteCommand,
+  buildSetMuteCommand as buildHeosSetMuteCommand,
   findPlayerIdByIp,
   heosPlayStateToPlaybackState,
+  heosMuteStateToBoolean,
   parseNowPlayingMedia,
   HEOS_EVENT,
 } from '../heos/protocol.js';
@@ -640,6 +647,40 @@ export function connectDevice(gladys, device, config) {
       .catch((err) => logger.error(`publishState failed for ${id}: ${err.message}`));
   }
 
+  // Telnet's own MV/MU pushes (onLine above) stay authoritative for
+  // volume/mute whenever that session is actually up — confirmed correct on
+  // real AVR hardware regardless of source, unlike the legacy NS9x transport
+  // commands. These two only ever publish while Telnet is down, which in
+  // practice means a HEOS-only speaker (Denon Home, HEOS 1/3/5...) that has
+  // no "AVR Control" service at all (port 23 actively refused) — see the
+  // routing comment on FEATURE.VOLUME/FEATURE.MUTE in onSetValue() below.
+  function publishVolume(level) {
+    if (telnet.isConnected() || level === undefined) {
+      return;
+    }
+    const id = featureExternalId(device.external_id, FEATURE.VOLUME);
+    const value = Math.round(Number(level));
+    const cached = { ...lastKnownState.get(device.external_id) };
+    cached[FEATURE.VOLUME] = value;
+    lastKnownState.set(device.external_id, cached);
+    gladys
+      .publishState(id, value)
+      .catch((err) => logger.error(`publishState failed for ${id}: ${err.message}`));
+  }
+
+  function publishMute(muted) {
+    if (telnet.isConnected()) {
+      return;
+    }
+    const id = featureExternalId(device.external_id, FEATURE.MUTE);
+    const cached = { ...lastKnownState.get(device.external_id) };
+    cached[FEATURE.MUTE] = muted;
+    lastKnownState.set(device.external_id, cached);
+    gladys
+      .publishState(id, muted)
+      .catch((err) => logger.error(`publishState failed for ${id}: ${err.message}`));
+  }
+
   function publishPlaybackState(state) {
     const id = featureExternalId(device.external_id, FEATURE.PLAYBACK_STATE);
     const value = heosPlayStateToPlaybackState(state);
@@ -669,6 +710,8 @@ export function connectDevice(gladys, device, config) {
           logger.info(`${device.external_id}: HEOS player id ${pid} matched to ${host}`);
           heosState.client.sendCommand(buildGetPlayStateCommand(pid));
           heosState.client.sendCommand(buildGetNowPlayingMediaCommand(pid));
+          heosState.client.sendCommand(buildHeosGetVolumeCommand(pid));
+          heosState.client.sendCommand(buildHeosGetMuteCommand(pid));
         } else {
           // Not an error (this device may simply not run HEOS), but worth a
           // log line: this is the single most common reason "Speak on a
@@ -708,6 +751,24 @@ export function connectDevice(gladys, device, config) {
 
       if (parsed.command === 'player/get_now_playing_media') {
         publishNowPlayingMedia(parsed.payload);
+        return;
+      }
+
+      if (parsed.command === 'player/get_volume') {
+        publishVolume(parsed.message?.level);
+        return;
+      }
+
+      if (parsed.command === 'player/get_mute') {
+        publishMute(heosMuteStateToBoolean(parsed.message?.state));
+        return;
+      }
+
+      if (parsed.command === HEOS_EVENT.PLAYER_VOLUME_CHANGED) {
+        publishVolume(parsed.message?.level);
+        if (parsed.message?.mute !== undefined) {
+          publishMute(heosMuteStateToBoolean(parsed.message.mute));
+        }
         return;
       }
 
@@ -767,6 +828,8 @@ export function connectDevice(gladys, device, config) {
     }
     heosState.client.sendCommand(buildGetPlayStateCommand(heosState.pid));
     heosState.client.sendCommand(buildGetNowPlayingMediaCommand(heosState.pid));
+    heosState.client.sendCommand(buildHeosGetVolumeCommand(heosState.pid));
+    heosState.client.sendCommand(buildHeosGetMuteCommand(heosState.pid));
   }, HEOS_POLL_INTERVAL_MS);
 }
 
@@ -884,7 +947,79 @@ export async function onSetValue(gladys, { device, feature, value, config }) {
   }
 
   const telnet = connections.get(device.external_id);
-  if (!telnet || !telnet.isConnected()) {
+  const telnetConnected = telnet?.isConnected() ?? false;
+  const heos = heosConnections.get(device.external_id);
+  const heosConnected = heos?.pid != null && (heos.client?.isConnected() ?? false);
+
+  // Volume/mute and the transport buttons are the only features with a HEOS
+  // route at all — everything else below (power, source, sound mode, the
+  // Setup-menu remote keys...) has no HEOS equivalent and stays strictly
+  // Telnet-only. A real AVR receiver's legacy Telnet session normally covers
+  // all of these fine, but a HEOS-only speaker (Denon Home, HEOS 1/3/5...)
+  // never has one at all — no "AVR Control" service exists on that product
+  // category, port 23 is actively refused (real-hardware feedback, see the
+  // FEATURE.PLAY_NOTIFICATION comment above) — so without this branch every
+  // one of these commands failed outright on that hardware, volume/mute
+  // included, exactly like FEATURE.PLAY_NOTIFICATION used to before it got
+  // its own HEOS-only path.
+  if (
+    key === FEATURE.VOLUME ||
+    key === FEATURE.VOLUME_UP ||
+    key === FEATURE.VOLUME_DOWN ||
+    key === FEATURE.MUTE
+  ) {
+    // Telnet's MV/MU commands stay authoritative whenever that session is
+    // actually up (confirmed correct on real hardware, main-zone volume
+    // regardless of source) — HEOS is only the fallback for when it isn't,
+    // so fall through to the Telnet branches below in that case.
+    if (!telnetConnected) {
+      if (!heosConnected) {
+        throw new Error(`${device.external_id} is not connected`);
+      }
+      let heosCommand;
+      if (key === FEATURE.VOLUME) {
+        heosCommand = buildHeosSetVolumeCommand(heos.pid, value);
+      } else if (key === FEATURE.VOLUME_UP) {
+        heosCommand = buildHeosVolumeUpCommand(heos.pid);
+      } else if (key === FEATURE.VOLUME_DOWN) {
+        heosCommand = buildHeosVolumeDownCommand(heos.pid);
+      } else {
+        // Same "button, not a target state" reasoning as the Telnet MUTE
+        // branch below — toggle off the last state HEOS itself reported.
+        const currentlyMuted = lastKnownState.get(device.external_id)?.mute === 1;
+        heosCommand = buildHeosSetMuteCommand(heos.pid, !currentlyMuted);
+      }
+      if (!heos.client.sendCommand(heosCommand)) {
+        throw new Error(`Failed to send HEOS command to ${device.external_id}`);
+      }
+      return;
+    }
+  } else if (
+    (key === FEATURE.PLAY ||
+      key === FEATURE.PAUSE ||
+      key === FEATURE.NEXT ||
+      key === FEATURE.PREVIOUS) &&
+    heosConnected
+  ) {
+    // Unlike volume/mute, HEOS is preferred here even when Telnet is up —
+    // see the routing comment further down, kept in place for the
+    // Telnet-connected fallback case (HEOS reachable but pid not yet
+    // matched, or momentarily disconnected).
+    const heosCommand =
+      key === FEATURE.PLAY
+        ? buildHeosPlayCommand(heos.pid)
+        : key === FEATURE.PAUSE
+          ? buildHeosPauseCommand(heos.pid)
+          : key === FEATURE.NEXT
+            ? buildHeosPlayNextCommand(heos.pid)
+            : buildHeosPlayPreviousCommand(heos.pid);
+    if (!heos.client.sendCommand(heosCommand)) {
+      throw new Error(`Failed to send HEOS command to ${device.external_id}`);
+    }
+    return;
+  }
+
+  if (!telnet || !telnetConnected) {
     throw new Error(`${device.external_id} is not connected`);
   }
 
@@ -939,29 +1074,13 @@ export async function onSetValue(gladys, { device, feature, value, config }) {
     key === FEATURE.NEXT ||
     key === FEATURE.PREVIOUS
   ) {
-    // Qobuz/Spotify Connect/TIDAL/TuneIn... on a HEOS-equipped AVR are
-    // actually driven by the separate HEOS CLI service (see src/heos/), not
-    // by these legacy Telnet transport commands — confirmed on real
-    // hardware to have no effect on that kind of playback. Route through
-    // HEOS whenever we've matched a player id for this receiver; otherwise
-    // (non-HEOS model, HEOS CLI unreachable, or discovery hasn't completed
-    // yet) fall back to the legacy commands, which remain correct for the
-    // receiver's own non-HEOS Net/USB playback.
-    const heos = heosConnections.get(device.external_id);
-    if (heos?.pid != null && heos.client?.isConnected()) {
-      const heosCommand =
-        key === FEATURE.PLAY
-          ? buildHeosPlayCommand(heos.pid)
-          : key === FEATURE.PAUSE
-            ? buildHeosPauseCommand(heos.pid)
-            : key === FEATURE.NEXT
-              ? buildHeosPlayNextCommand(heos.pid)
-              : buildHeosPlayPreviousCommand(heos.pid);
-      if (!heos.client.sendCommand(heosCommand)) {
-        throw new Error(`Failed to send HEOS command to ${device.external_id}`);
-      }
-      return;
-    }
+    // Only reached when HEOS wasn't connected (the branch above already
+    // returned otherwise) — non-HEOS model, HEOS CLI unreachable, or
+    // discovery hasn't matched a player id yet. These legacy commands remain
+    // correct for the receiver's own non-HEOS Net/USB playback; they're
+    // confirmed to have no effect on HEOS-managed sources (Qobuz/Spotify
+    // Connect/TIDAL/TuneIn...), which is exactly why HEOS is preferred above
+    // whenever it's actually reachable.
     command =
       key === FEATURE.PLAY
         ? buildPlayCommand()

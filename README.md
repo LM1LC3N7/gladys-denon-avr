@@ -22,9 +22,16 @@ TuneIn...) — see "Playback controls" below.
   otherwise never shows the **Update** button that applies them — see "Re-publishing a device"
   in the SDK README for why a config/image change alone never does.
 - **Power / Volume / Mute**: controllable features (`TELEVISION` category), fed in real time by
-  the Telnet session the receiver itself pushes state changes to — no polling. **Volume: 25% and
-  75% can never be displayed as themselves** — confirmed on real hardware (a slider that "jumps
-  from 24% to 26%, can't land on 25%") and in the math: `percentToDenonVolume()`/
+  the Telnet session the receiver itself pushes state changes to — no polling. The legacy Telnet
+  `MV`/`MU` commands stay authoritative whenever that session is up (confirmed correct on real
+  hardware, main-zone volume regardless of source). Volume/Volume up/Volume down/Mute additionally
+  fall back to their HEOS CLI equivalents (`player/set_volume`, `player/volume_up`/`volume_down`,
+  `player/set_mute`) whenever the legacy Telnet session isn't reachable at all — the case for a
+  HEOS-only speaker (Denon Home, HEOS 1/3/5/7, Bar...), which has no "AVR Control" service
+  whatsoever (port 23 is actively refused). Power itself has no HEOS equivalent and stays
+  Telnet-only — see "v1 scope" below for exactly which features work on that kind of device.
+  **Volume: 25% and 75% can never be displayed as themselves** — confirmed on real hardware (a
+  slider that "jumps from 24% to 26%, can't land on 25%") and in the math: `percentToDenonVolume()`/
   `denonVolumeToPercent()` (`src/denon/protocol.js`) round-trip a plain 0-100 percent through the
   receiver's raw 0-`DENON_VOLUME_MAX` (98) scale, and compressing 101 possible percent values onto
   99 raw ones forces at least two collisions (pigeonhole principle) — raw `25` is the value both
@@ -33,7 +40,9 @@ TuneIn...) — see "Playback controls" below.
   having 99 discrete volume steps for a 101-position percent scale, not a rounding bug to fix — the
   "gap" can be moved but never removed. The exact two percents affected depend on
   `DENON_VOLUME_MAX`, which is itself a generic default (see the comment above it), so don't expect
-  25/75 to necessarily be the affected pair on every model/configuration.
+  25/75 to necessarily be the affected pair on every model/configuration. This quantization quirk
+  only applies to the Telnet path — HEOS's own volume scale is already 0-100, no conversion needed,
+  so it doesn't have this gap.
 - **Input source**: a dropdown on the dashboard, backed by `TEXT.SELECT` +
   `supported_options` (the receiver's own SI codes) — **not** the generic `TELEVISION.SOURCE`
   type, which Gladys' front-end renders as a one-shot remote-control button with no way to pick
@@ -415,11 +424,12 @@ device type — see "Scene automation" above.
 
 ## v1 scope
 
-Power, volume, mute, input source (status + selection, with per-user renaming/hiding, plus a
-numeric `Source index` alias for scene automation), sound mode, network/USB playback controls
-(HEOS CLI when available, legacy `NS9x` Telnet otherwise), speak-on-a-speaker TTS playback (HEOS
-`browse/play_stream`, see "Speak on a speaker" above), now-playing metadata, Setup-menu
-remote-control keys (cursor pad, Enter/Return/Info/Menu, relative Volume Up/Down), SSDP discovery.
+Power, volume, mute (legacy Telnet when reachable, HEOS CLI fallback otherwise), input source
+(status + selection, with per-user renaming/hiding, plus a numeric `Source index` alias for scene
+automation), sound mode, network/USB playback controls (HEOS CLI when available, legacy `NS9x`
+Telnet otherwise), speak-on-a-speaker TTS playback (HEOS `browse/play_stream`, see "Speak on a
+speaker" above), now-playing metadata, Setup-menu remote-control keys (cursor pad,
+Enter/Return/Info/Menu, relative Volume Up/Down), SSDP discovery.
 Deliberately out of scope for now: multi-zone (Zone 2/3),
 HEOS-specific features beyond play/pause/next/previous (grouping, queue browsing, volume-per-
 player...), and an HTTP fallback control channel — see the design notes at the top of
@@ -427,12 +437,19 @@ player...), and an HTTP fallback control channel — see the design notes at the
 [`src/denon/discovery.js`](./src/denon/discovery.js).
 
 This integration targets AV receivers, not standalone HEOS speakers (Denon Home, HEOS 1/3/5/7,
-Bar, Subwoofer...): those have no "AVR Control" Telnet service at all, so Power, Volume, Mute,
-Source and everything else built on `src/denon/protocol.js` simply cannot work against one, no
-matter how it's added. **Speak on a speaker is the sole, deliberate exception** — it's pure HEOS,
-so it works on either kind of device — see the note on it above. Full support for HEOS speakers as
-their own device type (their own discovery, their own HEOS-native feature set for Power/Volume/
-playback) is a separate, bigger piece of work, not attempted here.
+Bar, Subwoofer...) — those have no "AVR Control" Telnet service at all (port 23 is actively
+refused, confirmed real-hardware feedback), so anything built purely on `src/denon/protocol.js`
+cannot work against one, no matter how it's added: **Power, Source, Sound mode and the Setup-menu
+remote keys have no HEOS equivalent and simply won't work on that kind of device.** Volume, Mute
+and the playback buttons (Play/Pause/Next/Previous) are the exceptions — they have a real HEOS CLI
+path (`player/set_volume`, `player/volume_up`/`volume_down`, `player/set_mute`,
+`player/set_play_state`...) and fall back to it whenever the legacy Telnet session isn't reachable
+at all, which in practice means it's the only path a HEOS-only speaker ever uses — see "Power /
+Volume / Mute" and "Playback controls" above. **Speak on a speaker** is pure HEOS too, so it also
+works on either kind of device. Full support for HEOS speakers as their own device type (their own
+discovery, their own HEOS-native feature set for Power and anything else HEOS itself exposes) is
+still a separate, bigger piece of work, not attempted here — this is a fallback for the features
+that happen to have a HEOS equivalent already, not first-class HEOS-speaker support.
 
 Every other generic Gladys scene action that could plausibly target this kind of device
 (`server/utils/constants.js`'s `ACTIONS` map in Gladys core) was checked against what this
@@ -492,6 +509,14 @@ Honest status, so it's clear what "it works" actually rests on:
     Volume Up/Down): the `MN*`/`MVUP`/`MVDOWN` commands are cross-checked against
     `python-denonavr`, same as the `NS9x` transport commands above, but not yet pressed against a
     real receiver's actual Setup menu from this project's own hardware.
+  - **HEOS volume/mute** (`player/get_volume`/`set_volume`/`volume_up`/`volume_down`,
+    `player/get_mute`/`set_mute`, `event/player_volume_changed`): added specifically so Volume/Mute
+    keep working on a HEOS-only speaker (no "AVR Control" Telnet service at all, port 23
+    ECONNREFUSED — real-hardware feedback from a user's HEOS speaker) where they previously failed
+    outright. Implemented and unit-tested from the same `pyheos` cross-reference as the rest of
+    `src/heos/`, not yet re-verified against a real HEOS speaker. Same fallback safety as the rest
+    of the HEOS layer: it only ever engages when the legacy Telnet session isn't reachable at all,
+    so a real AVR receiver's confirmed-working Telnet volume/mute is never affected either way.
 
   Use [`scripts/debug-telnet.js`](./scripts/debug-telnet.js) against your own receiver to check
   any of the above — in particular, send `MS?` and start streaming on a NET/USB source to see

@@ -451,6 +451,87 @@ test('onSetValue falls back to the legacy NS9x command when HEOS has no pid yet 
   assert.equal(telnet.sent.at(-1), 'NS9A');
 });
 
+test('onSetValue prefers the legacy Telnet MV/MU commands for volume/mute even when HEOS is also connected', async () => {
+  // Confirmed-correct precedence on a real AVR (main-zone volume, works
+  // regardless of source) — unlike the transport buttons, HEOS must NOT be
+  // preferred here while Telnet is up.
+  const device = buildDiscoveredDevice(gladys, DISCOVERED);
+  const telnet = createFakeTelnetClient();
+  __setConnectionForTesting(device.external_id, telnet);
+
+  const heosSent = [];
+  __setHeosConnectionForTesting(device.external_id, {
+    pid: 12345,
+    client: { sendCommand: (c) => (heosSent.push(c), true), isConnected: () => true },
+  });
+
+  const volumeFeature = { external_id: featureExternalId(device.external_id, FEATURE.VOLUME) };
+  await onSetValue(gladys, { device, feature: volumeFeature, value: 50 });
+  assert.equal(telnet.sent.at(-1), 'MV49');
+
+  const volumeUpFeature = { external_id: featureExternalId(device.external_id, FEATURE.VOLUME_UP) };
+  await onSetValue(gladys, { device, feature: volumeUpFeature, value: 1 });
+  assert.equal(telnet.sent.at(-1), 'MVUP');
+
+  const muteFeature = { external_id: featureExternalId(device.external_id, FEATURE.MUTE) };
+  __setLastKnownStateForTesting(device.external_id, { mute: 0 });
+  await onSetValue(gladys, { device, feature: muteFeature, value: 0 });
+  assert.equal(telnet.sent.at(-1), 'MUON');
+
+  assert.deepEqual(heosSent, []);
+});
+
+test('onSetValue controls volume/mute via HEOS when there is no Telnet session at all (a HEOS-only speaker)', async () => {
+  // Real-hardware feedback: a Denon Home / HEOS-only speaker has no "AVR
+  // Control" Telnet service whatsoever (port 23 actively refused) — volume
+  // and mute must still work, routed entirely through HEOS.
+  const device = buildDiscoveredDevice(gladys, DISCOVERED);
+  // Deliberately no __setConnectionForTesting(): matches a Telnet session
+  // that never connects.
+
+  const heosSent = [];
+  __setHeosConnectionForTesting(device.external_id, {
+    pid: 12345,
+    client: { sendCommand: (c) => (heosSent.push(c), true), isConnected: () => true },
+  });
+
+  const volumeFeature = { external_id: featureExternalId(device.external_id, FEATURE.VOLUME) };
+  await onSetValue(gladys, { device, feature: volumeFeature, value: 42 });
+  assert.equal(heosSent.at(-1), 'player/set_volume?pid=12345&level=42');
+
+  const volumeUpFeature = { external_id: featureExternalId(device.external_id, FEATURE.VOLUME_UP) };
+  await onSetValue(gladys, { device, feature: volumeUpFeature, value: 1 });
+  assert.equal(heosSent.at(-1), 'player/volume_up?pid=12345&step=5');
+
+  const volumeDownFeature = {
+    external_id: featureExternalId(device.external_id, FEATURE.VOLUME_DOWN),
+  };
+  await onSetValue(gladys, { device, feature: volumeDownFeature, value: 1 });
+  assert.equal(heosSent.at(-1), 'player/volume_down?pid=12345&step=5');
+
+  const muteFeature = { external_id: featureExternalId(device.external_id, FEATURE.MUTE) };
+  __setLastKnownStateForTesting(device.external_id, { mute: 0 });
+  await onSetValue(gladys, { device, feature: muteFeature, value: 0 });
+  assert.equal(heosSent.at(-1), 'player/set_mute?pid=12345&state=on');
+
+  __setLastKnownStateForTesting(device.external_id, { mute: 1 });
+  await onSetValue(gladys, { device, feature: muteFeature, value: 0 });
+  assert.equal(heosSent.at(-1), 'player/set_mute?pid=12345&state=off');
+});
+
+test('onSetValue throws for volume/mute when neither Telnet nor a matched HEOS player is available', async () => {
+  const device = buildDiscoveredDevice(gladys, DISCOVERED);
+  const volumeFeature = { external_id: featureExternalId(device.external_id, FEATURE.VOLUME) };
+  await assert.rejects(() => onSetValue(gladys, { device, feature: volumeFeature, value: 50 }));
+
+  __setHeosConnectionForTesting(device.external_id, {
+    pid: null,
+    client: { sendCommand: () => true, isConnected: () => true },
+  });
+  const muteFeature = { external_id: featureExternalId(device.external_id, FEATURE.MUTE) };
+  await assert.rejects(() => onSetValue(gladys, { device, feature: muteFeature, value: 1 }));
+});
+
 test('onSetValue plays a notification URL via HEOS browse/play_stream when a player id is matched', async () => {
   const device = buildDiscoveredDevice(gladys, DISCOVERED);
   const telnet = createFakeTelnetClient();
@@ -840,6 +921,74 @@ test('connectDevice: HEOS becomes authoritative for playback state and now playi
   } finally {
     disconnectDevice(device.external_id);
     telnetServer.close();
+    heosServer.close();
+  }
+});
+
+// End-to-end: connectDevice() against a real fake HEOS CLI server with NO
+// Telnet server at all (deliberately unreachable port) — reproduces a real
+// HEOS-only speaker (Denon Home, HEOS 1/3/5...) that has no "AVR Control"
+// service whatsoever. Volume/mute must still get published, sourced from HEOS.
+test('connectDevice: volume/mute are published from HEOS when there is no Telnet session at all', async () => {
+  const heosServer = net.createServer((socket) => {
+    socket.setEncoding('utf8');
+    let buffer = '';
+    socket.on('data', (chunk) => {
+      buffer += chunk;
+      const lines = buffer.split(/\r\n/);
+      buffer = lines.pop() ?? '';
+      for (const line of lines) {
+        if (line.includes('player/get_players')) {
+          socket.write(
+            JSON.stringify({
+              heos: { command: 'player/get_players', result: 'success', message: '' },
+              payload: [{ pid: 999, ip: '127.0.0.1' }],
+            }) + '\r\n',
+          );
+        } else if (line.includes('player/get_volume')) {
+          socket.write(
+            JSON.stringify({
+              heos: {
+                command: 'player/get_volume',
+                result: 'success',
+                message: 'pid=999&level=37',
+              },
+            }) + '\r\n',
+          );
+        } else if (line.includes('player/get_mute')) {
+          socket.write(
+            JSON.stringify({
+              heos: { command: 'player/get_mute', result: 'success', message: 'pid=999&state=on' },
+            }) + '\r\n',
+          );
+        }
+      }
+    });
+  });
+  await new Promise((resolve) => heosServer.listen(HEOS_PORT, '127.0.0.1', resolve));
+
+  const device = buildDiscoveredDevice(gladys, { ...DISCOVERED, host: '127.0.0.1' });
+  // Port 1 is never a real listening service in this sandbox — the Telnet
+  // client will keep retrying and failing, exactly like a HEOS-only speaker
+  // actively refusing port 23.
+  const localConfig = normalizeConfig({ port: 1 });
+
+  try {
+    connectDevice(gladys, device, localConfig);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    const volumeId = featureExternalId(device.external_id, FEATURE.VOLUME);
+    const muteId = featureExternalId(device.external_id, FEATURE.MUTE);
+    assert.ok(
+      gladys.published.some((p) => p.featureExternalId === volumeId && p.state === 37),
+      'HEOS get_volume is published when Telnet never connects',
+    );
+    assert.ok(
+      gladys.published.some((p) => p.featureExternalId === muteId && p.state === 1),
+      'HEOS get_mute is published when Telnet never connects',
+    );
+  } finally {
+    disconnectDevice(device.external_id);
     heosServer.close();
   }
 });

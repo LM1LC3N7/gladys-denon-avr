@@ -48,6 +48,7 @@ export const HEOS_PLAY_STATE = {
 export const HEOS_EVENT = {
   PLAYER_STATE_CHANGED: 'event/player_state_changed',
   PLAYER_NOW_PLAYING_CHANGED: 'event/player_now_playing_changed',
+  PLAYER_VOLUME_CHANGED: 'event/player_volume_changed',
 };
 
 /** `heos://player/get_players` — list every HEOS player known to this system. */
@@ -83,6 +84,45 @@ export function buildPlayNextCommand(pid) {
 /** `heos://player/play_previous?pid=<pid>`. */
 export function buildPlayPreviousCommand(pid) {
   return `player/play_previous?pid=${pid}`;
+}
+
+/**
+ * `heos://player/get_volume?pid=<pid>` — query one player's own volume,
+ * already on a 0-100 scale (unlike the legacy Telnet MV commands, which use
+ * a 0-98 raw scale requiring percentToDenonVolume() — HEOS needs no such
+ * conversion). Used as the fallback volume path for a HEOS-only speaker
+ * (Denon Home, HEOS 1/3/5...) that has no "AVR Control" Telnet service at
+ * all — see the routing comment in onSetValue()/connectDevice() in
+ * ../devices/avr.js for why the legacy Telnet MV/MU commands stay
+ * authoritative whenever they're actually reachable.
+ */
+export function buildGetVolumeCommand(pid) {
+  return `player/get_volume?pid=${pid}`;
+}
+
+/** `heos://player/set_volume?pid=<pid>&level=<0-100>`. */
+export function buildSetVolumeCommand(pid, level) {
+  return `player/set_volume?pid=${pid}&level=${level}`;
+}
+
+/** `heos://player/volume_up?pid=<pid>&step=<step>` (HEOS default step is 5). */
+export function buildVolumeUpCommand(pid, step = 5) {
+  return `player/volume_up?pid=${pid}&step=${step}`;
+}
+
+/** `heos://player/volume_down?pid=<pid>&step=<step>` (HEOS default step is 5). */
+export function buildVolumeDownCommand(pid, step = 5) {
+  return `player/volume_down?pid=${pid}&step=${step}`;
+}
+
+/** `heos://player/get_mute?pid=<pid>` — message reply carries `state=on|off`. */
+export function buildGetMuteCommand(pid) {
+  return `player/get_mute?pid=${pid}`;
+}
+
+/** `heos://player/set_mute?pid=<pid>&state=on|off`. */
+export function buildSetMuteCommand(pid, muted) {
+  return `player/set_mute?pid=${pid}&state=${muted ? 'on' : 'off'}`;
 }
 
 /**
@@ -218,6 +258,15 @@ export function findPlayerIdByIp(payload, ip) {
  */
 export function heosPlayStateToPlaybackState(state) {
   return state === HEOS_PLAY_STATE.PLAY ? 1 : 0;
+}
+
+/**
+ * Map HEOS's own `state=on|off` mute string (from `get_mute`'s message or
+ * the `mute` field of an `event/player_volume_changed` push) to Gladys'
+ * plain 0/1, same convention as the legacy Telnet MUON/MUOFF parsing.
+ */
+export function heosMuteStateToBoolean(state) {
+  return state === 'on' ? 1 : 0;
 }
 
 /**

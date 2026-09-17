@@ -15,9 +15,16 @@ import {
   buildPlayStreamCommand,
   buildClearQueueCommand,
   buildRegisterForChangeEventsCommand,
+  buildGetVolumeCommand,
+  buildSetVolumeCommand,
+  buildVolumeUpCommand,
+  buildVolumeDownCommand,
+  buildGetMuteCommand,
+  buildSetMuteCommand,
   parseMessage,
   findPlayerIdByIp,
   heosPlayStateToPlaybackState,
+  heosMuteStateToBoolean,
   parseNowPlayingMedia,
 } from '../src/heos/protocol.js';
 
@@ -45,6 +52,24 @@ test('command builders produce the exact heos:// path (without the scheme, added
     buildRegisterForChangeEventsCommand(false),
     'system/register_for_change_events?enable=off',
   );
+});
+
+test('volume/mute command builders produce the exact heos:// path', () => {
+  assert.equal(buildGetVolumeCommand(12345), 'player/get_volume?pid=12345');
+  assert.equal(buildSetVolumeCommand(12345, 42), 'player/set_volume?pid=12345&level=42');
+  assert.equal(buildVolumeUpCommand(12345), 'player/volume_up?pid=12345&step=5');
+  assert.equal(buildVolumeUpCommand(12345, 2), 'player/volume_up?pid=12345&step=2');
+  assert.equal(buildVolumeDownCommand(12345), 'player/volume_down?pid=12345&step=5');
+  assert.equal(buildVolumeDownCommand(12345, 2), 'player/volume_down?pid=12345&step=2');
+  assert.equal(buildGetMuteCommand(12345), 'player/get_mute?pid=12345');
+  assert.equal(buildSetMuteCommand(12345, true), 'player/set_mute?pid=12345&state=on');
+  assert.equal(buildSetMuteCommand(12345, false), 'player/set_mute?pid=12345&state=off');
+});
+
+test('heosMuteStateToBoolean maps "on" to 1, everything else to 0', () => {
+  assert.equal(heosMuteStateToBoolean('on'), 1);
+  assert.equal(heosMuteStateToBoolean('off'), 0);
+  assert.equal(heosMuteStateToBoolean(undefined), 0);
 });
 
 test('buildPlayStreamCommand sends the URL raw, as the last parameter, per the HEOS CLI spec', () => {
@@ -122,6 +147,7 @@ test('heosPlayStateToPlaybackState maps "play" to 1, everything else to 0', () =
 test('HEOS_EVENT names match the exact strings HEOS pushes', () => {
   assert.equal(HEOS_EVENT.PLAYER_STATE_CHANGED, 'event/player_state_changed');
   assert.equal(HEOS_EVENT.PLAYER_NOW_PLAYING_CHANGED, 'event/player_now_playing_changed');
+  assert.equal(HEOS_EVENT.PLAYER_VOLUME_CHANGED, 'event/player_volume_changed');
 });
 
 test('parseNowPlayingMedia: extracts title/artist from the song/artist payload fields', () => {
