@@ -137,6 +137,29 @@ test('findPlayerIdByIp: matches on the ip field, returns null when no match/empt
   assert.equal(findPlayerIdByIp(payload, undefined), null);
 });
 
+test('findPlayerIdByIp: one player per zone on the same IP -> main zone by default, whatever the list order', () => {
+  const payload = [
+    { pid: 7, ip: '192.168.1.50', name: 'Salon Zone 2' },
+    { pid: 9, ip: '192.168.1.50', name: 'Salon' },
+    { pid: 3, ip: '192.168.1.50', name: 'Salon Zone3' },
+  ];
+  assert.equal(findPlayerIdByIp(payload, '192.168.1.50'), 9);
+  assert.equal(findPlayerIdByIp([...payload].reverse(), '192.168.1.50'), 9);
+  assert.equal(findPlayerIdByIp(payload, '192.168.1.50', 'main'), 9);
+  assert.equal(findPlayerIdByIp(payload, '192.168.1.50', 'zone2'), 7);
+  assert.equal(findPlayerIdByIp(payload, '192.168.1.50', 'zone3'), 3);
+});
+
+test('findPlayerIdByIp: indistinguishable players fall back to the lowest pid (stable across reconnects)', () => {
+  const payload = [
+    { pid: 42, ip: '192.168.1.50', name: 'AVR' },
+    { pid: 17, ip: '192.168.1.50', name: 'AVR' },
+  ];
+  assert.equal(findPlayerIdByIp(payload, '192.168.1.50'), 17);
+  // Asking for a zone no player is named after still returns a player.
+  assert.equal(findPlayerIdByIp(payload, '192.168.1.50', 'zone2'), 17);
+});
+
 test('heosPlayStateToPlaybackState maps "play" to 1, everything else to 0', () => {
   assert.equal(heosPlayStateToPlaybackState('play'), 1);
   assert.equal(heosPlayStateToPlaybackState('pause'), 0);

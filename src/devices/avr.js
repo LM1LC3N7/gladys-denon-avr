@@ -53,6 +53,7 @@ import {
   buildMenuCommand,
   buildVolumeUpCommand,
   buildVolumeDownCommand,
+  normalizeZone,
   SOURCE_CODES,
   SOUND_MODE_CODES,
 } from '../denon/protocol.js';
@@ -116,6 +117,21 @@ const NOW_PLAYING_TITLE = 'now_playing_title';
 const NOW_PLAYING_ARTIST = 'now_playing_artist';
 
 const CONNECTION_FAILURE_THRESHOLD = 3;
+
+// The receiver's own input that routes HEOS playback (HEOS Music) — the one a
+// "Speak on a speaker" announcement needs selected on the configured zone.
+const HEOS_SOURCE_CODE = 'NET';
+
+// Pause between switching the configured zone on/to HEOS_SOURCE_CODE and
+// starting an announcement, only paid when that switch was actually needed:
+// a receiver waking from standby takes about a second before it reliably
+// takes the next command (Denon's own protocol guidance), and a stream
+// started before the input switch has landed is exactly the "played on
+// whichever zone HEOS last used" case the switch is there to prevent.
+// `let` for __setZoneSwitchDelayMsForTesting(), same reason as
+// HEOS_POLL_INTERVAL_MS below.
+const DEFAULT_ZONE_SWITCH_DELAY_MS = 1500;
+let ZONE_SWITCH_DELAY_MS = DEFAULT_ZONE_SWITCH_DELAY_MS;
 
 // How often to actively re-query HEOS for playback state + now-playing
 // metadata while a player id is known, on top of reacting to its pushed
@@ -525,6 +541,54 @@ export function buildManualDevice(gladys, host, sourceOverrides = {}) {
 }
 
 /**
+ * The state queries for one zone, deduplicated: a secondary zone's bare
+ * Z2?/Z3? answers power, volume and source at once, so it's only sent once.
+ * Sound mode (MS?) is the main zone's, but reported whatever the zone — see
+ * parseLine() in ../denon/protocol.js.
+ */
+function initialQueries(zone) {
+  return [
+    ...new Set([
+      buildPowerQuery(zone),
+      buildVolumeQuery(zone),
+      buildMuteQuery(zone),
+      buildSourceQuery(zone),
+      buildSoundModeQuery(),
+    ]),
+  ];
+}
+
+/**
+ * Before a "Speak on a speaker" announcement: make sure the configured zone
+ * (the main zone by default) is on and listening to HEOS. Without this, HEOS
+ * starts the stream on whichever zone it last played on — waking the
+ * receiver on Zone 2 while the main zone stays off was the real-world
+ * symptom. Best-effort over the legacy Telnet session only: a HEOS-only
+ * speaker (no Telnet at all) has a single zone anyway, so nothing to switch.
+ * Uses the last state the receiver reported to skip commands (and the
+ * settling delay) that wouldn't change anything.
+ */
+async function ensureZoneReadyForHeos(externalId, zone) {
+  const telnet = connections.get(externalId);
+  if (!telnet?.isConnected()) {
+    return;
+  }
+  const state = lastKnownState.get(externalId) ?? {};
+  let switched = false;
+  if (state.power !== 1) {
+    telnet.send(buildPowerCommand(true, zone));
+    switched = true;
+  }
+  if (state.source !== HEOS_SOURCE_CODE) {
+    telnet.send(buildSourceCommand(HEOS_SOURCE_CODE, zone));
+    switched = true;
+  }
+  if (switched && ZONE_SWITCH_DELAY_MS > 0) {
+    await new Promise((resolve) => setTimeout(resolve, ZONE_SWITCH_DELAY_MS));
+  }
+}
+
+/**
  * Open the persistent Telnet session for one Gladys-created AVR device.
  * Idempotent: does nothing if a session is already open for this device.
  */
@@ -537,6 +601,9 @@ export function connectDevice(gladys, device, config) {
     logger.warn(`No IP address known for ${device.external_id}, cannot connect`);
     return;
   }
+  // Fixed for the lifetime of this session: index.js reconnects every
+  // device when the `zone` config changes, see onConfigUpdated there.
+  const zone = normalizeZone(config.zone);
 
   // Declared before the legacy Telnet client below (not just the HEOS one
   // further down) so that client's onLine handler can also read
@@ -552,17 +619,15 @@ export function connectDevice(gladys, device, config) {
     port: config.port,
     reconnectIntervalSeconds: config.reconnect_interval_seconds,
     onConnect: () => {
-      logger.info(`${device.external_id}: connected, seeding initial state`);
-      telnet.send(buildPowerQuery());
-      telnet.send(buildVolumeQuery());
-      telnet.send(buildMuteQuery());
-      telnet.send(buildSourceQuery());
-      telnet.send(buildSoundModeQuery());
+      logger.info(`${device.external_id}: connected (${zone} zone), seeding initial state`);
+      for (const query of initialQueries(zone)) {
+        telnet.send(query);
+      }
       telnet.send(buildMenuQuery());
       gladys.setConnectionStatus(true).catch(() => {});
     },
     onLine: (line) => {
-      const update = parseLine(line);
+      const update = parseLine(line, zone);
       if (!update) {
         return;
       }
@@ -704,10 +769,12 @@ export function connectDevice(gladys, device, config) {
     },
     onMessage: (parsed) => {
       if (parsed.command === 'player/get_players' && parsed.result !== 'fail') {
-        const pid = findPlayerIdByIp(parsed.payload, host);
+        const pid = findPlayerIdByIp(parsed.payload, host, zone);
         if (pid != null) {
           heosState.pid = pid;
-          logger.info(`${device.external_id}: HEOS player id ${pid} matched to ${host}`);
+          logger.info(
+            `${device.external_id}: HEOS player id ${pid} matched to ${host} (${zone} zone)`,
+          );
           heosState.client.sendCommand(buildGetPlayStateCommand(pid));
           heosState.client.sendCommand(buildGetNowPlayingMediaCommand(pid));
           heosState.client.sendCommand(buildHeosGetVolumeCommand(pid));
@@ -872,6 +939,15 @@ export function __setHeosPollIntervalMsForTesting(ms) {
   HEOS_POLL_INTERVAL_MS = ms;
 }
 
+/**
+ * Test-only hook: override ZONE_SWITCH_DELAY_MS so the "Speak on a speaker"
+ * zone switch can be tested without a real 1.5s wait. Reset by
+ * __clearConnectionsForTesting(). Not used by production code.
+ */
+export function __setZoneSwitchDelayMsForTesting(ms) {
+  ZONE_SWITCH_DELAY_MS = ms;
+}
+
 /** Test-only hook: drop every registered connection between tests. */
 export function __clearConnectionsForTesting() {
   connections.clear();
@@ -881,6 +957,7 @@ export function __clearConnectionsForTesting() {
   }
   heosConnections.clear();
   HEOS_POLL_INTERVAL_MS = DEFAULT_HEOS_POLL_INTERVAL_MS;
+  ZONE_SWITCH_DELAY_MS = DEFAULT_ZONE_SWITCH_DELAY_MS;
 }
 
 /** Close and forget the persistent session of one device, if any. */
@@ -909,6 +986,7 @@ export function disconnectAllDevices() {
  */
 export async function onSetValue(gladys, { device, feature, value, config }) {
   const key = feature.external_id.slice(device.external_id.length + 1);
+  const zone = normalizeZone(config?.zone);
 
   // FEATURE.PLAY_NOTIFICATION is purely HEOS — there is no legacy Telnet
   // fallback for it at all (see its own branch below) — so it must be
@@ -937,6 +1015,7 @@ export async function onSetValue(gladys, { device, feature, value, config }) {
     // actually makes each new announcement the only thing that plays. See
     // the comment on buildClearQueueCommand() for the accepted tradeoff
     // (this also clears any other HEOS content genuinely queued).
+    await ensureZoneReadyForHeos(device.external_id, zone);
     if (!heos.client.sendCommand(buildClearQueueCommand(heos.pid))) {
       throw new Error(`Failed to clear the HEOS queue on ${device.external_id}`);
     }
@@ -1025,9 +1104,9 @@ export async function onSetValue(gladys, { device, feature, value, config }) {
 
   let command;
   if (key === FEATURE.POWER) {
-    command = buildPowerCommand(value === 1);
+    command = buildPowerCommand(value === 1, zone);
   } else if (key === FEATURE.VOLUME) {
-    command = buildVolumeCommand(value);
+    command = buildVolumeCommand(value, zone);
   } else if (key === FEATURE.MUTE) {
     // DEVICE_FEATURE_TYPES.TELEVISION.VOLUME_MUTE is a remote-control button
     // (same family as VOLUME_UP/VOLUME_DOWN), not a stateful switch like
@@ -1037,13 +1116,13 @@ export async function onSetValue(gladys, { device, feature, value, config }) {
     // command, so the second press never undid the first). Toggle off the
     // receiver's own last-reported mute state instead.
     const currentlyMuted = lastKnownState.get(device.external_id)?.mute === 1;
-    command = buildMuteCommand(!currentlyMuted);
+    command = buildMuteCommand(!currentlyMuted, zone);
   } else if (key === FEATURE.SOURCE) {
     // TEXT.SELECT features carry their state as the selected option's own
     // string value (not the `number` the SDK types suggest — checked
     // against the Gladys core: device.setValue forwards it as-is, string or
     // number, to the integration), so `value` is already the SI code.
-    command = buildSourceCommand(value);
+    command = buildSourceCommand(value, zone);
   } else if (key === FEATURE.SOURCE_INDEX) {
     // Numeric alias of SOURCE — see the feature comment in buildFeatures().
     // Same visible-list computation as the dropdown and as onLine()'s
@@ -1055,14 +1134,17 @@ export async function onSetValue(gladys, { device, feature, value, config }) {
         `${device.external_id}: source index ${value} is out of range (0-${codes.length - 1})`,
       );
     }
-    command = buildSourceCommand(codes[index].value);
+    command = buildSourceCommand(codes[index].value, zone);
   } else if (key === FEATURE.SOUND_MODE) {
     // Same TEXT.SELECT string-value case as SOURCE.
     command = buildSoundModeCommand(value);
   } else if (REMOTE_KEY_COMMAND_BY_FEATURE[key]) {
     // Setup-menu remote keys — fire-and-forget, `value` carries nothing
     // meaningful (see the comment on REMOTE_KEYS above).
-    command = REMOTE_KEY_COMMAND_BY_FEATURE[key]();
+    // Only the volume +/- keys actually use `zone` (MVUP vs Z2UP); the
+    // Setup-menu keys drive the on-screen menu, which only exists on the
+    // main zone's display, and ignore it.
+    command = REMOTE_KEY_COMMAND_BY_FEATURE[key](zone);
   } else if (key === FEATURE.MENU) {
     // Toggle off the receiver's last-reported Setup-menu state, exactly
     // like Mute above — value is just a "pressed" signal, not a target.
@@ -1114,11 +1196,10 @@ export async function runTestConnectionAction(gladys, { fields, config }) {
     };
   }
 
-  telnet.send(buildPowerQuery());
-  telnet.send(buildVolumeQuery());
-  telnet.send(buildMuteQuery());
-  telnet.send(buildSourceQuery());
-  telnet.send(buildSoundModeQuery());
+  const zone = normalizeZone(config?.zone);
+  for (const query of initialQueries(zone)) {
+    telnet.send(query);
+  }
   // Bounded pause: the replies are asynchronous pushed lines, not a
   // request/response pair — give them a moment to land before reading the
   // (fresh-by-then) cache back.
@@ -1156,18 +1237,18 @@ export async function runTestConnectionAction(gladys, { fields, config }) {
         : 'non connecté (pas de module HEOS, injoignable, ou pas encore confirmé)';
 
   return {
-    en: `Power: ${power}, Volume: ${state.volume ?? '?'}%, Mute: ${mute}, Source: ${state.source ?? '?'} (index ${sourceIndexText}), Sound mode: ${state.sound_mode ?? '?'}. HEOS: ${heosStatusEn}.`,
-    fr: `Alimentation : ${power}, Volume : ${state.volume ?? '?'}%, Muet : ${mute}, Source : ${state.source ?? '?'} (index ${sourceIndexText}), Mode sonore : ${state.sound_mode ?? '?'}. HEOS : ${heosStatusFr}.`,
+    en: `Zone: ${zone}. Power: ${power}, Volume: ${state.volume ?? '?'}%, Mute: ${mute}, Source: ${state.source ?? '?'} (index ${sourceIndexText}), Sound mode: ${state.sound_mode ?? '?'}. HEOS: ${heosStatusEn}.`,
+    fr: `Zone : ${zone}. Alimentation : ${power}, Volume : ${state.volume ?? '?'}%, Muet : ${mute}, Source : ${state.source ?? '?'} (index ${sourceIndexText}), Mode sonore : ${state.sound_mode ?? '?'}. HEOS : ${heosStatusFr}.`,
   };
 }
 
 /** `select_source` manifest action: switch the receiver's input. */
-export async function runSelectSourceAction(gladys, { fields }) {
+export async function runSelectSourceAction(gladys, { fields, config }) {
   const telnet = connections.get(fields.device);
   if (!telnet || !telnet.isConnected()) {
     throw new Error('This AVR is not connected');
   }
-  if (!telnet.send(buildSourceCommand(fields.source))) {
+  if (!telnet.send(buildSourceCommand(fields.source, normalizeZone(config?.zone)))) {
     throw new Error('Failed to send the source command');
   }
   return {

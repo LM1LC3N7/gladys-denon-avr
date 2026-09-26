@@ -69,3 +69,11 @@ test('normalizeConfig: source_overrides is empty by default and ignores malforme
     {},
   );
 });
+
+test('normalizeConfig: zone defaults to the main zone, unknown values fall back to it', () => {
+  assert.equal(normalizeConfig().zone, 'main');
+  assert.equal(normalizeConfig({ zone: 'zone2' }).zone, 'zone2');
+  assert.equal(normalizeConfig({ zone: 'zone3' }).zone, 'zone3');
+  assert.equal(normalizeConfig({ zone: 'garage' }).zone, 'main');
+  assert.equal(normalizeConfig({ zone: null }).zone, 'main');
+});

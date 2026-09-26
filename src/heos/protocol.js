@@ -242,13 +242,33 @@ export function parseMessage(rawLine) {
  * same IP this integration already uses for the legacy Telnet connection).
  * Returns `null` if no match is found (non-HEOS model, HEOS not reachable
  * yet, IP mismatch...).
+ *
+ * A multi-zone AVR can expose one HEOS player per zone, all sharing the
+ * receiver's single IP (e.g. "Living room" and "Living room Zone 2"). Just
+ * taking the first IP match would then pick whichever zone HEOS happened to
+ * list first — and HEOS doesn't guarantee that order — so a "Speak on a
+ * speaker" announcement or the play/pause buttons would land on Zone 2 one
+ * day and on the main zone the next. `zone` ('main' by default, see ZONE in
+ * ../denon/protocol.js) picks the player whose name designates that zone
+ * ("Zone 2"/"Zone2"/"Z2"...), the main zone being the one whose name
+ * designates no secondary zone. Ties (or no name telling them apart) fall
+ * back to the lowest pid, so the choice at least stays stable across
+ * reconnects instead of depending on list order.
  */
-export function findPlayerIdByIp(payload, ip) {
+export function findPlayerIdByIp(payload, ip, zone = 'main') {
   if (!Array.isArray(payload) || !ip) {
     return null;
   }
-  const player = payload.find((p) => p?.ip === ip);
-  return player ? player.pid : null;
+  const candidates = payload
+    .filter((p) => p?.ip === ip)
+    .sort((a, b) => Number(a.pid) - Number(b.pid));
+  if (candidates.length === 0) {
+    return null;
+  }
+  const zoneNumber = zone === 'zone2' ? '2' : zone === 'zone3' ? '3' : null;
+  const namedZone = (p) => /\bz(?:one)?\s*([23])\b/i.exec(String(p.name ?? ''))?.[1] ?? null;
+  const preferred = candidates.find((p) => namedZone(p) === zoneNumber);
+  return (preferred ?? candidates[0]).pid;
 }
 
 /**

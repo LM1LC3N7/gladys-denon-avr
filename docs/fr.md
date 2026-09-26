@@ -14,7 +14,9 @@ synchronisé en temps réel.
 
 Voici ce qui apparaît par ampli :
 
-- **Alimentation** — marche/arrêt, contrôlable.
+- **Alimentation** — marche/arrêt, contrôlable. Uniquement la **zone principale** (ou la zone
+  choisie dans la Configuration, voir « Zone » ci-dessous) : allumer l'ampli depuis Gladys ne peut
+  plus le réveiller sur la Zone 2, et l'éteindre ne coupe plus une Zone 2 en cours d'écoute.
 - **Volume** — 0-100 %, contrôlable (converti depuis l'échelle interne de l'ampli, -80 dB à +18 dB).
   Confirmé sur du matériel réel : un pourcentage précis (25 % sur l'échelle par défaut) ne peut
   jamais rester tel quel — le régler bascule immédiatement à 26 %. C'est une vraie limite
@@ -180,6 +182,16 @@ que ce soit corrigé.
    fois enregistré, relancez un scan Découverte et cliquez sur **Mettre à jour** sur l'appareil —
    les choix du menu font partie de la structure de l'appareil, ils ne se rafraîchissent pas
    automatiquement avec la configuration.
+6. **Zone** (onglet Configuration) : la zone d'un ampli multizone que Gladys pilote — **Zone
+   principale** par défaut, ce qui convient dans la quasi-totalité des cas. Alimentation, volume
+   (et Volume +/-), muet, source (et Index de source, Sélectionner l'entrée) visent uniquement
+   cette zone, et seul l'état de cette zone est affiché sur le tableau de bord. Une annonce
+   **« Parler sur une enceinte »** allume d'abord cette zone et la bascule sur l'entrée
+   réseau/HEOS (`NET`), pour qu'elle y soit toujours jouée — jamais sur la zone que HEOS a utilisée
+   en dernier. Choisissez **Zone 2**/**Zone 3** seulement pour piloter cette zone à la place (le
+   mode sonore et les touches du menu de configuration agissent toujours sur la zone principale,
+   la seule à avoir un menu à l'écran). Le changement s'applique immédiatement, inutile de
+   rajouter l'appareil.
 
 ## Dépannage
 

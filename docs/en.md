@@ -13,7 +13,9 @@ physical remote, or the Denon/HEOS app, so the dashboard stays in sync in real t
 
 These show up per receiver:
 
-- **Power** — on/off, controllable.
+- **Power** — on/off, controllable. Only ever the **main zone** (or the zone picked in
+  Configuration, see "Zone" below): turning the receiver on from Gladys can no longer wake it up
+  on Zone 2, and turning it off no longer cuts a Zone 2 someone is listening to.
 - **Volume** — 0-100%, controllable (mapped from the receiver's internal -80 dB to +18 dB scale).
   Confirmed on real hardware: one specific percent (25% on the default scale) can never stay put —
   setting it snaps to 26% instead. This is a genuine hardware limit (the receiver only has 99
@@ -160,6 +162,14 @@ reachable, please report it (with the logs mentioned below) so it can be fixed.
    e.g. `SAT/CBL=Chromecast, GAME=`. After saving, run a Discovery scan again and click **Update**
    on the device — the dropdown's choices are part of the device's structure, so they don't
    refresh just because the configuration changed.
+6. **Zone** (Configuration tab): which zone of a multi-zone receiver Gladys drives — **Main zone**
+   by default, which is what you want in almost every case. Power, volume (and Volume up/down),
+   mute, source (and Source index, Select input) all target that zone only, and only that zone's
+   state is shown on the dashboard. A **"Speak on a speaker"** announcement first switches that
+   zone on and to the network/HEOS input (`NET`), so it always plays there — never on whichever
+   zone HEOS happened to use last. Pick **Zone 2**/**Zone 3** only to drive that zone instead
+   (sound mode and the Setup-menu keys always act on the main zone, the only one with an on-screen
+   menu). The change applies immediately, no need to re-add the device.
 
 ## Troubleshooting
 

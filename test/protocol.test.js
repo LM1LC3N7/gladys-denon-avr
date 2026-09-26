@@ -29,13 +29,72 @@ import {
   buildVolumeDownCommand,
   percentToDenonVolume,
   denonVolumeToPercent,
+  normalizeZone,
+  ZONE,
   SOURCE_CODES,
   SOUND_MODE_CODES,
 } from '../src/denon/protocol.js';
 
-test('parseLine: power', () => {
-  assert.deepEqual(parseLine('PWON'), { feature: 'power', value: 1 });
+test('parseLine: main zone power is ZMON/ZMOFF, PWSTANDBY means off, a bare PWON is ignored', () => {
+  assert.deepEqual(parseLine('ZMON'), { feature: 'power', value: 1 });
+  assert.deepEqual(parseLine('ZMOFF'), { feature: 'power', value: 0 });
   assert.deepEqual(parseLine('PWSTANDBY'), { feature: 'power', value: 0 });
+  // PWON is also pushed when only Zone 2 wakes the unit up: not "main zone on".
+  assert.equal(parseLine('PWON'), null);
+});
+
+test('parseLine: other zones never leak into the main zone (the default)', () => {
+  assert.equal(parseLine('Z2ON'), null);
+  assert.equal(parseLine('Z250'), null);
+  assert.equal(parseLine('Z2MUON'), null);
+  assert.equal(parseLine('Z2CD'), null);
+  assert.equal(parseLine('Z3OFF'), null);
+  assert.equal(parseLine('Z2ON', ZONE.MAIN), null);
+  assert.equal(parseLine('Z2ON', 'nonsense'), null, 'an unknown zone falls back to main');
+});
+
+test('parseLine: zone 2 power/volume/mute/source, main zone lines ignored', () => {
+  assert.deepEqual(parseLine('Z2ON', ZONE.ZONE2), { feature: 'power', value: 1 });
+  assert.deepEqual(parseLine('Z2OFF', ZONE.ZONE2), { feature: 'power', value: 0 });
+  assert.deepEqual(parseLine('PWSTANDBY', ZONE.ZONE2), { feature: 'power', value: 0 });
+  assert.deepEqual(parseLine('Z250', ZONE.ZONE2), {
+    feature: 'volume',
+    value: denonVolumeToPercent(50),
+  });
+  assert.deepEqual(parseLine('Z2MUON', ZONE.ZONE2), { feature: 'mute', value: 1 });
+  assert.deepEqual(parseLine('Z2MUOFF', ZONE.ZONE2), { feature: 'mute', value: 0 });
+  assert.deepEqual(parseLine('Z2TUNER', ZONE.ZONE2), { feature: 'source', value: 'TUNER' });
+  assert.deepEqual(parseLine('Z2SAT/CBL', ZONE.ZONE2), { feature: 'source', value: 'SAT/CBL' });
+  assert.deepEqual(parseLine('Z2SOURCE', ZONE.ZONE2), { feature: 'source', value: 'SOURCE' });
+  // Other Z2 status lines are not sources.
+  assert.equal(parseLine('Z2CSST', ZONE.ZONE2), null);
+  assert.equal(parseLine('Z2SLPOFF', ZONE.ZONE2), null);
+  // The main zone's own lines, and zone 3's, are not zone 2's.
+  assert.equal(parseLine('ZMON', ZONE.ZONE2), null);
+  assert.equal(parseLine('MV50', ZONE.ZONE2), null);
+  assert.equal(parseLine('MUON', ZONE.ZONE2), null);
+  assert.equal(parseLine('SITUNER', ZONE.ZONE2), null);
+  assert.equal(parseLine('Z3ON', ZONE.ZONE2), null);
+  // Zone-independent lines are still reported.
+  assert.deepEqual(parseLine('MSMOVIE', ZONE.ZONE2), { feature: 'sound_mode', value: 'MOVIE' });
+  assert.deepEqual(parseLine('MNMEN ON', ZONE.ZONE2), { feature: 'menu', value: 1 });
+});
+
+test('parseLine: zone 3 uses the Z3 prefix', () => {
+  assert.deepEqual(parseLine('Z3ON', ZONE.ZONE3), { feature: 'power', value: 1 });
+  assert.deepEqual(parseLine('Z340', ZONE.ZONE3), {
+    feature: 'volume',
+    value: denonVolumeToPercent(40),
+  });
+  assert.equal(parseLine('Z2ON', ZONE.ZONE3), null);
+});
+
+test('normalizeZone defaults anything unknown to the main zone', () => {
+  assert.equal(normalizeZone(undefined), ZONE.MAIN);
+  assert.equal(normalizeZone(''), ZONE.MAIN);
+  assert.equal(normalizeZone('zone4'), ZONE.MAIN);
+  assert.equal(normalizeZone('zone2'), ZONE.ZONE2);
+  assert.equal(normalizeZone('zone3'), ZONE.ZONE3);
 });
 
 test('parseLine: mute', () => {
@@ -112,11 +171,11 @@ test('parseLine: an MNMEN reply that is neither ON nor OFF (e.g. an echoed query
 test('parseLine: unrecognized or empty lines are ignored', () => {
   assert.equal(parseLine(''), null);
   assert.equal(parseLine('   '), null);
-  assert.equal(parseLine('ZMON'), null); // zone 2 power, out of scope for v1
+  assert.equal(parseLine('PWON'), null);
 });
 
 test('parseLine trims incoming whitespace/CR', () => {
-  assert.deepEqual(parseLine('  PWON\r'), { feature: 'power', value: 1 });
+  assert.deepEqual(parseLine('  ZMON\r'), { feature: 'power', value: 1 });
 });
 
 test('volume percent <-> Denon raw scale round-trips at the boundaries', () => {
@@ -134,9 +193,9 @@ test('volume percent is clamped to 0-100 and the raw scale to 0-98', () => {
 });
 
 test('command builders produce the exact protocol strings, no trailing CR', () => {
-  assert.equal(buildPowerQuery(), 'PW?');
-  assert.equal(buildPowerCommand(true), 'PWON');
-  assert.equal(buildPowerCommand(false), 'PWSTANDBY');
+  assert.equal(buildPowerQuery(), 'ZM?');
+  assert.equal(buildPowerCommand(true), 'ZMON');
+  assert.equal(buildPowerCommand(false), 'ZMOFF');
   assert.equal(buildVolumeQuery(), 'MV?');
   assert.equal(buildVolumeCommand(50), 'MV49');
   assert.equal(buildMuteQuery(), 'MU?');
@@ -162,6 +221,27 @@ test('command builders produce the exact protocol strings, no trailing CR', () =
   assert.equal(buildMenuCommand(false), 'MNMEN OFF');
   assert.equal(buildVolumeUpCommand(), 'MVUP');
   assert.equal(buildVolumeDownCommand(), 'MVDOWN');
+});
+
+test('zone-aware builders target the requested zone, never the whole-unit PW commands', () => {
+  assert.equal(buildPowerQuery(ZONE.ZONE2), 'Z2?');
+  assert.equal(buildPowerCommand(true, ZONE.ZONE2), 'Z2ON');
+  assert.equal(buildPowerCommand(false, ZONE.ZONE2), 'Z2OFF');
+  assert.equal(buildVolumeQuery(ZONE.ZONE2), 'Z2?');
+  assert.equal(buildVolumeCommand(50, ZONE.ZONE2), 'Z249');
+  assert.equal(buildVolumeCommand(0, ZONE.ZONE2), 'Z200');
+  assert.equal(buildMuteQuery(ZONE.ZONE2), 'Z2MU?');
+  assert.equal(buildMuteCommand(true, ZONE.ZONE2), 'Z2MUON');
+  assert.equal(buildMuteCommand(false, ZONE.ZONE2), 'Z2MUOFF');
+  assert.equal(buildSourceQuery(ZONE.ZONE2), 'Z2?');
+  assert.equal(buildSourceCommand('NET', ZONE.ZONE2), 'Z2NET');
+  assert.equal(buildVolumeUpCommand(ZONE.ZONE2), 'Z2UP');
+  assert.equal(buildVolumeDownCommand(ZONE.ZONE2), 'Z2DOWN');
+  assert.equal(buildPowerCommand(true, ZONE.ZONE3), 'Z3ON');
+  assert.equal(buildSourceCommand('CD', ZONE.ZONE3), 'Z3CD');
+  // Explicit main zone, and an unknown zone, behave like the default.
+  assert.equal(buildPowerCommand(true, ZONE.MAIN), 'ZMON');
+  assert.equal(buildSourceCommand('CD', 'bogus'), 'SICD');
 });
 
 test('buildVolumeCommand always pads to two digits', () => {

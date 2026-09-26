@@ -20,11 +20,13 @@ import {
   __setLastKnownStateForTesting,
   __setHeosConnectionForTesting,
   __setHeosPollIntervalMsForTesting,
+  __setZoneSwitchDelayMsForTesting,
   __clearConnectionsForTesting,
 } from '../src/devices/avr.js';
 import { normalizeConfig } from '../src/config.js';
 import { createFakeGladys } from '../test-fixtures/fakeGladys.js';
 import { HEOS_PORT } from '../src/heos/protocol.js';
+import { denonVolumeToPercent } from '../src/denon/protocol.js';
 
 const gladys = createFakeGladys();
 
@@ -34,6 +36,11 @@ const DISCOVERED = {
   friendlyName: 'Denon AVR-S970H',
   modelName: 'AVR-S970H',
 };
+
+test.beforeEach(() => {
+  // The "Speak on a speaker" zone switch pause is real time otherwise.
+  __setZoneSwitchDelayMsForTesting(0);
+});
 
 test.afterEach(() => {
   __clearConnectionsForTesting();
@@ -240,11 +247,50 @@ test('onSetValue routes power/volume to the right telnet command', async () => {
 
   const powerFeature = { external_id: featureExternalId(device.external_id, FEATURE.POWER) };
   await onSetValue(gladys, { device, feature: powerFeature, value: 1 });
-  assert.equal(telnet.sent.at(-1), 'PWON');
+  // Main zone only — never PWON, which restores whichever zones were on last.
+  assert.equal(telnet.sent.at(-1), 'ZMON');
+  await onSetValue(gladys, { device, feature: powerFeature, value: 0 });
+  assert.equal(telnet.sent.at(-1), 'ZMOFF');
 
   const volumeFeature = { external_id: featureExternalId(device.external_id, FEATURE.VOLUME) };
   await onSetValue(gladys, { device, feature: volumeFeature, value: 50 });
   assert.equal(telnet.sent.at(-1), 'MV49');
+});
+
+test('onSetValue targets the configured zone (zone 2) for power/volume/mute/source/volume keys', async () => {
+  const device = buildDiscoveredDevice(gladys, DISCOVERED);
+  const telnet = createFakeTelnetClient();
+  __setConnectionForTesting(device.external_id, telnet);
+  const config = normalizeConfig({ zone: 'zone2' });
+  const send = (key, value) =>
+    onSetValue(gladys, {
+      device,
+      feature: { external_id: featureExternalId(device.external_id, key) },
+      value,
+      config,
+    });
+
+  await send(FEATURE.POWER, 1);
+  await send(FEATURE.POWER, 0);
+  await send(FEATURE.VOLUME, 50);
+  await send(FEATURE.MUTE, 1);
+  await send(FEATURE.SOURCE, 'TUNER');
+  await send(FEATURE.SOURCE_INDEX, 0);
+  await send(FEATURE.VOLUME_UP, 1);
+  await send(FEATURE.VOLUME_DOWN, 1);
+  // On-screen Setup menu keys stay the main zone's (it's the only display).
+  await send(FEATURE.CURSOR_UP, 1);
+  assert.deepEqual(telnet.sent, [
+    'Z2ON',
+    'Z2OFF',
+    'Z249',
+    'Z2MUON',
+    'Z2TUNER',
+    'Z2PHONO',
+    'Z2UP',
+    'Z2DOWN',
+    'MNCUP',
+  ]);
 });
 
 test("onSetValue toggles mute off the receiver's last-reported state, ignoring the incoming value", async () => {
@@ -564,8 +610,44 @@ test('onSetValue plays a notification URL via HEOS browse/play_stream when a pla
     'player/clear_queue?pid=12345',
     'browse/play_stream?pid=12345&url=https://tts.example.com/announcement.mp3?token=abc&x=1',
   ]);
-  // Never touches the legacy Telnet session: no NS9x/other equivalent exists.
+  // The main zone is switched on and to the HEOS input first, so HEOS can't
+  // start the announcement on whichever zone (Zone 2...) it last played on.
+  assert.deepEqual(telnet.sent, ['ZMON', 'SINET']);
+});
+
+test('onSetValue notification: no zone switch when the configured zone is already on HEOS', async () => {
+  const device = buildDiscoveredDevice(gladys, DISCOVERED);
+  const telnet = createFakeTelnetClient();
+  __setConnectionForTesting(device.external_id, telnet);
+  __setLastKnownStateForTesting(device.external_id, { power: 1, source: 'NET' });
+  __setHeosConnectionForTesting(device.external_id, {
+    pid: 12345,
+    client: { sendCommand: () => true, isConnected: () => true },
+  });
+
+  const feature = { external_id: featureExternalId(device.external_id, FEATURE.PLAY_NOTIFICATION) };
+  await onSetValue(gladys, { device, feature, value: 'https://tts.example.com/a.mp3' });
   assert.deepEqual(telnet.sent, []);
+});
+
+test('onSetValue notification switches the configured zone (zone 2) instead of the main zone', async () => {
+  const device = buildDiscoveredDevice(gladys, DISCOVERED);
+  const telnet = createFakeTelnetClient();
+  __setConnectionForTesting(device.external_id, telnet);
+  __setLastKnownStateForTesting(device.external_id, { power: 1, source: 'TUNER' });
+  __setHeosConnectionForTesting(device.external_id, {
+    pid: 12345,
+    client: { sendCommand: () => true, isConnected: () => true },
+  });
+
+  const feature = { external_id: featureExternalId(device.external_id, FEATURE.PLAY_NOTIFICATION) };
+  await onSetValue(gladys, {
+    device,
+    feature,
+    value: 'https://tts.example.com/a.mp3',
+    config: normalizeConfig({ zone: 'zone2' }),
+  });
+  assert.deepEqual(telnet.sent, ['Z2NET']);
 });
 
 test('onSetValue clears the HEOS queue before every notification, so repeated scene triggers never stack', async () => {
@@ -721,7 +803,7 @@ test('disconnectDevice makes onSetValue fail again', async () => {
 test('connectDevice publishes the state pushed by a real Telnet session', async () => {
   const server = net.createServer((socket) => {
     socket.write(
-      'PWON\rMV50\rMUOFF\rSITUNER\rMSMOVIE\rMNMEN ON\rNSE0Now Playing USB\rNSE1Come Away With Me\rNSE2Norah Jones\r',
+      'PWON\rZMON\rZ2OFF\rZ230\rMV50\rMUOFF\rSITUNER\rMSMOVIE\rMNMEN ON\rNSE0Now Playing USB\rNSE1Come Away With Me\rNSE2Norah Jones\r',
     );
   });
   const port = await new Promise((resolve) =>
@@ -730,6 +812,7 @@ test('connectDevice publishes the state pushed by a real Telnet session', async 
 
   const device = buildDiscoveredDevice(gladys, { ...DISCOVERED, host: '127.0.0.1' });
   const localConfig = normalizeConfig({ port });
+  const publishedBefore = gladys.published.length;
 
   try {
     connectDevice(gladys, device, localConfig);
@@ -737,6 +820,16 @@ test('connectDevice publishes the state pushed by a real Telnet session', async 
 
     const powerId = featureExternalId(device.external_id, FEATURE.POWER);
     const volumeId = featureExternalId(device.external_id, FEATURE.VOLUME);
+    // Zone 2's Z2OFF/Z230 must not be taken for the main zone's power/volume.
+    const ours = gladys.published.slice(publishedBefore);
+    assert.deepEqual(
+      ours.filter((p) => p.featureExternalId === powerId).map((p) => p.state),
+      [1],
+    );
+    assert.deepEqual(
+      ours.filter((p) => p.featureExternalId === volumeId).map((p) => p.state),
+      [denonVolumeToPercent(50)],
+    );
     const sourceId = featureExternalId(device.external_id, FEATURE.SOURCE);
     const soundModeId = featureExternalId(device.external_id, FEATURE.SOUND_MODE);
     const playbackStateId = featureExternalId(device.external_id, FEATURE.PLAYBACK_STATE);

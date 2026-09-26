@@ -30,6 +30,19 @@ TuneIn...) — see "Playback controls" below.
   HEOS-only speaker (Denon Home, HEOS 1/3/5/7, Bar...), which has no "AVR Control" service
   whatsoever (port 23 is actively refused). Power itself has no HEOS equivalent and stays
   Telnet-only — see "v1 scope" below for exactly which features work on that kind of device.
+- **Zones**: every per-zone command targets the **main zone by default** (`zone` config key,
+  `main`/`zone2`/`zone3`, see `ZONE` in `src/denon/protocol.js`). Power uses `ZMON`/`ZMOFF`, never
+  the whole-unit `PWON`/`PWSTANDBY`: `PWON` wakes the receiver up restoring whichever zones were on
+  last (so it could come back on Zone 2 alone), and `PWSTANDBY` also cuts Zone 2. A bare `PWON`
+  push is likewise not read as "main zone on" (Zone 2 alone sends it too) — the `ZMON` push is.
+  `parseLine(line, zone)` drops other zones' lines (`Z2...`/`Z3...` in main-zone mode, `ZM`/`MV`/
+  `MU`/`SI` in secondary-zone mode). On the HEOS side, a multi-zone AVR can expose one player per
+  zone on the same IP: `findPlayerIdByIp(payload, ip, zone)` picks the one named after the zone
+  (the main zone being the one named after none), lowest `pid` on a tie — never HEOS' list order.
+  And before a "Speak on a speaker" stream, the configured zone is switched on and to `NET` over
+  Telnet (skipped when the last reported state already says so), otherwise HEOS starts the stream
+  on whichever zone it last played on. Changing `zone` reconnects every AVR (`index.js`'s
+  `onConfigUpdated`). Sound mode and the Setup-menu keys stay main-zone only.
   **Volume: 25% and 75% can never be displayed as themselves** — confirmed on real hardware (a
   slider that "jumps from 24% to 26%, can't land on 25%") and in the math: `percentToDenonVolume()`/
   `denonVolumeToPercent()` (`src/denon/protocol.js`) round-trip a plain 0-100 percent through the
@@ -389,7 +402,8 @@ finds under `test/`, fixtures included, so one in there silently becomes a passi
 
 To poke a real receiver directly, without running Gladys at all:
 `node scripts/debug-telnet.js <host> [port]` opens the same Telnet client this integration uses
-in production and gives you a prompt to type raw protocol commands (`PW?`, `MV50`, `SITUNER`...).
+in production and gives you a prompt to type raw protocol commands (`ZM?`, `MV50`, `SITUNER`,
+`Z2?`...).
 
 ## Validate before publishing
 
@@ -429,8 +443,9 @@ Power, volume, mute (legacy Telnet when reachable, HEOS CLI fallback otherwise),
 automation), sound mode, network/USB playback controls (HEOS CLI when available, legacy `NS9x`
 Telnet otherwise), speak-on-a-speaker TTS playback (HEOS `browse/play_stream`, see "Speak on a
 speaker" above), now-playing metadata, Setup-menu remote-control keys (cursor pad,
-Enter/Return/Info/Menu, relative Volume Up/Down), SSDP discovery.
-Deliberately out of scope for now: multi-zone (Zone 2/3),
+Enter/Return/Info/Menu, relative Volume Up/Down), zone selection (main zone by default, or Zone
+2/3 — one zone per integration, not several zones side by side), SSDP discovery.
+Deliberately out of scope for now: controlling several zones at once (one device per zone),
 HEOS-specific features beyond play/pause/next/previous (grouping, queue browsing, volume-per-
 player...), and an HTTP fallback control channel — see the design notes at the top of
 [`src/devices/avr.js`](./src/devices/avr.js) and

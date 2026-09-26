@@ -4,7 +4,7 @@
 // at all: open the same Telnet client this integration uses in production
 // (src/denon/telnet.js), log every line the receiver sends, and let you type
 // raw protocol commands (see src/denon/protocol.js for the command syntax:
-// PW?, PWON, MV50, MU?, SI?, SITUNER...) at a prompt.
+// ZM?, ZMON, MV50, MU?, SI?, SITUNER...) at a prompt.
 //
 // Usage: node scripts/debug-telnet.js <host> [port]
 // -----------------------------------------------------------------------------
@@ -26,7 +26,7 @@ const telnet = createTelnetClient({
   port,
   onConnect: () => {
     console.log('Connected. Type a command and press Enter (Ctrl+C to quit).');
-    console.log('Examples: PW?  PWON  PWSTANDBY  MV?  MV50  MU?  MUON  SI?  SITUNER');
+    console.log('Examples: ZM?  ZMON  ZMOFF  Z2?  MV?  MV50  MU?  MUON  SI?  SITUNER');
   },
   onLine: (line) => console.log(`<- ${line}`),
   onDisconnect: (consecutiveFailures) =>
