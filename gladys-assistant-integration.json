@@ -55,6 +55,43 @@
       "default": ""
     },
     {
+      "key": "zone",
+      "type": "select",
+      "label": {
+        "en": "Zone",
+        "fr": "Zone"
+      },
+      "description": {
+        "en": "Which zone of the receiver Gladys controls: power, volume, mute and source commands, and \"Speak on a speaker\" announcements (the zone is switched on and to the HEOS/Network input first). Main zone by default; only change it to drive Zone 2/3 instead.",
+        "fr": "La zone de l'ampli pilotée par Gladys : commandes d'alimentation, de volume, de sourdine et de source, ainsi que les annonces « Parler sur une enceinte » (la zone est d'abord allumée et basculée sur l'entrée HEOS/Réseau). Zone principale par défaut ; à changer seulement pour piloter la Zone 2/3 à la place."
+      },
+      "required": false,
+      "default": "main",
+      "options": [
+        {
+          "value": "main",
+          "label": {
+            "en": "Main zone",
+            "fr": "Zone principale"
+          }
+        },
+        {
+          "value": "zone2",
+          "label": {
+            "en": "Zone 2",
+            "fr": "Zone 2"
+          }
+        },
+        {
+          "value": "zone3",
+          "label": {
+            "en": "Zone 3",
+            "fr": "Zone 3"
+          }
+        }
+      ]
+    },
+    {
       "key": "port",
       "type": "number",
       "label": {

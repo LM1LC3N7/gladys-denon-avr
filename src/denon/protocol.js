@@ -8,10 +8,13 @@
 // tested without a real (or fake) receiver.
 //
 // Reference commands used by this integration:
-//   PW?   / PWON / PWSTANDBY           -> main zone power
+//   ZM?   / ZMON / ZMOFF               -> main zone power (see ZONE below)
+//   PWSTANDBY (push only)              -> whole unit in standby: every zone off
 //   MV?   / MV<nn>                     -> master volume (raw scale, see below)
 //   MU?   / MUON / MUOFF               -> mute
 //   SI?   / SI<CODE>                   -> input source
+//   Z2? / Z2ON / Z2OFF / Z2<nn> / Z2<CODE> / Z2MU? / Z2MUON / Z2MUOFF / Z2UP / Z2DOWN
+//                                      -> the same for Zone 2 (Z3... for Zone 3)
 //   MS?   / MS<MODE>                   -> surround/sound mode
 //   NS9A / NS9B / NS9D / NS9E          -> network/USB transport: play/pause/next/previous
 //   NSE0<text> / NSE1<text> / NSE2<text> -> pushed while playing: playback state / title / artist
@@ -41,6 +44,41 @@
 // as a starting point to calibrate against the real receiver, not a promise
 // of pixel-perfect dB accuracy.
 const DENON_VOLUME_MAX = 98;
+
+// Zones a multi-zone receiver exposes over the same Telnet session. Every
+// zone-aware builder/parser below defaults to ZONE.MAIN, and so does the
+// `zone` config key (src/config.js): the main zone is the one this
+// integration targets unless the user explicitly asks otherwise.
+//
+// Why power is ZM (not PW) for the main zone: PWON/PWSTANDBY are *system*
+// commands. PWSTANDBY puts every zone in standby (it would also cut a Zone 2
+// someone is listening to), and PWON wakes the unit up restoring whichever
+// zones were on last — so PWON could, and on real hardware did, bring the
+// receiver back on Zone 2 instead of the main zone depending on how it was
+// last turned off. ZMON/ZMOFF only ever touch the main zone (ZMOFF with
+// every other zone off puts the unit in standby all the same). For the same
+// reason a bare PWON push is NOT read as "main zone on" (it's also sent when
+// only Zone 2 wakes the unit up) — the ZMON/ZMOFF push that follows it is.
+export const ZONE = {
+  MAIN: 'main',
+  ZONE2: 'zone2',
+  ZONE3: 'zone3',
+};
+
+const ZONE_PREFIX = {
+  [ZONE.ZONE2]: 'Z2',
+  [ZONE.ZONE3]: 'Z3',
+};
+
+/** Normalize anything (config value, undefined...) to a known ZONE value — main by default. */
+export function normalizeZone(zone) {
+  return Object.values(ZONE).includes(zone) ? zone : ZONE.MAIN;
+}
+
+/** Telnet prefix of a secondary zone ("Z2"/"Z3"), or null for the main zone. */
+function zonePrefix(zone) {
+  return ZONE_PREFIX[normalizeZone(zone)] ?? null;
+}
 
 // Generic SI (input source) codes from Denon's published AVR Control
 // protocol spec. Not every receiver has every input (a model just ignores a
@@ -118,17 +156,41 @@ export function denonVolumeToPercent(rawVolume) {
  *
  * `value` is already in Gladys terms: booleans for power/mute (as 0|1), a
  * 0-100 percent number for volume, the raw SI code string for source.
+ *
+ * `zone` selects which zone's power/volume/mute/source lines are reported
+ * (see ZONE above); the other zones' lines are ignored, so a Zone 2 volume
+ * change can never be mistaken for the main zone's and vice versa. Lines that
+ * aren't per-zone (sound mode, Setup menu, NSE now-playing) are reported
+ * whatever the zone.
  */
-export function parseLine(rawLine) {
+export function parseLine(rawLine, zone = ZONE.MAIN) {
   const line = String(rawLine).trim();
   if (line.length === 0) {
     return null;
   }
 
-  if (line.startsWith('PWON')) {
+  // Whole unit in standby: every zone is off, whichever one we follow.
+  if (line.startsWith('PWSTANDBY')) {
+    return { feature: 'power', value: 0 };
+  }
+  // PWON is deliberately ignored — see the comment above ZONE.
+  if (line.startsWith('PW')) {
+    return null;
+  }
+
+  const prefix = zonePrefix(zone);
+  if (prefix) {
+    return parseSecondaryZoneLine(line, prefix);
+  }
+  // Another zone's line (Z2..., Z3...): never ours in main-zone mode.
+  if (/^Z\d/.test(line)) {
+    return null;
+  }
+
+  if (line.startsWith('ZMON')) {
     return { feature: 'power', value: 1 };
   }
-  if (line.startsWith('PWSTANDBY')) {
+  if (line.startsWith('ZMOFF')) {
     return { feature: 'power', value: 0 };
   }
 
@@ -145,19 +207,73 @@ export function parseLine(rawLine) {
     return null;
   }
   if (line.startsWith('MV')) {
-    const digits = line.slice(2);
-    if (!/^\d{2,3}$/.test(digits)) {
-      return null;
-    }
-    // 2 digits: whole dB step (e.g. "50"). 3 digits: half-step, last digit
-    // is 5 for +0.5 (e.g. "805" -> 80.5), 0 otherwise (e.g. "800" -> 80.0).
-    const rawVolume =
-      digits.length === 2
-        ? Number(digits)
-        : Number(digits.slice(0, 2)) + (digits.endsWith('5') ? 0.5 : 0);
-    return { feature: 'volume', value: denonVolumeToPercent(rawVolume) };
+    return parseVolumeDigits(line.slice(2));
   }
 
+  if (line.startsWith('SI')) {
+    const code = line.slice(2).trim();
+    if (code.length === 0) {
+      return null;
+    }
+    return { feature: 'source', value: code };
+  }
+
+  return parseZoneIndependentLine(line);
+}
+
+/**
+ * Volume digits (whatever follows MV/Z2/Z3) -> `{ feature: 'volume', value }`,
+ * or null when they aren't a volume. 2 digits: whole dB step (e.g. "50").
+ * 3 digits: half-step, last digit is 5 for +0.5 (e.g. "805" -> 80.5), 0
+ * otherwise (e.g. "800" -> 80.0).
+ */
+function parseVolumeDigits(digits) {
+  if (!/^\d{2,3}$/.test(digits)) {
+    return null;
+  }
+  const rawVolume =
+    digits.length === 2
+      ? Number(digits)
+      : Number(digits.slice(0, 2)) + (digits.endsWith('5') ? 0.5 : 0);
+  return { feature: 'volume', value: denonVolumeToPercent(rawVolume) };
+}
+
+// Everything a Z2/Z3 line can carry after its prefix that is a source: the
+// known SI codes plus SOURCE ("follow the main zone's input"). Z2/Z3 lines
+// have no separate "SI" marker the way the main zone does — Z2CD is the
+// source, Z250 the volume, Z2ON the power, and other Z2 status lines exist
+// too (Z2CS channel setting, Z2SLP sleep timer, Z2HPF...), so only an exact
+// known code is accepted as a source rather than "anything else".
+const SECONDARY_ZONE_SOURCES = new Set([...SOURCE_CODES.map((code) => code.value), 'SOURCE']);
+
+function parseSecondaryZoneLine(line, prefix) {
+  if (!line.startsWith(prefix)) {
+    return parseZoneIndependentLine(line);
+  }
+  const rest = line.slice(prefix.length).trim();
+  if (rest === 'ON') {
+    return { feature: 'power', value: 1 };
+  }
+  if (rest === 'OFF') {
+    return { feature: 'power', value: 0 };
+  }
+  if (rest === 'MUON') {
+    return { feature: 'mute', value: 1 };
+  }
+  if (rest === 'MUOFF') {
+    return { feature: 'mute', value: 0 };
+  }
+  if (/^\d/.test(rest)) {
+    return parseVolumeDigits(rest);
+  }
+  if (SECONDARY_ZONE_SOURCES.has(rest)) {
+    return { feature: 'source', value: rest };
+  }
+  return null;
+}
+
+/** Lines that aren't tied to one zone: Setup menu, sound mode, NSE now-playing. */
+function parseZoneIndependentLine(line) {
   // MNMEN<space>ON / MNMEN<space>OFF: the on-screen Setup menu opened/closed
   // — by this integration, the physical remote, or the receiver itself.
   // Also tolerates the no-space form (MNMENON), matching how PWON/MUON never
@@ -173,16 +289,8 @@ export function parseLine(rawLine) {
     return null;
   }
 
-  if (line.startsWith('SI')) {
-    const code = line.slice(2).trim();
-    if (code.length === 0) {
-      return null;
-    }
-    return { feature: 'source', value: code };
-  }
-
-  // Must come before the SI/generic checks would ever be extended to a
-  // bare "S" prefix — not currently a risk, but MS itself is unambiguous.
+  // MS is the main zone's surround mode (secondary zones have none); still
+  // reported in every zone mode, like the Setup menu, see parseLine().
   if (line.startsWith('MS')) {
     const mode = line.slice(2).trim();
     if (mode.length === 0) {
@@ -222,44 +330,56 @@ export function parseLine(rawLine) {
   return null;
 }
 
-/** Build the command that queries the current power state (no trailing CR). */
-export function buildPowerQuery() {
-  return 'PW?';
+/**
+ * Build the command that queries a zone's power state (no trailing CR).
+ * Main zone: ZM? (not PW? — see the comment above ZONE). A secondary zone's
+ * bare Z2?/Z3? query answers with its power, volume and source all at once.
+ */
+export function buildPowerQuery(zone = ZONE.MAIN) {
+  const prefix = zonePrefix(zone);
+  return prefix ? `${prefix}?` : 'ZM?';
 }
 
-/** Build the command that sets power on/off (no trailing CR). */
-export function buildPowerCommand(on) {
-  return on ? 'PWON' : 'PWSTANDBY';
+/** Build the command that turns a zone on/off (no trailing CR) — never the whole-unit PW commands. */
+export function buildPowerCommand(on, zone = ZONE.MAIN) {
+  const prefix = zonePrefix(zone) ?? 'ZM';
+  return `${prefix}${on ? 'ON' : 'OFF'}`;
 }
 
-/** Build the command that queries the current volume (no trailing CR). */
-export function buildVolumeQuery() {
-  return 'MV?';
+/** Build the command that queries a zone's current volume (no trailing CR). */
+export function buildVolumeQuery(zone = ZONE.MAIN) {
+  const prefix = zonePrefix(zone);
+  return prefix ? `${prefix}?` : 'MV?';
 }
 
-/** Build the command that sets the volume from a 0-100 percent (no trailing CR). */
-export function buildVolumeCommand(percent) {
-  return `MV${String(percentToDenonVolume(percent)).padStart(2, '0')}`;
+/** Build the command that sets a zone's volume from a 0-100 percent (no trailing CR). */
+export function buildVolumeCommand(percent, zone = ZONE.MAIN) {
+  const prefix = zonePrefix(zone) ?? 'MV';
+  return `${prefix}${String(percentToDenonVolume(percent)).padStart(2, '0')}`;
 }
 
-/** Build the command that queries the current mute state (no trailing CR). */
-export function buildMuteQuery() {
-  return 'MU?';
+/** Build the command that queries a zone's current mute state (no trailing CR). */
+export function buildMuteQuery(zone = ZONE.MAIN) {
+  const prefix = zonePrefix(zone);
+  return prefix ? `${prefix}MU?` : 'MU?';
 }
 
-/** Build the command that sets mute on/off (no trailing CR). */
-export function buildMuteCommand(on) {
-  return on ? 'MUON' : 'MUOFF';
+/** Build the command that sets a zone's mute on/off (no trailing CR). */
+export function buildMuteCommand(on, zone = ZONE.MAIN) {
+  const prefix = zonePrefix(zone) ?? '';
+  return `${prefix}${on ? 'MUON' : 'MUOFF'}`;
 }
 
-/** Build the command that queries the current input source (no trailing CR). */
-export function buildSourceQuery() {
-  return 'SI?';
+/** Build the command that queries a zone's current input source (no trailing CR). */
+export function buildSourceQuery(zone = ZONE.MAIN) {
+  const prefix = zonePrefix(zone);
+  return prefix ? `${prefix}?` : 'SI?';
 }
 
-/** Build the command that selects an input source by its SI code (no trailing CR). */
-export function buildSourceCommand(code) {
-  return `SI${code}`;
+/** Build the command that selects a zone's input source by its SI code (no trailing CR). */
+export function buildSourceCommand(code, zone = ZONE.MAIN) {
+  const prefix = zonePrefix(zone) ?? 'SI';
+  return `${prefix}${code}`;
 }
 
 /** Build the command that queries the current surround/sound mode (no trailing CR). */
@@ -334,9 +454,9 @@ export function buildMenuCommand(open) {
 }
 
 /** Build the relative volume step commands (no trailing CR) — mirrors the remote's +/- keys. */
-export function buildVolumeUpCommand() {
-  return 'MVUP';
+export function buildVolumeUpCommand(zone = ZONE.MAIN) {
+  return `${zonePrefix(zone) ?? 'MV'}UP`;
 }
-export function buildVolumeDownCommand() {
-  return 'MVDOWN';
+export function buildVolumeDownCommand(zone = ZONE.MAIN) {
+  return `${zonePrefix(zone) ?? 'MV'}DOWN`;
 }

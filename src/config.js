@@ -11,6 +11,8 @@
 // optional: an empty config still works as long as SSDP finds the receiver.
 // -----------------------------------------------------------------------------
 
+import { normalizeZone } from './denon/protocol.js';
+
 // Defaults: they MUST stay consistent with the `default` values declared in the
 // `config_schema` of the manifest.
 export const DEFAULT_CONFIG = {
@@ -33,6 +35,11 @@ export const DEFAULT_CONFIG = {
   // normalizeConfig() for the exact syntax. Leave empty to show every
   // SOURCE_CODES entry under its protocol name, unchanged.
   source_overrides: '',
+  // Which zone of a multi-zone receiver the device controls: 'main' (the
+  // default — and what every command targets unless changed here), 'zone2'
+  // or 'zone3'. See ZONE in src/denon/protocol.js. Anything unknown falls
+  // back to 'main'.
+  zone: 'main',
 };
 
 /**
@@ -66,6 +73,7 @@ export function normalizeConfig(raw = {}) {
     reconnect_interval_seconds:
       Number(raw.reconnect_interval_seconds ?? DEFAULT_CONFIG.reconnect_interval_seconds) ||
       DEFAULT_CONFIG.reconnect_interval_seconds,
+    zone: normalizeZone(raw.zone),
     sourceOverrides: parseSourceOverrides(
       typeof raw.source_overrides === 'string'
         ? raw.source_overrides

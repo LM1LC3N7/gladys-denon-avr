@@ -66,7 +66,7 @@ gladys.onSetValue(async (device, feature, value) => {
 
 // --- Manifest actions: buttons in the Configuration screen -------------------
 gladys.onAction('test_connection', (fields) => runTestConnectionAction(gladys, { fields, config }));
-gladys.onAction('select_source', (fields) => runSelectSourceAction(gladys, { fields }));
+gladys.onAction('select_source', (fields) => runSelectSourceAction(gladys, { fields, config }));
 
 // --- Device lifecycle: open/close the Telnet session as devices come and go -
 gladys.onDeviceCreated(async (device) => {
@@ -82,7 +82,22 @@ gladys.onDeviceDeleted(async (device) => {
 // --- Configuration updated by the user ---------------------------------------
 gladys.onConfigUpdated(async (newConfig) => {
   logger.info('onConfigUpdated -> new configuration received');
+  const previousZone = config.zone;
   config = normalizeConfig(newConfig);
+  // Each Telnet/HEOS session parses lines and picks its HEOS player for one
+  // zone, fixed when it opens (see connectDevice()) — reopen them all so a
+  // zone change applies right away instead of at the next restart.
+  if (config.zone !== previousZone) {
+    logger.info(`Zone changed (${previousZone} -> ${config.zone}), reconnecting every AVR`);
+    disconnectAllDevices();
+    try {
+      for (const device of await gladys.getDevices()) {
+        connectDevice(gladys, device, config);
+      }
+    } catch (err) {
+      logger.error(`Reconnecting the AVRs after a zone change failed: ${err.message}`);
+    }
+  }
 });
 
 // --- Connection lifecycle ----------------------------------------------------
