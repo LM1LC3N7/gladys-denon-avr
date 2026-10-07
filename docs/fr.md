@@ -146,6 +146,48 @@ nécessite un compte de streaming payant réel. Si les boutons ne font rien chez
 l'ampli est joignable, merci de le signaler (avec les logs mentionnés plus bas) pour
 que ce soit corrigé.
 
+## Coupures pub des radios
+
+Quand une radio joue via HEOS (TuneIn, favori, URL de flux), l'intégration repère ses coupures pub
+et active l'état **Ad break** de l'appareil pendant celles-ci. Par défaut, elle baisse aussi le
+volume de 20 crans, sans descendre sous 20, puis le remet quand la musique reprend. Si vous avez touché au volume entre-temps,
+c'est votre réglage qui est gardé. Le tout se règle dans la section « Coupures pub des radios » de
+la configuration. Pour agir vous-même dans une scène (changer de station, couper le son…), désactivez
+la baisse automatique et déclenchez votre scène sur l'état **Ad break**.
+
+**Comment ça marche.** Aucune radio n'annonce « c'est la pub » dans son flux. En revanche, beaucoup
+indiquent le titre en cours, et parfois sa durée. Quand une chanson se termine sans qu'une autre
+suive, la station passe soit de la pub, soit l'animateur qui parle. Les deux se distinguent par
+l'heure. Pour chaque station, l'intégration apprend les minutes de l'heure où tombent ses coupures
+(longues de 4 à 8 minutes), par exemple :09–:14 et :34–:47 sur OUI FM :
+
+- **dans une de ces fenêtres**, une fin de chanson suivie de ~45 s sans musique est traitée comme une
+  coupure. Ce délai laisse passer l'animateur avant le jingle pub ;
+- **en dehors**, il faut 2 min 30 sans musique. L'animateur ne parle jamais aussi longtemps entre deux
+  morceaux ;
+- la coupure se termine quand le titre suivant démarre, avec 10 minutes maximum par sécurité.
+
+L'apprentissage est enregistré par station et se recale si la grille change.
+
+**D'où viennent les titres :**
+
+- **Métadonnées HEOS** : pour toute station qui en fournit (ex. Radio Paradise via TuneIn). La durée
+  des titres est retrouvée sur Deezer.
+- **Flux dédié** : pour les stations dont le flux n'en contient aucune. C'est le cas d'**OUI FM**,
+  suivie via le flux temps réel de son propre site (titre, artiste et durée exacte). Le titre
+  s'affiche alors aussi dans « Now playing », au lieu du simple nom de la station. Les fenêtres pub
+  d'OUI FM, mesurées sur 3 jours de sa programmation, sont préchargées.
+- **Rien du tout** (ex. certaines stations TuneIn) : appuyez sur le bouton **Mark ad break** quand
+  la pub commence, puis à nouveau quand elle se termine. Après quelques coupures signalées,
+  l'intégration connaît l'horaire de la station et baisse le volume toute seule à ces moments-là.
+  C'est moins précis qu'avec des titres, faute de savoir quand la musique s'arrête vraiment.
+
+Sur une station avec titres, **Mark ad break** sert aussi à affiner le délai : appuyez au moment du
+jingle pub, et l'intégration apprend combien de temps l'animateur parle avant les pubs.
+
+**Limite connue** : la fin de coupure n'est connue qu'au démarrage du titre suivant. Si l'animateur
+reprend la parole après les pubs, il reste à volume réduit jusqu'à la chanson.
+
 ## Prérequis
 
 - Un ampli-tuner Denon ou Marantz avec une connexion réseau (Ethernet/Wi-Fi).

@@ -40,6 +40,15 @@ export const DEFAULT_CONFIG = {
   // or 'zone3'. See ZONE in src/denon/protocol.js. Anything unknown falls
   // back to 'main'.
   zone: 'main',
+  // Radio ad-break detection (src/adbreak/): publish the AD_BREAK state...
+  ad_break_detection: true,
+  // ...and lower the volume during breaks (off: the state alone is
+  // published, for a user-made scene to act on it).
+  ad_break_auto_duck: true,
+  // How much lower (HEOS volume levels, 0-100 scale) during a break.
+  ad_break_volume_drop: 20,
+  // ...but never below this level (0-100), so the ads stay audible.
+  ad_break_min_volume: 20,
 };
 
 /**
@@ -74,10 +83,24 @@ export function normalizeConfig(raw = {}) {
       Number(raw.reconnect_interval_seconds ?? DEFAULT_CONFIG.reconnect_interval_seconds) ||
       DEFAULT_CONFIG.reconnect_interval_seconds,
     zone: normalizeZone(raw.zone),
+    ad_break_detection: raw.ad_break_detection ?? DEFAULT_CONFIG.ad_break_detection,
+    ad_break_auto_duck: raw.ad_break_auto_duck ?? DEFAULT_CONFIG.ad_break_auto_duck,
+    ad_break_volume_drop: Math.min(
+      100,
+      Math.max(
+        1,
+        Number(raw.ad_break_volume_drop ?? DEFAULT_CONFIG.ad_break_volume_drop) ||
+          DEFAULT_CONFIG.ad_break_volume_drop,
+      ),
+    ),
     sourceOverrides: parseSourceOverrides(
       typeof raw.source_overrides === 'string'
         ? raw.source_overrides
         : DEFAULT_CONFIG.source_overrides,
+    ),
+    ad_break_min_volume: Math.min(
+      100,
+      Math.max(0, Number(raw.ad_break_min_volume ?? DEFAULT_CONFIG.ad_break_min_volume) || 0),
     ),
   };
 }

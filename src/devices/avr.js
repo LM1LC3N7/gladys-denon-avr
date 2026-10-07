@@ -81,6 +81,7 @@ import {
   parseNowPlayingMedia,
   HEOS_EVENT,
 } from '../heos/protocol.js';
+import { createAdBreakController } from '../adbreak/index.js';
 
 export const DEVICE_TYPE = 'avr';
 
@@ -108,6 +109,8 @@ export const FEATURE = {
   PLAYBACK_STATE: 'playback_state',
   NOW_PLAYING: 'now_playing',
   PLAY_NOTIFICATION: 'play_notification',
+  AD_BREAK: 'ad_break',
+  AD_BREAK_MARK: 'ad_break_mark',
 };
 
 // Own state keys (never published directly, only combined into
@@ -512,6 +515,36 @@ function buildFeatures(deviceExternalId, sourceOverrides = {}) {
       has_feedback: false,
       keep_history: false,
     },
+    {
+      // Radio ad-break detection, see src/adbreak/. On while the station
+      // currently playing is (very likely) airing ads — learned per
+      // station, see src/adbreak/stats.js — so a scene can react to it;
+      // the integration itself lowers the volume meanwhile unless
+      // ad_break_auto_duck is switched off in the configuration.
+      name: 'Ad break',
+      external_id: featureExternalId(deviceExternalId, FEATURE.AD_BREAK),
+      category: DEVICE_FEATURE_CATEGORIES.SWITCH,
+      type: DEVICE_FEATURE_TYPES.SWITCH.BINARY,
+      min: 0,
+      max: 1,
+      read_only: true,
+      has_feedback: false,
+    },
+    {
+      // "It's an ad": teaches the ad schedule of a station with no song
+      // metadata at all (and, on one with metadata, how long its host
+      // talks before the ad jingle). On a station without metadata a
+      // second press ends the break.
+      name: 'Mark ad break',
+      external_id: featureExternalId(deviceExternalId, FEATURE.AD_BREAK_MARK),
+      category: DEVICE_FEATURE_CATEGORIES.BUTTON,
+      type: DEVICE_FEATURE_TYPES.BUTTON.PUSH,
+      min: 0,
+      max: 1,
+      read_only: false,
+      has_feedback: false,
+      keep_history: false,
+    },
   ];
 }
 
@@ -612,7 +645,16 @@ export function connectDevice(gladys, device, config) {
   // legacy NSE0/NSE1/NSE2 lines (which generally don't fire for HEOS-managed
   // playback anyway, per real-hardware feedback) must not overwrite it with
   // a stale or unrelated Net/USB-subsystem guess.
-  const heosState = { client: null, pid: null, pollTimer: null };
+  // `config` is kept here (not just closed over) so applyConfig() below can
+  // hand the ad-break controller a hot-reloaded config without reconnecting.
+  const heosState = {
+    client: null,
+    pid: null,
+    pollTimer: null,
+    volume: null,
+    adBreak: null,
+    config,
+  };
 
   const telnet = createTelnetClient({
     host,
@@ -704,6 +746,10 @@ export function connectDevice(gladys, device, config) {
   heosConnections.set(device.external_id, heosState);
 
   function publishNowPlayingMedia(parsedPayload) {
+    heosState.adBreak.onNowPlayingMedia(parsedPayload);
+    if (heosState.adBreak.providesNowPlaying()) {
+      return; // The station's own feed publishes the real title instead.
+    }
     const media = parseNowPlayingMedia(parsedPayload);
     const id = featureExternalId(device.external_id, FEATURE.NOW_PLAYING);
     const nowPlaying = media ? [media.artist, media.title].filter(Boolean).join(' - ') : '';
@@ -720,6 +766,11 @@ export function connectDevice(gladys, device, config) {
   // no "AVR Control" service at all (port 23 actively refused) — see the
   // routing comment on FEATURE.VOLUME/FEATURE.MUTE in onSetValue() below.
   function publishVolume(level) {
+    if (level !== undefined) {
+      // Cached whatever the transport: the ad-break ducking reads and writes
+      // the HEOS level, see createAdBreakController() below.
+      heosState.volume = Math.round(Number(level));
+    }
     if (telnet.isConnected() || level === undefined) {
       return;
     }
@@ -747,6 +798,7 @@ export function connectDevice(gladys, device, config) {
   }
 
   function publishPlaybackState(state) {
+    heosState.adBreak.onPlayState(state === 'play');
     const id = featureExternalId(device.external_id, FEATURE.PLAYBACK_STATE);
     const value = heosPlayStateToPlaybackState(state);
     const cached = { ...lastKnownState.get(device.external_id) };
@@ -756,6 +808,34 @@ export function connectDevice(gladys, device, config) {
       .publishState(id, value)
       .catch((err) => logger.error(`publishState failed for ${id}: ${err.message}`));
   }
+
+  heosState.adBreak = createAdBreakController({
+    name: device.external_id,
+    getConfig: () => heosState.config,
+    getVolume: () => heosState.volume,
+    setVolume: (level) => {
+      if (heosState.pid == null) {
+        return false;
+      }
+      const sent = heosState.client.sendCommand(buildHeosSetVolumeCommand(heosState.pid, level));
+      if (sent) {
+        heosState.volume = level;
+      }
+      return sent;
+    },
+    publishAdBreak: (inBreak) => {
+      const id = featureExternalId(device.external_id, FEATURE.AD_BREAK);
+      gladys
+        .publishState(id, inBreak ? 1 : 0)
+        .catch((err) => logger.error(`publishState failed for ${id}: ${err.message}`));
+    },
+    publishNowPlaying: (text) => {
+      const id = featureExternalId(device.external_id, FEATURE.NOW_PLAYING);
+      gladys
+        .publishState(id, { text })
+        .catch((err) => logger.error(`publishState failed for ${id}: ${err.message}`));
+    },
+  });
 
   heosState.client = createHeosClient({
     host,
@@ -954,6 +1034,7 @@ export function __clearConnectionsForTesting() {
   lastKnownState.clear();
   for (const heosState of heosConnections.values()) {
     clearInterval(heosState?.pollTimer);
+    heosState?.adBreak?.stop();
   }
   heosConnections.clear();
   HEOS_POLL_INTERVAL_MS = DEFAULT_HEOS_POLL_INTERVAL_MS;
@@ -968,7 +1049,19 @@ export function disconnectDevice(externalId) {
   const heosState = heosConnections.get(externalId);
   clearInterval(heosState?.pollTimer);
   heosState?.client?.stop();
+  heosState?.adBreak?.stop();
   heosConnections.delete(externalId);
+}
+
+/**
+ * Hot-apply a configuration change that needs no reconnect (the ad-break
+ * settings): index.js calls this from onConfigUpdated.
+ */
+export function applyConfig(config) {
+  for (const heosState of heosConnections.values()) {
+    heosState.config = config;
+    heosState.adBreak?.onConfigUpdated();
+  }
 }
 
 /** Close every open session (graceful shutdown). */
@@ -999,6 +1092,16 @@ export async function onSetValue(gladys, { device, feature, value, config }) {
   // indiscriminately. Every other feature below is still Telnet-based (or,
   // for the transport buttons, HEOS-with-a-Telnet-fallback) and keeps the
   // gate right where it was.
+  // Pure integration-side logic, no receiver command: no transport gate.
+  if (key === FEATURE.AD_BREAK_MARK) {
+    const adBreak = heosConnections.get(device.external_id)?.adBreak;
+    if (!adBreak) {
+      throw new Error(`${device.external_id} is not connected`);
+    }
+    adBreak.mark();
+    return;
+  }
+
   if (key === FEATURE.PLAY_NOTIFICATION) {
     // `value` is the TTS audio file URL Gladys core already rendered — see
     // the feature comment in buildFeatures().

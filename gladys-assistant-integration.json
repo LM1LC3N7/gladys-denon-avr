@@ -136,6 +136,74 @@
       },
       "required": false,
       "default": ""
+    },
+    {
+      "key": "ad_break_intro",
+      "type": "section",
+      "label": {
+        "en": "Radio ad breaks",
+        "fr": "Coupures pub des radios"
+      },
+      "description": {
+        "en": "While a radio station plays through HEOS, the integration learns when that station airs its ad breaks (from song changes: the station's metadata, or a dedicated feed for stations like OUI FM that publish none in their stream) and turns the device's \"Ad break\" state on during them. For a station with no metadata at all, press \"Mark ad break\" a few times when ads start (and again when they end) to teach it.",
+        "fr": "Pendant qu'une radio joue via HEOS, l'intégration apprend à quels moments cette station diffuse ses coupures pub (à partir des changements de titre : métadonnées de la station, ou flux dédié pour les radios comme OUI FM qui n'en mettent aucune dans leur flux) et active l'état « Ad break » de l'appareil pendant celles-ci. Pour une station sans aucune métadonnée, appuyez quelques fois sur « Mark ad break » quand la pub commence (et à nouveau quand elle se termine) pour la lui apprendre."
+      }
+    },
+    {
+      "key": "ad_break_detection",
+      "type": "boolean",
+      "label": {
+        "en": "Detect radio ad breaks",
+        "fr": "Détecter les coupures pub des radios"
+      },
+      "required": false,
+      "default": true
+    },
+    {
+      "key": "ad_break_auto_duck",
+      "type": "boolean",
+      "label": {
+        "en": "Lower the volume during ad breaks",
+        "fr": "Baisser le volume pendant les pubs"
+      },
+      "description": {
+        "en": "Switch off to only get the \"Ad break\" state, and act on it in a scene of your own.",
+        "fr": "Désactivez pour n'avoir que l'état « Ad break », et agir dessus dans votre propre scène."
+      },
+      "required": false,
+      "default": true
+    },
+    {
+      "key": "ad_break_volume_drop",
+      "type": "number",
+      "label": {
+        "en": "Volume drop during ad breaks",
+        "fr": "Baisse de volume pendant les pubs"
+      },
+      "description": {
+        "en": "How many volume steps (0-100 scale) lower. The volume comes back when the music resumes, unless you changed it by hand meanwhile.",
+        "fr": "De combien de crans (échelle 0-100) baisser. Le volume revient quand la musique reprend, sauf si vous l'avez modifié à la main entre-temps."
+      },
+      "required": false,
+      "default": 20,
+      "min": 1,
+      "max": 100
+    },
+    {
+      "key": "ad_break_min_volume",
+      "type": "number",
+      "label": {
+        "en": "Minimum volume during ad breaks",
+        "fr": "Volume minimum pendant les pubs"
+      },
+      "description": {
+        "en": "The volume is never lowered below this level (0-100 scale), so the ads stay audible.",
+        "fr": "Le volume n'est jamais baissé sous ce niveau (échelle 0-100), pour que les pubs restent audibles."
+      },
+      "required": false,
+      "default": 20,
+      "min": 0,
+      "max": 100
     }
   ],
   "actions": [

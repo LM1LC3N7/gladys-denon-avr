@@ -128,6 +128,47 @@ by the developer against a live HEOS streaming session, since that requires an a
 streaming account. If the buttons don't do anything on your setup even though the receiver is
 reachable, please report it (with the logs mentioned below) so it can be fixed.
 
+## Radio ad breaks
+
+While a radio station plays through HEOS (TuneIn, a favorite, a stream URL), the integration spots
+its ad breaks and turns the device's **Ad break** state on during them. By default it also lowers
+the volume by 20 steps, never below 20, then restores it when the music resumes. If you changed the volume by hand
+meanwhile, your setting is kept. Everything is set in the "Radio ad breaks" section of the
+configuration. To act in a scene of your own instead (switch station, mute…), switch off the
+automatic volume drop and trigger your scene on the **Ad break** state.
+
+**How it works.** No station says "this is an ad" in its stream. Many do say what song is playing,
+sometimes with its length. When a song ends and no other follows, the station is either airing ads
+or the host is talking, and the time of the hour tells the two apart. For each station, the
+integration learns the minutes of the hour its breaks (4 to 8 minutes long) start at, e.g.
+:09–:14 and :34–:47 on OUI FM:
+
+- **inside one of these windows**, a song ending with ~45 s of no music afterwards counts as a
+  break. That delay lets the host talk before the ad jingle;
+- **outside them**, it takes 2 min 30 s of no music. The host never talks that long between songs;
+- the break ends when the next song starts, with a 10-minute safety limit.
+
+What is learned is stored per station and follows schedule changes.
+
+**Where song changes come from:**
+
+- **HEOS metadata**: for any station that provides it (e.g. Radio Paradise through TuneIn). Song
+  lengths are looked up on Deezer.
+- **A dedicated feed**: for stations whose stream carries none. That is the case of **OUI FM**,
+  followed through the live feed of its own website (title, artist, exact length). The title then
+  also shows in "Now playing", instead of just the station's name. OUI FM's ad windows, measured on
+  3 days of its playlist, are preloaded.
+- **Nothing at all** (some TuneIn stations): press the **Mark ad break** button when the ads start,
+  and again when they end. After a few marked breaks the integration knows the station's schedule
+  and lowers the volume at those times on its own. This is less precise than with song changes,
+  since it cannot tell when the music actually stops.
+
+On a station with song changes, **Mark ad break** also fine-tunes the delay: press it at the ad
+jingle and the integration learns how long the host talks before the ads.
+
+**Known limit**: the end of a break is only known when the next song starts. If the host talks
+again after the ads, that stays at the lowered volume until the song.
+
 ## Prerequisites
 
 - A Denon or Marantz AV receiver with a network (Ethernet/Wi-Fi) connection.

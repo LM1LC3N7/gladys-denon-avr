@@ -22,6 +22,7 @@ import {
   connectDevice,
   disconnectDevice,
   disconnectAllDevices,
+  applyConfig,
   onSetValue as dispatchSetValue,
   runTestConnectionAction,
   runSelectSourceAction,
@@ -84,6 +85,7 @@ gladys.onConfigUpdated(async (newConfig) => {
   logger.info('onConfigUpdated -> new configuration received');
   const previousZone = config.zone;
   config = normalizeConfig(newConfig);
+  applyConfig(config);
   // Each Telnet/HEOS session parses lines and picks its HEOS player for one
   // zone, fixed when it opens (see connectDevice()) — reopen them all so a
   // zone change applies right away instead of at the next restart.
