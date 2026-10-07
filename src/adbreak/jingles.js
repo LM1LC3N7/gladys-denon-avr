@@ -7,12 +7,13 @@
 // recording every time, so once known they give the real start and end of
 // the ads — no delay to wait out, nothing ducked but the ads.
 //
-// How it learns, with no user input:
-//   1. while a station plays, its stream is decoded (ffmpeg) and fingerprinted
-//      (fingerprint.js) into a rolling ~12 min buffer of hashes;
+// How it learns (no user input needed):
+//   1. while a station plays, its stream is decoded (ffmpeg) into band-energy
+//      patterns (bands.js), kept in a rolling ~16 min buffer;
 //   2. after each break found from the metadata (songEndedAt -> next song),
-//      the audio fingerprints right after the song end ("start" side) and
-//      right before the next song ("end" side) are kept as a sample;
+//      the patterns right after the song end ("start" side) and right before
+//      the next song ("end" side) are kept as a sample — and so are the
+//      ~30 s before each "it's an ad" press, the most precise sample;
 //   3. a sound present in most of the last samples, on a given side, is a
 //      jingle candidate — but a station also plays its imaging jingles
 //      between ordinary songs, so a candidate is first only *observed*: each
@@ -29,142 +30,182 @@ import { createLogger } from '@gladysassistant/integration-sdk';
 import {
   SAMPLE_RATE,
   FRAME_SECONDS,
-  fingerprint,
-  indexHashes,
-  sharedRegions,
-} from './fingerprint.js';
+  createBandStream,
+  normalizedWindow,
+  dot,
+  coarse,
+  encodeFrames,
+  decodeFrames,
+} from './bands.js';
 
 const logger = createLogger({ name: 'ad-break' });
 
-const HOP_SAMPLES = Math.round(FRAME_SECONDS * SAMPLE_RATE);
 const FRAMES_PER_SECOND = 1 / FRAME_SECONDS;
-const RING_SECONDS = 12 * 60;
-// Fingerprint the stream every STEP_SECONDS, with enough context around the
-// new audio for peaks (neighborhood) and pairs (look-ahead) to be complete.
-const STEP_SECONDS = 2;
-const CONTEXT_SECONDS = 3;
+// Long enough to sample the start side of the longest break (900 s) when
+// the next song finally comes.
+const RING_SECONDS = 16 * 60;
 
 // Sample windows around a break: [song end - 10 s, + 150 s] and
-// [next song - 150 s, + 10 s].
+// [next song - 150 s, + 10 s]; around a "it's an ad" press: [-30 s, +5 s].
 const SIDE_BEFORE = 10;
 const SIDE_AFTER = 150;
+const MARK_BEFORE = 30;
+const MARK_AFTER = 5;
 const MAX_SAMPLES = 6;
 const MIN_SAMPLES = 3;
-// A region shared by two samples needs this many agreeing hashes (~1-2 s of
-// identical audio); unrelated audio scores < 10 (measured on OUI FM).
-const MIN_SHARED_SCORE = 25;
-// OUI FM's ad jingle is ~1.2 s long.
-const MIN_JINGLE_SECONDS = 1.0;
-const MAX_JINGLE_SECONDS = 20;
 
-// Live recognition: the last WINDOW_SECONDS of hashes against each jingle.
-const WINDOW_SECONDS = 8;
-const MIN_HIT_SCORE = 20;
+// A jingle is matched on TEMPLATE_SECONDS of band patterns (bands.js).
+const TEMPLATE_FRAMES = Math.round(1.6 * FRAMES_PER_SECOND);
+const COARSE_FRAMES = Math.floor(TEMPLATE_FRAMES / 2);
+const CANDIDATE_STEP = 4; // coarse frames (~0.37 s) between candidates
+// Correlations (see bands.js): OUI FM's learned jingle scores 0.74-0.90 on
+// its airings, nothing else of 2.5 h of its radio reached 0.4.
+const COARSE_MIN_SCORE = 0.4;
+const COARSE_TRIES = 4;
+const MIN_HIT_SCORE = 0.5;
 const HIT_COOLDOWN_MS = 90_000;
 
 export const CONFIRMATIONS_TO_ACTIVATE = 2;
 const MIN_PRECISION = 0.8;
 
 const STORE_DIR = process.env.AD_BREAK_JINGLES_DIR || '/data/ad-jingles';
-
-const toPairs = (hashes) => hashes.map(({ hash, t }) => [hash, t]);
-const fromPairs = (pairs) => pairs.map(([hash, t]) => ({ hash, t }));
-
-/**
- * Group the query frames of a shared region into contiguous runs (gaps
- * under 1.5 s) and return the densest run as [startFrame, endFrame].
- */
-function densestRun(frames) {
-  const sorted = [...frames].sort((a, b) => a - b);
-  let best = null;
-  let run = [sorted[0], sorted[0], 1];
-  for (let i = 1; i <= sorted.length; i++) {
-    if (i < sorted.length && sorted[i] - run[1] <= 1.5 * FRAMES_PER_SECOND) {
-      run = [run[0], sorted[i], run[2] + 1];
-      continue;
-    }
-    if (!best || run[2] > best[2]) {
-      best = run;
-    }
-    if (i < sorted.length) {
-      run = [sorted[i], sorted[i], 1];
-    }
-  }
-  return best;
-}
+const STORE_VERSION = 2;
 
 /**
  * The sound most of `samples` share, as a jingle template, or null.
- * Each sample is a list of {hash, t} (t: frames relative to the anchor).
- * @returns {null | {hashes: Array<{hash, t}>, frames: number, support: number,
- *   offsetSeconds: number}} offsetSeconds: median position relative to the anchor
+ * @param {Array<{frames: Float32Array[], anchor: number}>} samples band
+ *   frames (bands.js) around breaks; anchor: frame of the song end / next
+ *   song / press the sample was taken around
+ * @returns {null | {frames: Float32Array[], support: number, score: number,
+ *   offsetSeconds: number}} frames: the template (the shared sound, averaged
+ *   over its airings); offsetSeconds: its median position from the anchor
  */
 export function findSharedJingle(samples) {
   if (samples.length < MIN_SAMPLES) {
     return null;
   }
-  const indexes = samples.map(indexHashes);
-  let best = null;
-  // Regions of the newest sample, checked against every other sample.
-  const query = samples.at(-1);
-  const regions = [];
-  for (let j = 0; j < samples.length - 1; j++) {
-    for (const region of sharedRegions(query, indexes[j], MIN_SHARED_SCORE)) {
-      const run = densestRun(region.queryFrames);
-      if (!run) {
+  // 1. Coarse search: windows of the newest sample against every position
+  //    of the other samples.
+  const coarseSamples = samples.map((s) => coarse(s.frames));
+  const newest = coarseSamples.at(-1);
+  const others = coarseSamples.slice(0, -1).map((frames) => {
+    const windows = [];
+    for (let p = 0; p + COARSE_FRAMES <= frames.length; p++) {
+      windows.push(normalizedWindow(frames, p, COARSE_FRAMES));
+    }
+    return windows;
+  });
+  // 2. Each coarse match is checked at full resolution (coarse patterns
+  //    match by chance too often): a supporter scores MIN_HIT_SCORE there.
+  const last = samples.at(-1);
+  const refine = (sample, coarseAt, reference) => {
+    let aligned = { at: -1, score: -1 };
+    for (let at = coarseAt * 2 - 4; at <= coarseAt * 2 + 4; at++) {
+      if (at < 0 || at + TEMPLATE_FRAMES > sample.frames.length) {
         continue;
       }
-      const seconds = (run[1] - run[0]) * FRAME_SECONDS;
-      if (seconds >= MIN_JINGLE_SECONDS && seconds <= MAX_JINGLE_SECONDS) {
-        regions.push({ from: run[0], to: run[1], other: j, otherOffset: region.offset });
+      const w = normalizedWindow(sample.frames, at, TEMPLATE_FRAMES);
+      const score = w ? dot(w, reference) : -1;
+      if (score > aligned.score) {
+        aligned = { at, score };
       }
     }
-  }
-  // A candidate: one region of the newest sample, supported by every other
-  // sample that has an overlapping region.
-  for (const candidate of regions) {
-    const supporters = new Set(
-      regions.filter((r) => r.from <= candidate.to && r.to >= candidate.from).map((r) => r.other),
-    );
-    const support = supporters.size + 1; // + the newest sample itself
-    if (support / samples.length < 0.6) {
+    return aligned;
+  };
+  const candidates = [];
+  for (let c = 0; c + COARSE_FRAMES <= newest.length; c += CANDIDATE_STEP) {
+    const template = normalizedWindow(newest, c, COARSE_FRAMES);
+    const from = c * 2;
+    const reference =
+      from + TEMPLATE_FRAMES <= last.frames.length &&
+      normalizedWindow(last.frames, from, TEMPLATE_FRAMES);
+    if (!template || !reference) {
       continue;
     }
-    if (
-      !best ||
-      support > best.support ||
-      (support === best.support && candidate.from < best.from)
-    ) {
-      const positions = regions
-        .filter((r) => r.from <= candidate.to && r.to >= candidate.from)
-        .map((r) => (candidate.from + r.otherOffset) * FRAME_SECONDS);
-      positions.push(candidate.from * FRAME_SECONDS);
-      positions.sort((a, b) => a - b);
-      best = { ...candidate, support, offsetSeconds: positions[Math.floor(positions.length / 2)] };
+    const supporters = [];
+    others.forEach((windows, j) => {
+      // The few best coarse positions (the right one is not always first).
+      const coarseMatches = [];
+      windows.forEach((w, p) => {
+        const score = w ? dot(w, template) : -1;
+        if (score >= COARSE_MIN_SCORE) {
+          coarseMatches.push({ p, score });
+        }
+      });
+      coarseMatches.sort((a, b) => b.score - a.score);
+      const tried = [];
+      let bestAligned = { at: -1, score: -1 };
+      for (const m of coarseMatches) {
+        if (tried.length === COARSE_TRIES) {
+          break;
+        }
+        if (tried.some((p) => Math.abs(p - m.p) <= 4)) {
+          continue;
+        }
+        tried.push(m.p);
+        const aligned = refine(samples[j], m.p, reference);
+        if (aligned.score > bestAligned.score) {
+          bestAligned = aligned;
+        }
+      }
+      if (bestAligned.score >= MIN_HIT_SCORE) {
+        supporters.push({ j, ...bestAligned });
+      }
+    });
+    const support = supporters.length + 1;
+    if (support / samples.length >= 0.6) {
+      const score = supporters.reduce((sum, m) => sum + m.score, 0) / supporters.length;
+      candidates.push({ from, supporters, support, score });
     }
   }
-  if (!best) {
+  if (candidates.length === 0) {
     return null;
   }
-  const hashes = query
-    .filter(({ t }) => t >= best.from && t <= best.to)
-    .map(({ hash, t }) => ({ hash, t: t - best.from }));
+  // 3. The earliest sound of the best support (a station's break opens with
+  //    its jingle; other fixed sounds — a sponsor tag, a recurring ad —
+  //    come later), at its best-matching position within 2 s.
+  const maxSupport = Math.max(...candidates.map((c) => c.support));
+  const first = candidates.find((c) => c.support === maxSupport);
+  const best = candidates
+    .filter((c) => c.support === maxSupport && c.from - first.from <= 2 * FRAMES_PER_SECOND)
+    .reduce((a, b) => (b.score > a.score ? b : a));
+  // 4. Average the airings of the sound into the template.
+  const airings = [
+    { sample: last, at: best.from },
+    ...best.supporters.map((m) => ({ sample: samples[m.j], at: m.at })),
+  ];
+  const frames = Array.from({ length: TEMPLATE_FRAMES }, (_, i) => {
+    const f = new Float32Array(last.frames[0].length);
+    for (const { sample, at } of airings) {
+      sample.frames[at + i].forEach((v, k) => {
+        f[k] += v / airings.length;
+      });
+    }
+    return f;
+  });
+  const positions = airings
+    .map(({ sample, at }) => (at - sample.anchor) * FRAME_SECONDS)
+    .sort((a, b) => a - b);
   return {
-    hashes,
-    frames: best.to - best.from,
+    frames,
     support: best.support,
-    offsetSeconds: best.offsetSeconds,
+    score: best.score,
+    offsetSeconds: positions[Math.floor(positions.length / 2)],
   };
 }
 
 /** Empty learned state of one station. */
 function emptyState() {
-  return { samples: { start: [], end: [] }, jingles: { start: null, end: null } };
+  return {
+    version: STORE_VERSION,
+    samples: { start: [], end: [] },
+    jingles: { start: null, end: null },
+  };
 }
 
 /**
- * Follow one station's stream: decode it, fingerprint it, learn its jingles
- * from the breaks the metadata reveals, and report jingle hits.
+ * Follow one station's stream: decode it, compute its band patterns, learn
+ * its jingles from the breaks the metadata reveals, and report jingle hits.
  *
  * @param {object} opts
  * @param {string} opts.stationKey
@@ -186,26 +227,36 @@ export function createJingleListener({
   let child = null;
   let restartTimer = null;
 
-  // Rolling buffers. Frames are numbered from the start of the current
-  // ffmpeg session; wall time of frame f = wallAtSample(f * HOP_SAMPLES).
-  let pcm = new Int16Array(0); // last CONTEXT + STEP seconds of audio
-  let pcmStartSample = 0; // absolute sample index of pcm[0]
-  let totalSamples = 0;
-  let lastReceiveAt = 0;
-  let finalizedFrame = 0;
-  let ring = []; // [{hash, t (absolute frame), at (epoch ms)}]
+  // Rolling buffer of the stream's band frames with their wall time.
+  let ring = []; // [{frame: Float32Array, at: epoch ms}]
+  let stream = null;
+  let receivedAt = 0; // wall time the last chunk of PCM arrived
+  let receivedSamples = 0; // samples received in this ffmpeg session
   const lastHitAt = { start: 0, end: 0 };
+  const templates = { start: null, end: null }; // normalized, from state.jingles
   const pending = []; // shadow-mode hits waiting for the metadata verdict
 
-  const wallAtSample = (sample) => lastReceiveAt - ((totalSamples - sample) / SAMPLE_RATE) * 1000;
+  function prepare(side) {
+    const jingle = state.jingles[side];
+    templates[side] = jingle
+      ? normalizedWindow(decodeFrames(jingle.template), 0, jingle.template.frames)
+      : null;
+  }
 
   const loaded = fs
     .readFile(file, 'utf8')
     .then((text) => {
       const parsed = JSON.parse(text);
-      state = { ...emptyState(), ...parsed };
+      // Version 1 (landmark hashes) cannot be converted: start over.
+      if (parsed.version === STORE_VERSION) {
+        state = { ...emptyState(), ...parsed };
+      }
     })
-    .catch(() => {});
+    .catch(() => {})
+    .then(() => {
+      prepare('start');
+      prepare('end');
+    });
 
   async function save() {
     try {
@@ -217,85 +268,54 @@ export function createJingleListener({
     }
   }
 
-  function onPcm(chunk) {
-    lastReceiveAt = Date.now();
-    const samples = new Int16Array(chunk.buffer, chunk.byteOffset, Math.floor(chunk.length / 2));
-    const merged = new Int16Array(pcm.length + samples.length);
-    merged.set(pcm);
-    merged.set(samples, pcm.length);
-    pcm = merged;
-    totalSamples += samples.length;
-    if (pcm.length < (CONTEXT_SECONDS + STEP_SECONDS) * SAMPLE_RATE) {
-      return;
+  function onFrame(frame, endSample) {
+    // The stream arrives at its real-time pace: the last sample received is
+    // "now", earlier ones are dated back from it.
+    const at = receivedAt - ((receivedSamples - endSample) / SAMPLE_RATE) * 1000;
+    ring.push({ frame, at });
+    if (ring[0].at < at - RING_SECONDS * 1000) {
+      ring = ring.filter((h) => h.at >= at - RING_SECONDS * 1000);
     }
-    // Fingerprint the buffer; keep the landmarks whose anchor is old enough
-    // for its peaks and pairs to be final, and not kept already.
-    const firstFrame = pcmStartSample / HOP_SAMPLES;
-    const safeFrame = firstFrame + Math.floor((pcm.length / SAMPLE_RATE - 2) * FRAMES_PER_SECOND);
-    for (const { hash, t } of fingerprint(pcm)) {
-      const frame = firstFrame + t;
-      if (frame >= finalizedFrame && frame < safeFrame) {
-        ring.push({ hash, t: frame, at: wallAtSample(frame * HOP_SAMPLES) });
-      }
-    }
-    finalizedFrame = safeFrame;
-    // Keep CONTEXT_SECONDS of audio, cut on a frame boundary.
-    const keep = Math.floor((CONTEXT_SECONDS * SAMPLE_RATE) / HOP_SAMPLES) * HOP_SAMPLES;
-    pcmStartSample += pcm.length - keep;
-    pcm = pcm.slice(pcm.length - keep);
-    const horizon = Date.now() - RING_SECONDS * 1000;
-    if (ring.length && ring[0].at < horizon) {
-      ring = ring.filter((h) => h.at >= horizon);
-    }
-    recognize();
+    recognize(at);
   }
 
-  function recognize() {
-    const now = Date.now();
-    const recent = ring.filter((h) => h.at >= now - WINDOW_SECONDS * 1000 - 2000);
-    if (recent.length === 0) {
+  function recognize(now) {
+    if (ring.length < TEMPLATE_FRAMES) {
       return;
     }
+    let window = null;
     for (const side of ['start', 'end']) {
-      const jingle = state.jingles[side];
-      if (!jingle || now - lastHitAt[side] < HIT_COOLDOWN_MS) {
+      const template = templates[side];
+      if (!template || now - lastHitAt[side] < HIT_COOLDOWN_MS) {
         continue;
       }
-      jingle.index ??= indexHashes(fromPairs(jingle.hashes));
-      const match = bestMatch(recent, jingle.index);
-      if (match.score >= Math.max(MIN_HIT_SCORE, jingle.hashes.length * 0.08)) {
+      window ??= normalizedWindow(
+        ring.slice(-TEMPLATE_FRAMES).map((h) => h.frame),
+        0,
+        TEMPLATE_FRAMES,
+      );
+      const score = window ? dot(window, template) : 0;
+      if (score >= MIN_HIT_SCORE) {
         lastHitAt[side] = now;
-        const at = recent.find((h) => h.t === match.firstFrame)?.at ?? now;
+        const jingle = state.jingles[side];
+        const at = ring.at(-TEMPLATE_FRAMES).at;
         logger.info(
-          `${stationKey}: ${side} jingle heard (score ${match.score}, ${jingle.active ? 'active' : 'observing'})`,
+          `${stationKey}: ${side} jingle heard (score ${score.toFixed(2)}, ${jingle.active ? 'active' : 'observing'})`,
         );
         if (!jingle.active) {
           pending.push({ side, at });
         }
-        onHit({ side, active: Boolean(jingle.active), at, score: match.score });
+        onHit({ side, active: Boolean(jingle.active), at, score });
       }
     }
-  }
-
-  function bestMatch(recent, index) {
-    const regions = sharedRegions(
-      recent.map(({ hash, t }) => ({ hash, t })),
-      index,
-      1,
-    );
-    const best = regions[0] ?? { score: 0, queryFrames: [] };
-    return { score: best.score, firstFrame: Math.min(...best.queryFrames) };
   }
 
   function start() {
     if (stopped) {
       return;
     }
-    pcm = new Int16Array(0);
-    pcmStartSample = 0;
-    totalSamples = 0;
-    finalizedFrame = 0;
-    ring = [];
+    stream = createBandStream(onFrame);
+    receivedSamples = 0;
     child = spawn(
       ffmpegPath,
       [
@@ -319,7 +339,16 @@ export function createJingleListener({
       ],
       { stdio: ['ignore', 'pipe', 'pipe'] },
     );
-    child.stdout.on('data', onPcm);
+    let carry = null; // odd byte left from the previous chunk
+    child.stdout.on('data', (chunk) => {
+      const bytes = carry ? Buffer.concat([carry, chunk]) : chunk;
+      const even = bytes.length & ~1;
+      carry = even < bytes.length ? bytes.subarray(even) : null;
+      const aligned = Buffer.from(bytes.subarray(0, even)); // own, aligned memory
+      receivedAt = Date.now();
+      receivedSamples += even / 2;
+      stream.push(new Int16Array(aligned.buffer, aligned.byteOffset, even / 2));
+    });
     child.stderr.on('data', (d) => logger.debug(`ffmpeg ${stationKey}: ${String(d).trim()}`));
     child.on('error', (err) => {
       logger.warn(`${stationKey}: cannot run ffmpeg (${err.message}), jingle learning disabled`);
@@ -327,67 +356,65 @@ export function createJingleListener({
     });
     child.on('exit', () => {
       child = null;
+      ring = [];
       if (!stopped) {
         restartTimer = setTimeout(start, 10_000);
       }
     });
   }
 
-  function sideSample(anchorAt) {
-    const from = anchorAt - SIDE_BEFORE * 1000;
-    const to = anchorAt + SIDE_AFTER * 1000;
+  /** Band frames heard between two wall times, or null if not fully heard. */
+  function heard(from, to, anchorAt) {
     const inWindow = ring.filter((h) => h.at >= from && h.at <= to);
     if (inWindow.length === 0 || inWindow[0].at > from + 5000 || inWindow.at(-1).at < to - 5000) {
-      return null; // not fully heard (listener started late / gap)
+      return null; // listener started late / stream gap
     }
-    const anchorFrame = inWindow.reduce((best, h) =>
-      Math.abs(h.at - anchorAt) < Math.abs(best.at - anchorAt) ? h : best,
-    ).t;
-    return inWindow.map(({ hash, t }) => ({ hash, t: t - anchorFrame }));
+    let anchor = 0;
+    inWindow.forEach((h, i) => {
+      if (Math.abs(h.at - anchorAt) < Math.abs(inWindow[anchor].at - anchorAt)) {
+        anchor = i;
+      }
+    });
+    return { frames: inWindow.map((h) => h.frame), anchor };
   }
 
-  function endSample(anchorAt) {
-    const from = anchorAt - SIDE_AFTER * 1000;
-    const to = anchorAt + SIDE_BEFORE * 1000;
-    const inWindow = ring.filter((h) => h.at >= from && h.at <= to);
-    if (inWindow.length === 0 || inWindow[0].at > from + 5000 || inWindow.at(-1).at < to - 5000) {
-      return null;
-    }
-    const anchorFrame = inWindow.reduce((best, h) =>
-      Math.abs(h.at - anchorAt) < Math.abs(best.at - anchorAt) ? h : best,
-    ).t;
-    return inWindow.map(({ hash, t }) => ({ hash, t: t - anchorFrame }));
+  function addSample(side, sample) {
+    state.samples[side] = [
+      ...state.samples[side],
+      { anchor: sample.anchor, ...encodeFrames(sample.frames) },
+    ].slice(-MAX_SAMPLES);
+    relearn(side);
   }
 
   function relearn(side) {
-    const found = findSharedJingle(state.samples[side].map(fromPairs));
+    const samples = state.samples[side].map((s) => ({ frames: decodeFrames(s), anchor: s.anchor }));
+    const found = findSharedJingle(samples);
     const current = state.jingles[side];
     if (!found) {
       return;
     }
+    const template = normalizedWindow(found.frames, 0, found.frames.length);
     // Same sound as the current jingle (or its observation)? Keep its record.
-    if (current) {
-      current.index ??= indexHashes(fromPairs(current.hashes));
-      const overlap = sharedRegions(found.hashes, current.index, MIN_SHARED_SCORE)[0];
-      if (overlap) {
-        return;
-      }
-      if (current.active) {
-        return; // An active jingle is only replaced once it has been dropped.
-      }
+    if (current && templates[side] && template && dot(template, templates[side]) >= MIN_HIT_SCORE) {
+      return;
+    }
+    if (current?.active) {
+      return; // An active jingle is only replaced once it has been dropped.
     }
     state.jingles[side] = {
-      hashes: toPairs(found.hashes),
-      seconds: Math.round(found.frames * FRAME_SECONDS * 10) / 10,
+      template: encodeFrames(found.frames),
       offsetSeconds: Math.round(found.offsetSeconds),
       support: found.support,
+      score: Math.round(found.score * 100) / 100,
       hits: 0,
       confirmed: 0,
       active: false,
       learnedAt: Date.now(),
     };
+    state.jingles[side].template.frames = found.frames.length;
+    prepare(side);
     logger.info(
-      `${stationKey}: ${side} jingle candidate found (${state.jingles[side].seconds} s, in ${found.support}/${state.samples[side].length} breaks, ~${state.jingles[side].offsetSeconds} s ${side === 'start' ? 'after the song end' : 'before the next song'}), observing it`,
+      `${stationKey}: ${side} jingle candidate found (in ${found.support}/${samples.length} samples, ~${state.jingles[side].offsetSeconds} s ${side === 'start' ? 'after the song end' : 'before the next song'}), observing it`,
     );
   }
 
@@ -415,12 +442,20 @@ export function createJingleListener({
       );
       const wasActive = jingle.active;
       state.jingles[hit.side] = null;
+      templates[hit.side] = null;
       if (wasActive) {
         onChange?.();
       }
     }
     save();
   }
+
+  const waitUntilHeard = async (at) => {
+    const wait = at + 3000 - Date.now();
+    if (wait > 0) {
+      await new Promise((resolve) => setTimeout(resolve, wait));
+    }
+  };
 
   start();
 
@@ -430,25 +465,41 @@ export function createJingleListener({
       await loaded;
       // Called when the next song starts: the end-side sample also needs the
       // SIDE_BEFORE seconds after it, not heard yet.
-      const wait = nextSongAt + (SIDE_BEFORE + 3) * 1000 - Date.now();
-      if (wait > 0) {
-        await new Promise((resolve) => setTimeout(resolve, wait));
-      }
+      await waitUntilHeard(nextSongAt + SIDE_BEFORE * 1000);
       if (stopped) {
         return;
       }
-      const startSide = sideSample(songEndedAt);
-      const endSide = endSample(nextSongAt);
-      for (const [side, sample] of [
-        ['start', startSide],
-        ['end', endSide],
-      ]) {
-        if (sample) {
-          state.samples[side] = [...state.samples[side], toPairs(sample)].slice(-MAX_SAMPLES);
-          relearn(side);
-        }
+      const startSide = heard(
+        songEndedAt - SIDE_BEFORE * 1000,
+        Math.min(songEndedAt + SIDE_AFTER * 1000, nextSongAt),
+        songEndedAt,
+      );
+      const endSide = heard(
+        Math.max(nextSongAt - SIDE_AFTER * 1000, songEndedAt),
+        nextSongAt + SIDE_BEFORE * 1000,
+        nextSongAt,
+      );
+      if (startSide) {
+        addSample('start', startSide);
+      }
+      if (endSide) {
+        addSample('end', endSide);
       }
       await save();
+    },
+
+    /**
+     * The user pressed "it's an ad", usually right after the station's ad
+     * jingle: the most precise sample there is.
+     */
+    async learnFromMark(at) {
+      await loaded;
+      await waitUntilHeard(at + MARK_AFTER * 1000);
+      const sample = !stopped && heard(at - MARK_BEFORE * 1000, at + MARK_AFTER * 1000, at);
+      if (sample) {
+        addSample('start', sample);
+        await save();
+      }
     },
 
     /**

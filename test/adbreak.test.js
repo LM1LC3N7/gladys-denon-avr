@@ -16,7 +16,16 @@ import {
   OUTSIDE_WINDOW_GRACE_SECONDS,
   MAX_BREAK_SECONDS,
 } from '../src/adbreak/detector.js';
-import { SAMPLE_RATE, fingerprint } from '../src/adbreak/fingerprint.js';
+import {
+  SAMPLE_RATE,
+  FRAME_SECONDS,
+  bandFrames,
+  createBandStream,
+  normalizedWindow,
+  dot,
+  encodeFrames,
+  decodeFrames,
+} from '../src/adbreak/bands.js';
 import { findSharedJingle } from '../src/adbreak/jingles.js';
 import {
   identifyStation,
@@ -429,45 +438,132 @@ test('breaksFromHistory keeps only the gaps long enough to be ad breaks', () => 
   );
 });
 
-// Deterministic pseudo-random audio: noise that never repeats, and one
-// fixed 4 s "jingle" sound embedded at a different place in each simulated
-// break.
-function noiseAudio(seconds, seed) {
+// Deterministic pseudo-random "radio": a new mix of tones and noise every
+// 0.25 s (its spectrum keeps changing, like voice and music), never twice
+// the same. Jingles are fixed sounds dropped in at different places.
+function rng(seed) {
   // mulberry32: a plain LCG repeats itself within seconds of audio.
   let a = seed;
-  const random = () => {
+  return () => {
     a = (a + 0x6d2b79f5) | 0;
     let t = Math.imul(a ^ (a >>> 15), 1 | a);
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
-  return Int16Array.from({ length: seconds * SAMPLE_RATE }, () => ((random() - 0.5) * 12000) | 0);
 }
-// A rich, fixed sound (like a real jingle, unlike a pure tone): the same
-// 4 s of noise, shaped by a rhythmic envelope.
-const JINGLE = noiseAudio(4, 999).map((v, i) => v * (1 + Math.sin(i / 600)));
-function breakAudio(seed, jingleAtSeconds) {
-  const audio = noiseAudio(40, seed);
-  audio.set(JINGLE, jingleAtSeconds * SAMPLE_RATE);
-  return audio;
+function radioAudio(seconds, seed) {
+  const random = rng(seed);
+  const out = new Int16Array(seconds * SAMPLE_RATE);
+  let lowpassed = 0;
+  for (let s = 0; s < out.length;) {
+    // Segments of 80-300 ms, 1-6 tones, noise of a random color.
+    const length = Math.round(SAMPLE_RATE * (0.08 + random() * 0.22));
+    const tones = Array.from({ length: 1 + Math.floor(random() * 6) }, () => ({
+      f: 150 + random() * 4500,
+      a: random() * 4000,
+    }));
+    const noise = random() * 4000;
+    const color = random();
+    for (let i = s; i < Math.min(s + length, out.length); i++) {
+      lowpassed = color * lowpassed + (1 - color) * (random() - 0.5);
+      let v = lowpassed * noise * 2;
+      for (const { f, a } of tones) {
+        v += a * Math.sin((2 * Math.PI * f * i) / SAMPLE_RATE);
+      }
+      out[i] = v;
+    }
+    s += length;
+  }
+  return out;
+}
+// A 2 s jingle: a rising chirp over a noise "swoosh" (seeded: always the same).
+function jingleAudio(seed, fromHz, toHz) {
+  const random = rng(seed);
+  const n = 2 * SAMPLE_RATE;
+  let phase = 0;
+  return Int16Array.from({ length: n }, (_, i) => {
+    phase += (2 * Math.PI * (fromHz + ((toHz - fromHz) * i) / n)) / SAMPLE_RATE;
+    return 8000 * Math.sin(phase) + (random() - 0.5) * 6000 * Math.sin((Math.PI * i) / n);
+  });
+}
+const AD_JINGLE = jingleAudio(999, 400, 3500);
+const SPONSOR_TAG = jingleAudio(777, 3000, 800);
+function breakSample(seed, sounds) {
+  const audio = radioAudio(60, seed);
+  for (const [sound, atSeconds] of sounds) {
+    audio.set(sound, atSeconds * SAMPLE_RATE);
+  }
+  // The anchor (song end) is 10 s into the sample.
+  return { frames: bandFrames(audio), anchor: Math.round(10 / FRAME_SECONDS) };
 }
 
 test('findSharedJingle finds the sound every break shares, wherever the host stopped talking', () => {
   const samples = [
-    fingerprint(breakAudio(11, 5)),
-    fingerprint(breakAudio(22, 20)),
-    fingerprint(breakAudio(33, 12)),
+    breakSample(11, [[AD_JINGLE, 15]]),
+    breakSample(22, [[AD_JINGLE, 40]]),
+    breakSample(33, [[AD_JINGLE, 25]]),
   ];
   const jingle = findSharedJingle(samples);
   assert.ok(jingle, 'a shared jingle is found');
-  assert.ok(jingle.support === 3);
-  // The template is the jingle: about 4 s long, found at 12 s in the newest sample.
-  assert.ok(jingle.frames * 0.0464 > 2 && jingle.frames * 0.0464 < 5, `length ${jingle.frames}`);
+  assert.equal(jingle.support, 3);
+  // Median position: the jingle at 15 s from the anchor, give or take its length.
+  assert.ok(jingle.offsetSeconds >= 13 && jingle.offsetSeconds <= 18, `${jingle.offsetSeconds}`);
+  // The template recognizes the jingle in a new break, and not the rest.
+  const template = normalizedWindow(jingle.frames, 0, jingle.frames.length);
+  const fresh = breakSample(44, [[AD_JINGLE, 30]]).frames;
+  const scores = [];
+  for (let i = 0; i + jingle.frames.length <= fresh.length; i++) {
+    const w = normalizedWindow(fresh, i, jingle.frames.length);
+    scores.push(w ? dot(w, template) : 0);
+  }
+  const best = scores.indexOf(Math.max(...scores));
+  assert.ok(Math.abs(best * FRAME_SECONDS - 30) < 2, `found at ${best * FRAME_SECONDS} s`);
+  assert.ok(scores[best] > 0.5);
+  const elsewhere = scores.filter((_, i) => Math.abs(i * FRAME_SECONDS - 30) > 3);
+  assert.ok(Math.max(...elsewhere) < 0.5, `max elsewhere ${Math.max(...elsewhere)}`);
+});
+
+test('findSharedJingle prefers the earliest of the shared sounds', () => {
+  const samples = [
+    breakSample(11, [
+      [AD_JINGLE, 15],
+      [SPONSOR_TAG, 45],
+    ]),
+    breakSample(22, [
+      [AD_JINGLE, 20],
+      [SPONSOR_TAG, 38],
+    ]),
+    breakSample(33, [
+      [AD_JINGLE, 12],
+      [SPONSOR_TAG, 50],
+    ]),
+  ];
+  const jingle = findSharedJingle(samples);
+  assert.ok(jingle);
+  // The ad jingle (median 15 s after the song end), not the sponsor tag.
+  assert.ok(jingle.offsetSeconds < 25, `${jingle.offsetSeconds}`);
 });
 
 test('findSharedJingle finds nothing in breaks that share no sound', () => {
-  const samples = [11, 22, 33].map((seed) => fingerprint(noiseAudio(40, seed)));
+  const samples = [11, 22, 33].map((seed) => breakSample(seed, []));
   assert.equal(findSharedJingle(samples), null);
+});
+
+test('band frames: streaming equals batch, storage round-trips', () => {
+  const audio = radioAudio(5, 5);
+  const batch = bandFrames(audio);
+  const streamed = [];
+  const stream = createBandStream((frame) => streamed.push(frame));
+  for (let i = 0; i < audio.length; i += 1000) {
+    stream.push(audio.subarray(i, i + 1000));
+  }
+  assert.equal(streamed.length, batch.length);
+  assert.deepEqual(streamed[17], batch[17]);
+  const decoded = decodeFrames(encodeFrames(batch));
+  assert.equal(decoded.length, batch.length);
+  const a = normalizedWindow(batch, 0, 30);
+  const b = normalizedWindow(decoded, 0, 30);
+  assert.ok(dot(a, b) > 0.99);
 });
 
 test('fetchPlaylistHistory pages back from the oldest song of each page', async () => {

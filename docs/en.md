@@ -150,21 +150,32 @@ integration learns the minutes of the hour its breaks (4 to 8 minutes long) star
 
 What is learned is stored per station and follows schedule changes.
 
+**The ad jingle.** Each station opens its breaks with the same jingle (on OUI FM, "stay with us
+during the ads"). While a station plays, the integration decodes its stream (ffmpeg) and compares
+the sound of its breaks with each other. The sound found in most of them, even under the host's
+voice, becomes the station's jingle. It is only observed at first, and becomes active after 2
+detections followed by a real break. From then on the volume drops **at the jingle** instead of
+after 45 s, and the host is no longer ducked. Expect a few hours of listening (3 long breaks), or 3
+presses of **Mark ad break** right after the jingle. A jingle that starts giving false alarms is
+forgotten and learned again.
+
 **Where song changes come from:**
 
 - **HEOS metadata**: for any station that provides it (e.g. Radio Paradise through TuneIn). Song
   lengths are looked up on Deezer.
 - **A dedicated feed**: for stations whose stream carries none. That is the case of **OUI FM**,
   followed through the live feed of its own website (title, artist, exact length). The title then
-  also shows in "Now playing", instead of just the station's name. OUI FM's ad windows, measured on
-  3 days of its playlist, are preloaded.
+  also shows in "Now playing", instead of just the station's name. Its ad windows are learned from the ~3
+  days of playlist history the site publishes, as soon as the station is first played (also for
+  Voltage, Alouette, Hit West and the other stations of the Les Indés Radios platform).
 - **Nothing at all** (some TuneIn stations): press the **Mark ad break** button when the ads start,
   and again when they end. After a few marked breaks the integration knows the station's schedule
   and lowers the volume at those times on its own. This is less precise than with song changes,
   since it cannot tell when the music actually stops.
 
 On a station with song changes, **Mark ad break** also fine-tunes the delay: press it at the ad
-jingle and the integration learns how long the host talks before the ads, hour by hour. For
+jingle and the integration learns the jingle itself and how long the host talks before the ads,
+hour by hour. For
 instance, OUI FM mornings have no host and the ads follow the song directly: two presses at those
 hours are enough for the volume to drop right away then.
 

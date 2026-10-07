@@ -169,22 +169,32 @@ l'heure. Pour chaque station, l'intégration apprend les minutes de l'heure où 
 
 L'apprentissage est enregistré par station et se recale si la grille change.
 
+**Le jingle pub.** Chaque station ouvre ses coupures par le même jingle (sur OUI FM, « restez avec
+nous pendant la pub »). Pendant l'écoute, l'intégration décode le flux de la station (ffmpeg) et
+compare le son des coupures entre elles. Le son qui revient dans la plupart d'entre elles, même
+couvert par la voix de l'animateur, devient le jingle de la station. Il reste d'abord en
+observation, puis devient actif après 2 détections suivies d'une vraie coupure. Dès lors, le
+volume baisse **au jingle**, au lieu d'attendre 45 s, et l'animateur n'est plus coupé. Il faut
+compter quelques heures d'écoute (3 longues coupures), ou 3 appuis sur **Mark ad break** juste
+après le jingle. Un jingle qui se met à donner de fausses alertes est oublié et réappris.
+
 **D'où viennent les titres :**
 
 - **Métadonnées HEOS** : pour toute station qui en fournit (ex. Radio Paradise via TuneIn). La durée
   des titres est retrouvée sur Deezer.
 - **Flux dédié** : pour les stations dont le flux n'en contient aucune. C'est le cas d'**OUI FM**,
   suivie via le flux temps réel de son propre site (titre, artiste et durée exacte). Le titre
-  s'affiche alors aussi dans « Now playing », au lieu du simple nom de la station. Les fenêtres pub
-  d'OUI FM, mesurées sur 3 jours de sa programmation, sont préchargées.
+  s'affiche alors aussi dans « Now playing », au lieu du simple nom de la station. Les fenêtres pub sont
+  apprises dès la première écoute à partir des ~3 jours d'historique publiés par le site (de même
+  pour Voltage, Alouette, Hit West et les autres stations de la plateforme Les Indés Radios).
 - **Rien du tout** (ex. certaines stations TuneIn) : appuyez sur le bouton **Mark ad break** quand
   la pub commence, puis à nouveau quand elle se termine. Après quelques coupures signalées,
   l'intégration connaît l'horaire de la station et baisse le volume toute seule à ces moments-là.
   C'est moins précis qu'avec des titres, faute de savoir quand la musique s'arrête vraiment.
 
 Sur une station avec titres, **Mark ad break** sert aussi à affiner le délai : appuyez au moment du
-jingle pub, et l'intégration apprend combien de temps l'animateur parle avant les pubs,
-heure par heure. Exemple : le matin sur OUI FM, il n'y a pas d'animateur et la pub suit directement
+jingle pub, et l'intégration apprend le jingle lui-même et combien de temps l'animateur parle avant
+les pubs, heure par heure. Exemple : le matin sur OUI FM, il n'y a pas d'animateur et la pub suit directement
 la chanson. Deux appuis à ces heures-là suffisent pour que la baisse y soit immédiate.
 
 **Limite connue** : la fin de coupure n'est connue qu'au démarrage du titre suivant. Si l'animateur

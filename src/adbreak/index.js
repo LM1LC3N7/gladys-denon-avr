@@ -149,6 +149,12 @@ export function createAdBreakController({
       }
     },
     onMark({ at, offsetSeconds, durationSeconds }) {
+      if (durationSeconds == null) {
+        // A press (not the end of a manual break): teaches the jingle too.
+        jingles
+          ?.learnFromMark(at)
+          .catch((err) => logger.warn(`${name}: jingle learning failed: ${err.message}`));
+      }
       updateStats((stats) => {
         let next = offsetSeconds != null ? recordMarkOffset(stats, offsetSeconds, at) : stats;
         // On a station with song metadata the break itself is measured from
