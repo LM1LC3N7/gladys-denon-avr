@@ -53,7 +53,8 @@ const MIN_SAMPLES = 3;
 // A region shared by two samples needs this many agreeing hashes (~1-2 s of
 // identical audio); unrelated audio scores < 10 (measured on OUI FM).
 const MIN_SHARED_SCORE = 25;
-const MIN_JINGLE_SECONDS = 1.5;
+// OUI FM's ad jingle is ~1.2 s long.
+const MIN_JINGLE_SECONDS = 1.0;
 const MAX_JINGLE_SECONDS = 20;
 
 // Live recognition: the last WINDOW_SECONDS of hashes against each jingle.
@@ -427,6 +428,15 @@ export function createJingleListener({
     /** A break was measured from the metadata: learn from its audio. */
     async learnFromBreak({ songEndedAt, nextSongAt }) {
       await loaded;
+      // Called when the next song starts: the end-side sample also needs the
+      // SIDE_BEFORE seconds after it, not heard yet.
+      const wait = nextSongAt + (SIDE_BEFORE + 3) * 1000 - Date.now();
+      if (wait > 0) {
+        await new Promise((resolve) => setTimeout(resolve, wait));
+      }
+      if (stopped) {
+        return;
+      }
       const startSide = sideSample(songEndedAt);
       const endSide = endSample(nextSongAt);
       for (const [side, sample] of [

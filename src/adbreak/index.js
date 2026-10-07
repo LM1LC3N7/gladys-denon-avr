@@ -328,17 +328,23 @@ export function createAdBreakController({
     }
     const { site, mdsId } = current.feed;
     const songs = await fetchPlaylistHistory({ site, mdsId });
-    // The history has no durations: Deezer's, by track id, politely
-    // (Deezer allows 50 requests per 5 s).
-    const ids = [...new Set(songs.map((s) => s.deezerId).filter(Boolean))];
+    // The history has no durations: Deezer's, by track id or else by a
+    // search, politely (Deezer allows 50 requests per 5 s).
+    const keyOf = (s) => s.deezerId || `${s.artist}\n${s.title}`.toLowerCase();
+    const unique = [...new Map(songs.map((s) => [keyOf(s), s])).values()];
     const durations = new Map();
-    for (let i = 0; i < ids.length; i += 5) {
+    for (let i = 0; i < unique.length; i += 5) {
       await Promise.all(
-        ids.slice(i, i + 5).map(async (id) => durations.set(id, await lookupDurationById(id))),
+        unique.slice(i, i + 5).map(async (s) => {
+          const duration =
+            (s.deezerId && (await lookupDurationById(s.deezerId))) ||
+            (await lookupDurationSeconds(s.artist, s.title));
+          durations.set(keyOf(s), duration);
+        }),
       );
       await new Promise((resolve) => setTimeout(resolve, 600));
     }
-    const found = breaksFromHistory(songs, (s) => durations.get(s.deezerId), {
+    const found = breaksFromHistory(songs, (s) => durations.get(keyOf(s)), {
       min: BREAK_MIN_SECONDS,
       max: BREAK_MAX_SECONDS,
     });

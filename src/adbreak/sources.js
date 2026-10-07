@@ -82,6 +82,14 @@ const durationCache = new Map();
  * Song duration in seconds from Deezer's public search, or null.
  * Cached (including misses) for the life of the process.
  */
+const normalize = (text) =>
+  String(text)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+
 export async function lookupDurationSeconds(artist, title, fetchImpl = fetch) {
   const cacheKey = `${artist}\n${title}`.toLowerCase();
   if (durationCache.has(cacheKey)) {
@@ -89,12 +97,24 @@ export async function lookupDurationSeconds(artist, title, fetchImpl = fetch) {
   }
   let duration = null;
   try {
-    const q = encodeURIComponent(`artist:"${artist}" track:"${title}"`);
-    const res = await fetchImpl(`https://api.deezer.com/search?q=${q}&limit=1`, {
+    // Deezer's advanced syntax (artist:"..." track:"...") now returns
+    // nothing: plain search, then the result whose artist and title match.
+    const q = encodeURIComponent(`${artist} ${title}`);
+    const res = await fetchImpl(`https://api.deezer.com/search?q=${q}&limit=10`, {
       signal: AbortSignal.timeout(8000),
     });
     const json = await res.json();
-    duration = Number(json?.data?.[0]?.duration) || null;
+    const results = Array.isArray(json?.data) ? json.data : [];
+    const wantedArtist = normalize(artist);
+    const wantedTitle = normalize(title);
+    const sameArtist = (r) => {
+      const name = normalize(r.artist?.name ?? '');
+      return name && (wantedArtist.includes(name) || name.includes(wantedArtist));
+    };
+    const sameTitle = (r) => normalize(r.title_short ?? r.title ?? '') === wantedTitle;
+    const best =
+      results.find((r) => sameArtist(r) && sameTitle(r)) ?? results.find((r) => sameArtist(r));
+    duration = Number(best?.duration) || null;
   } catch (err) {
     logger.debug(`Deezer duration lookup failed for "${artist} - ${title}": ${err.message}`);
   }
@@ -156,25 +176,38 @@ export async function lookupDurationById(deezerId, fetchImpl = fetch) {
  */
 export async function fetchPlaylistHistory({ site, mdsId, hours = 72, fetchImpl = fetch }) {
   const byId = new Map();
-  const now = Date.now();
-  // A page holds 60 songs (~3.5 h of music): step 3 h back each time.
-  for (let back = 0; back < hours; back += 3) {
+  const since = Date.now() - hours * 3_600_000;
+  // A page holds the ~30 songs before `date` (~1 h of music): page back from
+  // the oldest song of each page.
+  let date = Date.now();
+  for (let page = 0; page < hours * 2 && date > since; page++) {
+    let items;
     try {
-      const page = await json(
-        `${site}/api/TitleDiffusions?size=60&radioStreamId=${mdsId}&date=${now - back * 3_600_000}`,
+      items = await json(
+        `${site}/api/TitleDiffusions?size=60&radioStreamId=${mdsId}&date=${date}`,
         fetchImpl,
       );
-      for (const item of Array.isArray(page) ? page : []) {
-        byId.set(item.id, {
-          startedAt: Date.parse(item.timestamp),
-          artist: item.title?.artist ?? '',
-          title: item.title?.title ?? '',
-          deezerId: item.title?.deezerId ?? null,
-        });
-      }
     } catch (err) {
       logger.debug(`${site}: playlist history page failed: ${err.message}`);
+      break;
     }
+    let oldest = date;
+    for (const item of Array.isArray(items) ? items : []) {
+      const startedAt = Date.parse(item.timestamp);
+      byId.set(item.id, {
+        startedAt,
+        artist: item.title?.artist ?? '',
+        title: item.title?.title ?? '',
+        deezerId: item.title?.deezerId ?? null,
+      });
+      if (startedAt < oldest) {
+        oldest = startedAt;
+      }
+    }
+    if (oldest >= date) {
+      break; // empty page, or no progress
+    }
+    date = oldest;
   }
   return [...byId.values()]
     .filter((s) => s.startedAt > 0)

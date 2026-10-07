@@ -23,6 +23,8 @@ import {
   parseIndesRadiosEvent,
   breaksFromHistory,
   discoverFeed,
+  fetchPlaylistHistory,
+  lookupDurationSeconds,
 } from '../src/adbreak/sources.js';
 
 // Local wall-clock time on a fixed day: the learned minute of the hour is local.
@@ -466,4 +468,52 @@ test('findSharedJingle finds the sound every break shares, wherever the host sto
 test('findSharedJingle finds nothing in breaks that share no sound', () => {
   const samples = [11, 22, 33].map((seed) => fingerprint(noiseAudio(40, seed)));
   assert.equal(findSharedJingle(samples), null);
+});
+
+test('fetchPlaylistHistory pages back from the oldest song of each page', async () => {
+  const HOUR = 3_600_000;
+  const now = Date.now();
+  const dates = [];
+  // Each page: 3 songs, 20 min apart, before the requested date.
+  const fetchImpl = async (url) => {
+    const date = Number(new URL(url).searchParams.get('date'));
+    dates.push(date);
+    const items = [1, 2, 3].map((k) => ({
+      id: `${date - k * 1_200_000}`,
+      timestamp: new Date(date - k * 1_200_000).toISOString(),
+      title: { artist: 'A', title: `T${k}`, deezerId: null },
+    }));
+    return { ok: true, json: async () => items };
+  };
+  const songs = await fetchPlaylistHistory({ site: 'https://x', mdsId: '1', hours: 3, fetchImpl });
+  assert.equal(dates.length, 3);
+  assert.equal(dates[1], dates[0] - HOUR);
+  assert.ok(songs[0].startedAt <= now - 3 * HOUR);
+  assert.ok(songs.every((s, i) => i === 0 || s.startedAt > songs[i - 1].startedAt));
+});
+
+test('lookupDurationSeconds picks the result matching artist and title', async () => {
+  const fetchImpl = async () => ({
+    json: async () => ({
+      data: [
+        {
+          title: 'Special K (Live)',
+          title_short: 'Special K',
+          artist: { name: 'Placebo' },
+          duration: 300,
+        },
+        {
+          title: 'Special K',
+          title_short: 'Special K',
+          artist: { name: 'Placebo' },
+          duration: 232,
+        },
+      ].reverse(),
+    }),
+  });
+  assert.equal(await lookupDurationSeconds('PLACEBO', 'SPECIAL K', fetchImpl), 232);
+  const other = async () => ({
+    json: async () => ({ data: [{ title: 'X', artist: { name: 'Someone else' }, duration: 100 }] }),
+  });
+  assert.equal(await lookupDurationSeconds('NOBODY', 'NOTHING', other), null);
 });
