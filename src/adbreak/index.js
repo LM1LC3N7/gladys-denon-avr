@@ -15,7 +15,15 @@
 
 import { createLogger } from '@gladysassistant/integration-sdk';
 import { createAdBreakDetector } from './detector.js';
-import { identifyStation, followIndesRadiosFeed, lookupDurationSeconds } from './sources.js';
+import {
+  identifyStation,
+  discoverFeed,
+  followIndesRadiosFeed,
+  fetchPlaylistHistory,
+  breaksFromHistory,
+  lookupDurationById,
+  lookupDurationSeconds,
+} from './sources.js';
 import {
   BREAK_MIN_SECONDS,
   BREAK_MAX_SECONDS,
@@ -56,6 +64,9 @@ export function __resetStoreForTesting() {
 }
 
 const TICK_MS = 1000;
+// How often a station's feed is looked for again when it had none, and its
+// playlist history re-learned.
+const RECHECK_MS = 7 * 24 * 3_600_000;
 
 /**
  * @param {object} opts
@@ -154,7 +165,7 @@ export function createAdBreakController({
     return {
       key: station.key,
       hasMetadata: station.hasMetadata,
-      windows: learnedWindows(stats, station.known?.seedWindows ?? []),
+      windows: learnedWindows(stats),
       preBreakTalkSeconds: preBreakTalkSeconds(stats),
       preBreakTalkByHour: preBreakTalkByHour(stats),
       typicalBreakSeconds: typicalBreakSeconds(stats),
@@ -218,20 +229,86 @@ export function createAdBreakController({
   function switchStation(next) {
     stopFeed();
     lastHeosTitle = null;
-    station = next ? { ...next, hasMetadata: Boolean(next.known?.feed) } : null;
-    // Followed even with detection off: the feed is also what shows the
-    // real song instead of the bare station name.
-    if (station?.known?.feed?.type === 'indesradios') {
-      const current = station;
-      feed = followIndesRadiosFeed({
-        site: station.known.feed.site,
-        mdsId: station.known.feed.mdsId,
-        onTrack: (track) => onFeedTrack(track, current),
-      });
-    }
+    station = next ? { ...next, feed: null, hasMetadata: false } : null;
     logger.info(
       `${name}: now playing ${station ? `${station.name} (${station.key})` : 'no radio station'}`,
     );
+    if (station?.tuneinId) {
+      resolveFeed(station).catch((err) =>
+        logger.warn(`${name}: song feed lookup failed for ${station?.name}: ${err.message}`),
+      );
+    }
+  }
+
+  // Find (once, then cached in the statistics store and re-checked weekly
+  // when absent) whether this TuneIn station has a live song feed, follow
+  // it, and learn the ad windows from its playlist history right away.
+  // Followed even with detection off: the feed is also what shows the real
+  // song instead of the bare station name.
+  async function resolveFeed(current) {
+    const store = await getStore();
+    let info = store[current.key]?.feed;
+    if (!info || (info.none && Date.now() - info.checkedAt > RECHECK_MS)) {
+      const found = await discoverFeed(current.tuneinId);
+      info = found ? { ...found, checkedAt: Date.now() } : { none: true, checkedAt: Date.now() };
+      store[current.key] = { ...(store[current.key] ?? emptyStats()), feed: info };
+      await persist(store);
+    }
+    if (station !== current || info.none) {
+      return;
+    }
+    current.feed = info;
+    current.hasMetadata = true;
+    feed = followIndesRadiosFeed({
+      site: info.site,
+      mdsId: info.mdsId,
+      onTrack: (track) => onFeedTrack(track, current),
+    });
+    logger.info(`${name}: ${current.name}: following its live song feed (${info.site})`);
+    await refreshDetectorStation();
+    await bootstrapFromHistory(current);
+  }
+
+  // Learn from the days of playlist the station already published, instead
+  // of only from what is heard here: a new station's ad windows are known
+  // within a minute of first playing it. Refreshed weekly.
+  async function bootstrapFromHistory(current) {
+    const store = await getStore();
+    const bootstrappedAt = store[current.key]?.bootstrappedAt ?? 0;
+    if (Date.now() - bootstrappedAt < RECHECK_MS) {
+      return;
+    }
+    const { site, mdsId } = current.feed;
+    const songs = await fetchPlaylistHistory({ site, mdsId });
+    // The history has no durations: Deezer's, by track id, politely
+    // (Deezer allows 50 requests per 5 s).
+    const ids = [...new Set(songs.map((s) => s.deezerId).filter(Boolean))];
+    const durations = new Map();
+    for (let i = 0; i < ids.length; i += 5) {
+      await Promise.all(
+        ids.slice(i, i + 5).map(async (id) => durations.set(id, await lookupDurationById(id))),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 600));
+    }
+    const found = breaksFromHistory(songs, (s) => durations.get(s.deezerId), {
+      min: BREAK_MIN_SECONDS,
+      max: BREAK_MAX_SECONDS,
+    });
+    let stats = store[current.key] ?? emptyStats();
+    const already = new Set(stats.breaks.map((b) => Math.round(b.at / 60_000)));
+    for (const brk of found) {
+      if (!already.has(Math.round(brk.startedAt / 60_000))) {
+        stats = recordBreak(stats, { ...brk, source: 'history' });
+      }
+    }
+    store[current.key] = { ...stats, bootstrappedAt: Date.now() };
+    await persist(store);
+    logger.info(
+      `${name}: ${current.name}: learned ${found.length} ad breaks from ${songs.length} songs of playlist history`,
+    );
+    if (station === current) {
+      await refreshDetectorStation();
+    }
   }
 
   return {
@@ -242,7 +319,7 @@ export function createAdBreakController({
         switchStation(next);
         refreshDetectorStation();
       }
-      if (!station || station.known?.feed || !next.heosTitle) {
+      if (!station || station.feed || !next.heosTitle) {
         return;
       }
       // Metadata straight from HEOS: every title change is a new song.

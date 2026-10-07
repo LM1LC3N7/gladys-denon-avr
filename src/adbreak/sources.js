@@ -7,11 +7,14 @@
 //    receiver plays, no lag to compensate. Durations are not given, so they
 //    are looked up on Deezer (free, keyless search API).
 // 2. A dedicated feed for stations whose stream carries nothing at all: OUI FM
-//    (and its whole "Les Indés Radios" platform) publishes a live
-//    server-sent-events feed on its own website, with the station's own
-//    durations. It runs ahead of what the receiver plays by the stream's
-//    buffering delay (measured: ~3 s through TuneIn/Icecast, ~40 s through
-//    the HLS stream), see `lagSeconds`.
+//    and the other stations of its website platform (Voltage, Alouette, Hit
+//    West, Forum, Ado, Latina...) publish a live server-sent-events feed on
+//    their own website, with the station's own durations, plus ~3 days of
+//    playlist history. Discovered automatically: TuneIn gives the station's
+//    website, whose page data names the platform stream id (idMds). The feed
+//    runs ahead of what the receiver plays by the stream's buffering delay
+//    (measured: ~3 s through TuneIn/Icecast, ~40 s through HLS), see
+//    `lagSeconds`.
 // 3. Nothing: only manual marks can teach the ad schedule (see stats.js).
 // -----------------------------------------------------------------------------
 
@@ -19,30 +22,23 @@ import { createLogger } from '@gladysassistant/integration-sdk';
 
 const logger = createLogger({ name: 'ad-break' });
 
-// Stations with a dedicated feed. `match` is tested against the HEOS
-// now-playing payload: TuneIn station id (album_id) or stream URL (mid).
-// `seedWindows` are the ad windows measured on the station's own playlist
-// history (3 days, 32 breaks), used until enough local listening is learned.
-export const KNOWN_STATIONS = [
+// Direct stream URLs (played as a URL, not through TuneIn) that are known to
+// be a TuneIn station: mapped to it so they share its statistics and feed.
+// Only a hint — TuneIn plays need no entry here at all.
+export const STREAM_URL_HINTS = [
   {
-    key: 'tunein:s6586',
+    tuneinId: 's6586', // OUI FM
     name: 'OUI FM',
-    tuneinIds: ['s6586'],
     urlPatterns: [
       /ouifm\.ice\.infomaniak\.ch\/ouifm-/i,
       /ouifm\.radiohls\.infomaniak\.com\/ouifm\//i,
-    ],
-    feed: { type: 'indesradios', site: 'https://www.ouifm.fr', mdsId: '2174546520932614531' },
-    seedWindows: [
-      [9, 15],
-      [34, 48],
     ],
   },
 ];
 
 /**
  * Identify the station currently playing from a HEOS now-playing payload.
- * @returns {null | {key: string, name: string, known: object|null, lagSeconds: number,
+ * @returns {null | {key: string, tuneinId: string|null, name: string, lagSeconds: number,
  *   heosTitle: string, heosArtist: string}}
  *   null when nothing radio-like is playing (no station, no stream).
  */
@@ -58,11 +54,9 @@ export function identifyStation(payload) {
   if (!isStation && !isStream) {
     return null;
   }
-  const known =
-    KNOWN_STATIONS.find(
-      (s) => s.tuneinIds.includes(albumId) || s.urlPatterns.some((re) => re.test(mid)),
-    ) ?? null;
-  const key = known?.key ?? (/^s\d+$/.test(albumId) ? `tunein:${albumId}` : `url:${mid}`);
+  const hint = STREAM_URL_HINTS.find((s) => s.urlPatterns.some((re) => re.test(mid))) ?? null;
+  const tuneinId = /^s\d+$/.test(albumId) ? albumId : (hint?.tuneinId ?? null);
+  const key = tuneinId ? `tunein:${tuneinId}` : `url:${mid}`;
   const song = typeof payload.song === 'string' ? payload.song.trim() : '';
   const artist = typeof payload.artist === 'string' ? payload.artist.trim() : '';
   // HEOS fills song/artist/album with the literal "Url Stream" for any
@@ -70,8 +64,8 @@ export function identifyStation(payload) {
   const placeholder = song === 'Url Stream';
   return {
     key,
-    name: known?.name || stationName || mid,
-    known,
+    tuneinId,
+    name: stationName || hint?.name || mid,
     // HLS buffers far more than Icecast; measured by ear on OUI FM.
     lagSeconds: /\.m3u8|radiohls/i.test(mid) ? 40 : 3,
     heosTitle: placeholder ? '' : song,
@@ -103,6 +97,108 @@ export async function lookupDurationSeconds(artist, title, fetchImpl = fetch) {
   }
   durationCache.set(cacheKey, duration);
   return duration;
+}
+
+const json = async (url, fetchImpl) => {
+  const res = await fetchImpl(url, { signal: AbortSignal.timeout(10_000) });
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status} for ${url}`);
+  }
+  return res.json();
+};
+
+/**
+ * Find the live feed of a TuneIn station, if its website runs on the
+ * Les Indés Radios platform: TuneIn's profile gives the website, whose
+ * Next.js page data lists the station's streams — the first one of the
+ * `zones` block is the main station (the others are its webradios).
+ * @returns {Promise<null | {type: 'indesradios', site: string, mdsId: string}>}
+ */
+export async function discoverFeed(tuneinId, fetchImpl = fetch) {
+  const profile = await json(`https://feed.tunein.com/profiles/${tuneinId}/nowPlaying`, fetchImpl);
+  const webUrl = profile?.Link?.WebUrl;
+  if (typeof webUrl !== 'string' || !/^https?:\/\//.test(webUrl)) {
+    return null;
+  }
+  const site = new URL(webUrl.replace(/^http:/, 'https:')).origin;
+  const res = await fetchImpl(`${site}/`, { signal: AbortSignal.timeout(15_000) });
+  const page = await res.text();
+  const mdsId = page.match(/"zones":\[\{.*?"idMds":"(\d+)"/s)?.[1];
+  if (!mdsId) {
+    return null;
+  }
+  return { type: 'indesradios', site: new URL(res.url || `${site}/`).origin, mdsId };
+}
+
+/** Song duration in seconds from a Deezer track id, or null (cached). */
+export async function lookupDurationById(deezerId, fetchImpl = fetch) {
+  const cacheKey = `id:${deezerId}`;
+  if (!durationCache.has(cacheKey)) {
+    let duration = null;
+    try {
+      duration =
+        Number((await json(`https://api.deezer.com/track/${deezerId}`, fetchImpl))?.duration) ||
+        null;
+    } catch (err) {
+      logger.debug(`Deezer lookup failed for track ${deezerId}: ${err.message}`);
+    }
+    durationCache.set(cacheKey, duration);
+  }
+  return durationCache.get(cacheKey);
+}
+
+/**
+ * The station's playlist history (newest pages first, ~3 days available),
+ * oldest song first: `[{startedAt, artist, title, deezerId}]`.
+ */
+export async function fetchPlaylistHistory({ site, mdsId, hours = 72, fetchImpl = fetch }) {
+  const byId = new Map();
+  const now = Date.now();
+  // A page holds 60 songs (~3.5 h of music): step 3 h back each time.
+  for (let back = 0; back < hours; back += 3) {
+    try {
+      const page = await json(
+        `${site}/api/TitleDiffusions?size=60&radioStreamId=${mdsId}&date=${now - back * 3_600_000}`,
+        fetchImpl,
+      );
+      for (const item of Array.isArray(page) ? page : []) {
+        byId.set(item.id, {
+          startedAt: Date.parse(item.timestamp),
+          artist: item.title?.artist ?? '',
+          title: item.title?.title ?? '',
+          deezerId: item.title?.deezerId ?? null,
+        });
+      }
+    } catch (err) {
+      logger.debug(`${site}: playlist history page failed: ${err.message}`);
+    }
+  }
+  return [...byId.values()]
+    .filter((s) => s.startedAt > 0)
+    .sort((a, b) => a.startedAt - b.startedAt);
+}
+
+/**
+ * Ad breaks found in a playlist history: the gaps between the end of a song
+ * (start + duration, when the duration is known) and the start of the next.
+ * @param {Array<{startedAt: number}>} songs oldest first
+ * @param {(song) => number|null} durationOf seconds
+ * @param {{min: number, max: number}} gapRange seconds
+ */
+export function breaksFromHistory(songs, durationOf, { min, max }) {
+  const breaks = [];
+  for (let i = 0; i + 1 < songs.length; i++) {
+    const duration = durationOf(songs[i]);
+    if (!duration) {
+      continue;
+    }
+    const end = songs[i].startedAt + duration * 1000;
+    const gap = (songs[i + 1].startedAt - end) / 1000;
+    if (gap >= min && gap <= max) {
+      breaks.push({ startedAt: end, durationSeconds: Math.round(gap) });
+    }
+  }
+  return breaks;
 }
 
 /**

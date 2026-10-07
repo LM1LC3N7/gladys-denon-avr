@@ -16,7 +16,12 @@ import {
   OUTSIDE_WINDOW_GRACE_SECONDS,
   MAX_BREAK_SECONDS,
 } from '../src/adbreak/detector.js';
-import { identifyStation, parseIndesRadiosEvent } from '../src/adbreak/sources.js';
+import {
+  identifyStation,
+  parseIndesRadiosEvent,
+  breaksFromHistory,
+  discoverFeed,
+} from '../src/adbreak/sources.js';
 
 // Local wall-clock time on a fixed day: the learned minute of the hour is local.
 const at = (h, m, s = 0) => new Date(2026, 9, 7, h, m, s).getTime();
@@ -270,7 +275,7 @@ test('identifyStation recognizes OUI FM through TuneIn and its stream lag', () =
   });
   assert.equal(station.key, 'tunein:s6586');
   assert.equal(station.name, 'OUI FM');
-  assert.equal(station.known.feed.type, 'indesradios');
+  assert.equal(station.tuneinId, 's6586');
   assert.equal(station.lagSeconds, 3);
 });
 
@@ -281,7 +286,7 @@ test('identifyStation recognizes the OUI FM HLS stream played as a URL, with its
     artist: 'Url Stream',
     mid: 'https://ouifm.radiohls.infomaniak.com/ouifm/manifest.m3u8',
   });
-  assert.equal(station.key, 'tunein:s6586');
+  assert.equal(station.key, 'tunein:s6586'); // same statistics as through TuneIn
   assert.equal(station.lagSeconds, 40);
   assert.equal(station.heosTitle, ''); // "Url Stream" is a placeholder, not a title
 });
@@ -296,7 +301,7 @@ test('identifyStation passes through HEOS metadata for any other station', () =>
     mid: 'https://stream.radioparadise.com/ti-main-320',
   });
   assert.equal(station.key, 'tunein:s13606');
-  assert.equal(station.known, null);
+  assert.equal(station.tuneinId, 's13606');
   assert.equal(station.heosTitle, 'Rock Steady');
   assert.equal(station.heosArtist, 'Aretha Franklin');
 });
@@ -324,6 +329,12 @@ test('controller: a feed song change is applied only once the stream lag has ela
   __resetStoreForTesting();
   const encoder = new TextEncoder();
   t.mock.method(globalThis, 'fetch', async (url) => {
+    if (String(url).includes('feed.tunein.com/profiles/s6586')) {
+      return { ok: true, json: async () => ({ Link: { WebUrl: 'http://www.ouifm.fr' } }) };
+    }
+    if (String(url) === 'https://www.ouifm.fr/') {
+      return { ok: true, url, text: async () => OUIFM_PAGE };
+    }
     if (String(url).includes('/api/TitleDiffusions')) {
       return { ok: true, json: async () => [] };
     }
@@ -357,13 +368,58 @@ test('controller: a feed song change is applied only once the stream lag has ela
     mid: 'http://ouifm.ice.infomaniak.ch/ouifm-high.aac', // TuneIn/Icecast: 3 s lag
   });
   controller.onPlayState(true);
-  assert.equal(controller.providesNowPlaying(), true);
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 200)); // feed discovery (async)
+    assert.equal(controller.providesNowPlaying(), true);
+    await new Promise((resolve) => setTimeout(resolve, 1300));
+    assert.deepEqual(published, [], 'not before the 3 s stream lag');
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    assert.equal(published.length, 1);
+    assert.equal(published[0][1], 'QUEEN - BICYCLE RACE');
+    assert.ok(published[0][0] - startedAt >= 2900);
+  } finally {
+    controller.stop();
+  }
+});
 
-  await new Promise((resolve) => setTimeout(resolve, 1500));
-  assert.deepEqual(published, [], 'not before the 3 s stream lag');
-  await new Promise((resolve) => setTimeout(resolve, 2500));
-  assert.equal(published.length, 1);
-  assert.equal(published[0][1], 'QUEEN - BICYCLE RACE');
-  assert.ok(published[0][0] - startedAt >= 2900);
-  controller.stop();
+// Trimmed from the real www.ouifm.fr page data: the main station comes first
+// in `zones`, its webradios follow elsewhere in the page.
+const OUIFM_PAGE =
+  '<script id="__NEXT_DATA__">{"ENDPOINT":"/graphql","zones":[{"group":null,"id":"PduHlGne1L",' +
+  '"label":"National","stream":{"hd":"x","idMds":"2174546520932614531","label":"Oüi FM",' +
+  '"type":"RADIO"}}],"webradios":[{"idMds":"3134161803443976427","label":"Oüi FM Classic Rock"}]}</script>';
+
+test('discoverFeed finds the live feed of a TuneIn station through its website', async () => {
+  const fetchImpl = async (url) => {
+    if (url.includes('feed.tunein.com/profiles/s6586')) {
+      return { ok: true, json: async () => ({ Link: { WebUrl: 'http://www.ouifm.fr' } }) };
+    }
+    return { ok: true, url: 'https://www.ouifm.fr/', text: async () => OUIFM_PAGE };
+  };
+  assert.deepEqual(await discoverFeed('s6586', fetchImpl), {
+    type: 'indesradios',
+    site: 'https://www.ouifm.fr',
+    mdsId: '2174546520932614531',
+  });
+});
+
+test('discoverFeed returns null for a website on another platform', async () => {
+  const fetchImpl = async (url) =>
+    url.includes('feed.tunein.com')
+      ? { ok: true, json: async () => ({ Link: { WebUrl: 'https://www.energyfm.net/' } }) }
+      : { ok: true, url, text: async () => '<html>no platform data</html>' };
+  assert.equal(await discoverFeed('s45495', fetchImpl), null);
+});
+
+test('breaksFromHistory keeps only the gaps long enough to be ad breaks', () => {
+  const songs = [
+    { startedAt: at(12, 0), d: 200 }, // ends 12:03:20, next at 12:03:25: 5 s gap
+    { startedAt: at(12, 3, 25), d: 180 }, // ends 12:06:25, next at 12:13:05: 400 s
+    { startedAt: at(12, 13, 5), d: null }, // unknown duration: skipped
+    { startedAt: at(12, 20) },
+  ];
+  assert.deepEqual(
+    breaksFromHistory(songs, (s) => s.d, { min: 200, max: 900 }),
+    [{ startedAt: at(12, 6, 25), durationSeconds: 400 }],
+  );
 });
