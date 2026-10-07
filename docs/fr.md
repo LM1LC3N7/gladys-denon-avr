@@ -183,7 +183,9 @@ L'apprentissage est enregistré par station et se recale si la grille change.
   C'est moins précis qu'avec des titres, faute de savoir quand la musique s'arrête vraiment.
 
 Sur une station avec titres, **Mark ad break** sert aussi à affiner le délai : appuyez au moment du
-jingle pub, et l'intégration apprend combien de temps l'animateur parle avant les pubs.
+jingle pub, et l'intégration apprend combien de temps l'animateur parle avant les pubs,
+heure par heure. Exemple : le matin sur OUI FM, il n'y a pas d'animateur et la pub suit directement
+la chanson. Deux appuis à ces heures-là suffisent pour que la baisse y soit immédiate.
 
 **Limite connue** : la fin de coupure n'est connue qu'au démarrage du titre suivant. Si l'animateur
 reprend la parole après les pubs, il reste à volume réduit jusqu'à la chanson.

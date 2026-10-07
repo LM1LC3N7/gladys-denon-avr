@@ -24,6 +24,7 @@ import {
   recordMarkOffset,
   learnedWindows,
   preBreakTalkSeconds,
+  preBreakTalkByHour,
   typicalBreakSeconds,
   loadStatsStore,
   saveStatsStore,
@@ -132,7 +133,7 @@ export function createAdBreakController({
     },
     onMark({ at, offsetSeconds, durationSeconds }) {
       updateStats((stats) => {
-        let next = offsetSeconds != null ? recordMarkOffset(stats, offsetSeconds) : stats;
+        let next = offsetSeconds != null ? recordMarkOffset(stats, offsetSeconds, at) : stats;
         // On a station with song metadata the break itself is measured from
         // the song gap (onGap): only the host-talk offset is learned here.
         if (!station?.hasMetadata && durationSeconds != null) {
@@ -154,6 +155,7 @@ export function createAdBreakController({
       hasMetadata: station.hasMetadata,
       windows: learnedWindows(stats, station.known?.seedWindows ?? []),
       preBreakTalkSeconds: preBreakTalkSeconds(stats),
+      preBreakTalkByHour: preBreakTalkByHour(stats),
       typicalBreakSeconds: typicalBreakSeconds(stats),
     };
   }

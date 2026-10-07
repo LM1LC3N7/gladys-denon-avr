@@ -7,6 +7,7 @@ import {
   learnedWindows,
   isInWindow,
   preBreakTalkSeconds,
+  preBreakTalkByHour,
   typicalBreakSeconds,
   DEFAULT_PRE_BREAK_TALK_SECONDS,
 } from '../src/adbreak/stats.js';
@@ -80,6 +81,34 @@ test('preBreakTalkSeconds learns the median host talk from manual marks', () => 
     stats = recordMarkOffset(stats, offset); // 9999 is out of range: ignored
   }
   assert.equal(preBreakTalkSeconds(stats), 40);
+});
+
+test('preBreakTalkByHour learns a shorter host talk for the hours it was marked at', () => {
+  let stats = emptyStats();
+  for (const [offset, hour] of [
+    [2, 7],
+    [4, 7],
+    [3, 8],
+    [45, 13],
+    [40, 17],
+  ]) {
+    stats = recordMarkOffset(stats, offset, at(hour, 10));
+  }
+  const byHour = preBreakTalkByHour(stats);
+  assert.equal(byHour[7], 3); // morning: no host, ads right after the song
+  assert.equal(byHour[8], 3); // 7h and 8h marks are within ±1 hour
+  assert.equal(byHour[13], preBreakTalkSeconds(stats)); // one mark only: all-day median
+  assert.equal(byHour[13], 4);
+});
+
+test('the detector uses the host talk learned for the hour the song ended at', () => {
+  const byHour = new Array(24).fill(45);
+  byHour[7] = 3;
+  const h = harness({ preBreakTalkByHour: byHour });
+  h.setTime(at(7, 8));
+  h.detector.onTrack({ startedAt: at(7, 8), durationSeconds: 120 }); // ends 7:10, in window
+  h.runUntil(at(7, 10, 3));
+  assert.deepEqual(h.events, [['start', 'song_ended_in_window']]);
 });
 
 function harness(stationOverrides = {}) {

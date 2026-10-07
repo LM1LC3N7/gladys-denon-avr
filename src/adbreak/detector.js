@@ -82,7 +82,8 @@ export function createAdBreakDetector({
   return {
     /**
      * @param {null | {key: string, hasMetadata: boolean, windows: Array<[number, number]>,
-     *   preBreakTalkSeconds?: number, typicalBreakSeconds?: number|null}} next
+     *   preBreakTalkSeconds?: number, preBreakTalkByHour?: number[],
+     *   typicalBreakSeconds?: number|null}} next
      */
     setStation(next) {
       const changed = next?.key !== station?.key;
@@ -145,7 +146,9 @@ export function createAdBreakDetector({
         }
         const inWindow = windowFresh && isInWindow(new Date(end).getMinutes(), station.windows);
         const graceSeconds = inWindow
-          ? (station.preBreakTalkSeconds ?? DEFAULT_PRE_BREAK_TALK_SECONDS)
+          ? (station.preBreakTalkByHour?.[new Date(end).getHours()] ??
+            station.preBreakTalkSeconds ??
+            DEFAULT_PRE_BREAK_TALK_SECONDS)
           : OUTSIDE_WINDOW_GRACE_SECONDS;
         if (t >= end + graceSeconds * 1000) {
           startBreak(inWindow ? 'song_ended_in_window' : 'song_ended_long_silence', end);

@@ -64,11 +64,15 @@ export function recordBreak(stats, { startedAt, durationSeconds = null, source }
  * Record how long after the end of the last song a manual "it's an ad" mark
  * came — i.e. how long the host talked before the ad jingle.
  */
-export function recordMarkOffset(stats, offsetSeconds) {
+export function recordMarkOffset(stats, offsetSeconds, at = Date.now()) {
   if (!(offsetSeconds >= 0 && offsetSeconds <= BREAK_MIN_SECONDS)) {
     return stats;
   }
-  const markOffsets = [...stats.markOffsets, Math.round(offsetSeconds)];
+  // The hour is kept because host talk depends on the time of day (real
+  // feedback: on OUI FM mornings have no host at all, the ads start right
+  // after the song).
+  const hour = new Date(at).getHours();
+  const markOffsets = [...stats.markOffsets, { offset: Math.round(offsetSeconds), hour }];
   return { ...stats, markOffsets: markOffsets.slice(-MAX_MARK_OFFSETS) };
 }
 
@@ -129,7 +133,24 @@ export function isInWindow(minute, windows) {
 
 /** Median host talk between the last song and the ad jingle, or the default. */
 export function preBreakTalkSeconds(stats) {
-  return stats.markOffsets.length >= 3 ? median(stats.markOffsets) : DEFAULT_PRE_BREAK_TALK_SECONDS;
+  const offsets = stats.markOffsets.map((m) => (typeof m === 'number' ? m : m.offset));
+  return offsets.length >= 3 ? median(offsets) : DEFAULT_PRE_BREAK_TALK_SECONDS;
+}
+
+/**
+ * Host talk before the ad jingle, per hour of the day (24 entries): the
+ * median of the marks made within ±1 hour once there are at least 2 of
+ * them, else the all-day value.
+ */
+export function preBreakTalkByHour(stats) {
+  const fallback = preBreakTalkSeconds(stats);
+  const marks = stats.markOffsets.filter((m) => typeof m === 'object' && m !== null);
+  return Array.from({ length: 24 }, (_, hour) => {
+    const near = marks
+      .filter((m) => Math.min(Math.abs(m.hour - hour), 24 - Math.abs(m.hour - hour)) <= 1)
+      .map((m) => m.offset);
+    return near.length >= 2 ? median(near) : fallback;
+  });
 }
 
 /** Median ad-break length, or null if none was measured yet. */

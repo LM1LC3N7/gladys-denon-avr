@@ -164,7 +164,9 @@ What is learned is stored per station and follows schedule changes.
   since it cannot tell when the music actually stops.
 
 On a station with song changes, **Mark ad break** also fine-tunes the delay: press it at the ad
-jingle and the integration learns how long the host talks before the ads.
+jingle and the integration learns how long the host talks before the ads, hour by hour. For
+instance, OUI FM mornings have no host and the ads follow the song directly: two presses at those
+hours are enough for the volume to drop right away then.
 
 **Known limit**: the end of a break is only known when the next song starts. If the host talks
 again after the ads, that stays at the lowered volume until the song.
