@@ -79,6 +79,7 @@ export function createAdBreakController({
   let feed = null;
   let lastHeosTitle = null;
   let duck = null; // { saved, ducked } while the volume is lowered by us
+  const pendingTracks = new Set(); // feed song changes waiting for the stream lag
 
   const detector = createAdBreakDetector({
     onBreakStart({ reason }) {
@@ -186,11 +187,32 @@ export function createAdBreakController({
   function stopFeed() {
     feed?.stop();
     feed = null;
+    for (const timer of pendingTracks) {
+      clearTimeout(timer);
+    }
+    pendingTracks.clear();
   }
 
-  function onTrack({ startedAt, durationSeconds }) {
-    // Shift feed time to what the receiver actually plays (stream buffering).
-    detector.onTrack({ startedAt: startedAt + (station?.lagSeconds ?? 0) * 1000, durationSeconds });
+  // A feed runs ahead of what the receiver plays by the stream's buffering
+  // (station.lagSeconds): apply each song change only when it is actually
+  // heard — otherwise the end of a break (hence the volume restore) would
+  // land during the last ads, ~40 s early on an HLS stream.
+  function onFeedTrack(track, current) {
+    const playedAt = track.startedAt + current.lagSeconds * 1000;
+    const timer = setTimeout(
+      () => {
+        pendingTracks.delete(timer);
+        if (station !== current) {
+          return;
+        }
+        // The stream itself carries no title: show the feed's instead of
+        // the bare station name HEOS reports.
+        publishNowPlaying([track.artist, track.title].filter(Boolean).join(' - '));
+        detector.onTrack({ startedAt: playedAt, durationSeconds: track.durationSeconds });
+      },
+      Math.max(0, playedAt - Date.now()),
+    );
+    pendingTracks.add(timer);
   }
 
   function switchStation(next) {
@@ -204,15 +226,7 @@ export function createAdBreakController({
       feed = followIndesRadiosFeed({
         site: station.known.feed.site,
         mdsId: station.known.feed.mdsId,
-        onTrack: (track) => {
-          if (station !== current) {
-            return;
-          }
-          // The stream itself carries no title: show the feed's instead of
-          // the bare station name HEOS reports.
-          publishNowPlaying([track.artist, track.title].filter(Boolean).join(' - '));
-          onTrack(track);
-        },
+        onTrack: (track) => onFeedTrack(track, current),
       });
     }
     logger.info(

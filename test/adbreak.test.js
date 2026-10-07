@@ -316,3 +316,54 @@ test('parseIndesRadiosEvent reads the live feed lines', () => {
   assert.equal(parseIndesRadiosEvent(': keep-alive'), null);
   assert.equal(parseIndesRadiosEvent('data: not json'), null);
 });
+
+test('controller: a feed song change is applied only once the stream lag has elapsed', async (t) => {
+  process.env.AD_BREAK_STATS_FILE = `${process.env.TMPDIR || '/tmp'}/adbreak-test-${process.pid}.json`;
+  const { createAdBreakController, __resetStoreForTesting } =
+    await import('../src/adbreak/index.js');
+  __resetStoreForTesting();
+  const encoder = new TextEncoder();
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    if (String(url).includes('/api/TitleDiffusions')) {
+      return { ok: true, json: async () => [] };
+    }
+    // The live feed: one song, then stays open.
+    const body = new ReadableStream({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode(
+            'data: {"artist":"QUEEN","title":"BICYCLE RACE","durationInSeconds":"184"}\n\n',
+          ),
+        );
+      },
+    });
+    return { ok: true, status: 200, body };
+  });
+
+  const published = [];
+  const controller = createAdBreakController({
+    name: 'test',
+    getConfig: () => ({ ad_break_detection: true, ad_break_auto_duck: false }),
+    getVolume: () => 30,
+    setVolume: () => true,
+    publishAdBreak: () => {},
+    publishNowPlaying: (text) => published.push([Date.now(), text]),
+  });
+  const startedAt = Date.now();
+  controller.onNowPlayingMedia({
+    type: 'station',
+    station: 'OUI FM',
+    album_id: 's6586',
+    mid: 'http://ouifm.ice.infomaniak.ch/ouifm-high.aac', // TuneIn/Icecast: 3 s lag
+  });
+  controller.onPlayState(true);
+  assert.equal(controller.providesNowPlaying(), true);
+
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  assert.deepEqual(published, [], 'not before the 3 s stream lag');
+  await new Promise((resolve) => setTimeout(resolve, 2500));
+  assert.equal(published.length, 1);
+  assert.equal(published[0][1], 'QUEEN - BICYCLE RACE');
+  assert.ok(published[0][0] - startedAt >= 2900);
+  controller.stop();
+});
