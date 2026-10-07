@@ -10,6 +10,19 @@
 //
 // Usage: node scripts/debug-heos.js <host>
 //
+// Every line is timestamped and every reply/event is auto-logged, including
+// `player/get_now_playing_media` fired automatically whenever a
+// `player_now_playing_changed` event fires for our player — the same
+// re-fetch src/devices/avr.js does in production. This is deliberately
+// geared at the ad-break metadata validation protocol (see the project
+// brief): run this while a radio stream plays through a few real ad breaks,
+// and the `song`/`artist`/`station` fields logged at each NOW PLAYING line
+// are what any future ad-detection ruleset would have to key off. Compare
+// timestamps against the stream's own ICY metadata (e.g.
+// `curl -H "Icy-MetaData: 1" <stream-url>` or `ffprobe -i <stream-url>`) to
+// check whether the two are in sync or the ad is inserted server-side only
+// (in which case HEOS is the only reliable source — see the brief).
+//
 // If nothing connects at all, either this receiver has no HEOS module, or
 // the HEOS CLI port (1255) is firewalled on its network interface — this
 // integration falls back to the legacy Telnet transport commands in that
@@ -18,12 +31,22 @@
 
 import readline from 'node:readline';
 import { createHeosClient } from '../src/heos/client.js';
+import {
+  buildGetNowPlayingMediaCommand,
+  buildRegisterForChangeEventsCommand,
+} from '../src/heos/protocol.js';
 
 const [, , host] = process.argv;
 if (!host) {
   console.error('Usage: node scripts/debug-heos.js <host>');
   process.exit(1);
 }
+
+function timestamp() {
+  return new Date().toISOString();
+}
+
+let pid = null;
 
 console.log(`Connecting to ${host}:1255 (HEOS CLI)...`);
 
@@ -33,10 +56,38 @@ const heos = createHeosClient({
     console.log('Connected. Type a command path and press Enter (Ctrl+C to quit).');
     console.log('Examples: player/get_players  system/register_for_change_events?enable=on');
     console.log('          player/set_play_state?pid=<pid>&state=play');
+    heos.sendCommand('player/get_players');
+    heos.sendCommand(buildRegisterForChangeEventsCommand());
   },
-  onMessage: (parsed) => console.log('<-', JSON.stringify(parsed)),
+  onMessage: (parsed) => {
+    console.log(`[${timestamp()}] <-`, JSON.stringify(parsed));
+
+    if (parsed.command === 'player/get_players' && parsed.result !== 'fail') {
+      const player = (parsed.payload ?? []).find((p) => p?.ip === host);
+      if (player) {
+        pid = player.pid;
+        console.log(`[${timestamp()}] Matched pid=${pid} for ${host}`);
+      }
+      return;
+    }
+
+    if (parsed.command === 'player/get_now_playing_media') {
+      console.log(
+        `[${timestamp()}] NOW PLAYING song=${JSON.stringify(parsed.payload?.song)} artist=${JSON.stringify(
+          parsed.payload?.artist,
+        )} station=${JSON.stringify(parsed.payload?.station)} image_url=${JSON.stringify(
+          parsed.payload?.image_url,
+        )} mid=${JSON.stringify(parsed.payload?.mid)}`,
+      );
+      return;
+    }
+
+    if (parsed.command === 'event/player_now_playing_changed' && pid != null) {
+      heos.sendCommand(buildGetNowPlayingMediaCommand(pid));
+    }
+  },
   onDisconnect: (consecutiveFailures) =>
-    console.log(`Disconnected (attempt ${consecutiveFailures})`),
+    console.log(`[${timestamp()}] Disconnected (attempt ${consecutiveFailures})`),
 });
 
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
