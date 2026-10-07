@@ -10,18 +10,22 @@
 //
 // Usage: node scripts/debug-heos.js <host>
 //
-// Every line is timestamped and every reply/event is auto-logged, including
-// `player/get_now_playing_media` fired automatically whenever a
-// `player_now_playing_changed` event fires for our player — the same
-// re-fetch src/devices/avr.js does in production. This is deliberately
-// geared at the ad-break metadata validation protocol (see the project
-// brief): run this while a radio stream plays through a few real ad breaks,
-// and the `song`/`artist`/`station` fields logged at each NOW PLAYING line
-// are what any future ad-detection ruleset would have to key off. Compare
-// timestamps against the stream's own ICY metadata (e.g.
-// `curl -H "Icy-MetaData: 1" <stream-url>` or `ffprobe -i <stream-url>`) to
-// check whether the two are in sync or the ad is inserted server-side only
-// (in which case HEOS is the only reliable source — see the brief).
+// Every line is timestamped and every reply/event is auto-logged.
+// `player/get_now_playing_media` is fetched three ways, deliberately
+// redundant: once as soon as this player's pid is matched, again whenever
+// a `player_now_playing_changed` event fires (the same re-fetch
+// src/devices/avr.js does in production), AND on a fixed poll
+// (NOW_PLAYING_POLL_MS) regardless of events — some stations/receivers were
+// found in practice to never push `player_now_playing_changed` at all across
+// an ad transition, which would otherwise leave this script showing nothing.
+// This is deliberately geared at the ad-break metadata validation protocol
+// (see the project brief): run this while a radio stream plays through a
+// few real ad breaks, and the `song`/`artist`/`station` fields logged at
+// each NOW PLAYING line are what any future ad-detection ruleset would have
+// to key off. Compare timestamps against the stream's own ICY metadata
+// (e.g. `curl -H "Icy-MetaData: 1" <stream-url>` or `ffprobe -i <stream-url>`)
+// to check whether the two are in sync or the ad is inserted server-side
+// only (in which case HEOS is the only reliable source — see the brief).
 //
 // If nothing connects at all, either this receiver has no HEOS module, or
 // the HEOS CLI port (1255) is firewalled on its network interface — this
@@ -33,6 +37,7 @@ import readline from 'node:readline';
 import { createHeosClient } from '../src/heos/client.js';
 import {
   buildGetNowPlayingMediaCommand,
+  buildGetPlayStateCommand,
   buildRegisterForChangeEventsCommand,
 } from '../src/heos/protocol.js';
 
@@ -42,11 +47,17 @@ if (!host) {
   process.exit(1);
 }
 
+// Poll instead of relying solely on `player_now_playing_changed`: see the
+// file header comment on why relying only on the push event can leave this
+// script silent across a real ad transition.
+const NOW_PLAYING_POLL_MS = 5000;
+
 function timestamp() {
   return new Date().toISOString();
 }
 
 let pid = null;
+let pollTimer = null;
 
 console.log(`Connecting to ${host}:1255 (HEOS CLI)...`);
 
@@ -67,6 +78,13 @@ const heos = createHeosClient({
       if (player) {
         pid = player.pid;
         console.log(`[${timestamp()}] Matched pid=${pid} for ${host}`);
+        heos.sendCommand(buildGetNowPlayingMediaCommand(pid));
+        heos.sendCommand(buildGetPlayStateCommand(pid));
+        clearInterval(pollTimer);
+        pollTimer = setInterval(() => {
+          heos.sendCommand(buildGetNowPlayingMediaCommand(pid));
+          heos.sendCommand(buildGetPlayStateCommand(pid));
+        }, NOW_PLAYING_POLL_MS);
       }
       return;
     }
@@ -82,7 +100,13 @@ const heos = createHeosClient({
       return;
     }
 
+    if (parsed.command === 'player/get_play_state') {
+      console.log(`[${timestamp()}] PLAY STATE ${parsed.message?.state}`);
+      return;
+    }
+
     if (parsed.command === 'event/player_now_playing_changed' && pid != null) {
+      console.log(`[${timestamp()}] (pushed now-playing-changed event)`);
       heos.sendCommand(buildGetNowPlayingMediaCommand(pid));
     }
   },
@@ -102,6 +126,7 @@ rl.on('line', (line) => {
 });
 
 process.on('SIGINT', () => {
+  clearInterval(pollTimer);
   heos.stop();
   rl.close();
   process.exit(0);
