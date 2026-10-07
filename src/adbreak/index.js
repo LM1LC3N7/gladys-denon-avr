@@ -195,7 +195,9 @@ export function createAdBreakController({
     stopFeed();
     lastHeosTitle = null;
     station = next ? { ...next, hasMetadata: Boolean(next.known?.feed) } : null;
-    if (station?.known?.feed?.type === 'indesradios' && getConfig().ad_break_detection) {
+    // Followed even with detection off: the feed is also what shows the
+    // real song instead of the bare station name.
+    if (station?.known?.feed?.type === 'indesradios') {
       const current = station;
       feed = followIndesRadiosFeed({
         site: station.known.feed.site,
