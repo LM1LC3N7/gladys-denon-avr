@@ -11,7 +11,9 @@
 FROM node:26-alpine
 
 # dumb-init: handles signals (SIGTERM) correctly for a graceful shutdown.
-RUN apk add --no-cache dumb-init
+# ffmpeg: decodes the radio stream playing on the receiver, to learn and
+# recognize its ad-break jingles (src/adbreak/jingles.js).
+RUN apk add --no-cache dumb-init ffmpeg
 
 WORKDIR /app
 

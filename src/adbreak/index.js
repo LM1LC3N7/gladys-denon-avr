@@ -15,6 +15,7 @@
 
 import { createLogger } from '@gladysassistant/integration-sdk';
 import { createAdBreakDetector } from './detector.js';
+import { createJingleListener } from './jingles.js';
 import {
   identifyStation,
   discoverFeed,
@@ -90,6 +91,7 @@ export function createAdBreakController({
   let feed = null;
   let lastHeosTitle = null;
   let duck = null; // { saved, ducked } while the volume is lowered by us
+  let jingles = null; // jingle listener of the station playing, see jingles.js
   const pendingTracks = new Set(); // feed song changes waiting for the stream lag
 
   const detector = createAdBreakDetector({
@@ -134,6 +136,9 @@ export function createAdBreakController({
     },
     onGap({ songEndedAt, gapSeconds }) {
       if (gapSeconds >= BREAK_MIN_SECONDS && gapSeconds <= BREAK_MAX_SECONDS) {
+        jingles
+          ?.learnFromBreak({ songEndedAt, nextSongAt: songEndedAt + gapSeconds * 1000 })
+          .catch((err) => logger.warn(`${name}: jingle learning failed: ${err.message}`));
         updateStats((stats) =>
           recordBreak(stats, {
             startedAt: songEndedAt,
@@ -156,7 +161,10 @@ export function createAdBreakController({
     },
   });
 
-  const ticker = setInterval(() => detector.tick(), TICK_MS);
+  const ticker = setInterval(() => {
+    detector.tick();
+    jingles?.tick();
+  }, TICK_MS);
   ticker.unref?.();
 
   async function stationContext() {
@@ -169,10 +177,49 @@ export function createAdBreakController({
       preBreakTalkSeconds: preBreakTalkSeconds(stats),
       preBreakTalkByHour: preBreakTalkByHour(stats),
       typicalBreakSeconds: typicalBreakSeconds(stats),
+      hasStartJingle: jingles?.hasActive('start') ?? false,
     };
   }
 
+  // The jingle listener decodes the station's stream: only while it plays
+  // with detection on.
+  function syncJingles() {
+    const wanted =
+      station?.streamUrl &&
+      playing &&
+      getConfig().ad_break_detection &&
+      process.env.AD_BREAK_JINGLES !== 'off'
+        ? station
+        : null;
+    if (jingles && jingles.station === wanted) {
+      return;
+    }
+    jingles?.stop();
+    jingles = null;
+    if (!wanted) {
+      return;
+    }
+    const listener = createJingleListener({
+      stationKey: wanted.key,
+      streamUrl: wanted.streamUrl,
+      onHit: ({ side, active }) => {
+        if (!active || station !== wanted) {
+          return; // Observed hits only feed the learning (see jingles.js).
+        }
+        if (side === 'start') {
+          detector.jingleStart();
+        } else {
+          detector.jingleEnd();
+        }
+      },
+      onChange: () => refreshDetectorStation(),
+    });
+    jingles = Object.assign(listener, { station: wanted });
+    listener.ready.then(() => refreshDetectorStation());
+  }
+
   async function refreshDetectorStation() {
+    syncJingles();
     if (!station || !playing || !getConfig().ad_break_detection) {
       detector.setStation(null);
       return;
@@ -220,6 +267,7 @@ export function createAdBreakController({
         // the bare station name HEOS reports.
         publishNowPlaying([track.artist, track.title].filter(Boolean).join(' - '));
         detector.onTrack({ startedAt: playedAt, durationSeconds: track.durationSeconds });
+        jingles?.onSongStarted(playedAt);
       },
       Math.max(0, playedAt - Date.now()),
     );
@@ -341,6 +389,7 @@ export function createAdBreakController({
       lookupDurationSeconds(next.heosArtist, next.heosTitle).then((durationSeconds) => {
         if (station === current) {
           detector.onTrack({ startedAt, durationSeconds });
+          jingles?.onSongStarted(startedAt);
         }
       });
     },
@@ -378,6 +427,8 @@ export function createAdBreakController({
     stop() {
       clearInterval(ticker);
       stopFeed();
+      jingles?.stop();
+      jingles = null;
       detector.setStation(null);
     },
   };

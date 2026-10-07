@@ -65,6 +65,9 @@ export function identifyStation(payload) {
   return {
     key,
     tuneinId,
+    // What the receiver actually streams: the jingle listener decodes the
+    // same URL (TuneIn resolves to the station's own stream URL here too).
+    streamUrl: isStream ? mid : null,
     name: stationName || hint?.name || mid,
     // HLS buffers far more than Icecast; measured by ear on OUI FM.
     lagSeconds: /\.m3u8|radiohls/i.test(mid) ? 40 : 3,

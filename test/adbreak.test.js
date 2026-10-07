@@ -16,6 +16,8 @@ import {
   OUTSIDE_WINDOW_GRACE_SECONDS,
   MAX_BREAK_SECONDS,
 } from '../src/adbreak/detector.js';
+import { SAMPLE_RATE, fingerprint } from '../src/adbreak/fingerprint.js';
+import { findSharedJingle } from '../src/adbreak/jingles.js';
 import {
   identifyStation,
   parseIndesRadiosEvent,
@@ -324,6 +326,7 @@ test('parseIndesRadiosEvent reads the live feed lines', () => {
 
 test('controller: a feed song change is applied only once the stream lag has elapsed', async (t) => {
   process.env.AD_BREAK_STATS_FILE = `${process.env.TMPDIR || '/tmp'}/adbreak-test-${process.pid}.json`;
+  process.env.AD_BREAK_JINGLES = 'off'; // no ffmpeg/stream in unit tests
   const { createAdBreakController, __resetStoreForTesting } =
     await import('../src/adbreak/index.js');
   __resetStoreForTesting();
@@ -422,4 +425,45 @@ test('breaksFromHistory keeps only the gaps long enough to be ad breaks', () => 
     breaksFromHistory(songs, (s) => s.d, { min: 200, max: 900 }),
     [{ startedAt: at(12, 6, 25), durationSeconds: 400 }],
   );
+});
+
+// Deterministic pseudo-random audio: noise that never repeats, and one
+// fixed 4 s "jingle" sound embedded at a different place in each simulated
+// break.
+function noiseAudio(seconds, seed) {
+  // mulberry32: a plain LCG repeats itself within seconds of audio.
+  let a = seed;
+  const random = () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  return Int16Array.from({ length: seconds * SAMPLE_RATE }, () => ((random() - 0.5) * 12000) | 0);
+}
+// A rich, fixed sound (like a real jingle, unlike a pure tone): the same
+// 4 s of noise, shaped by a rhythmic envelope.
+const JINGLE = noiseAudio(4, 999).map((v, i) => v * (1 + Math.sin(i / 600)));
+function breakAudio(seed, jingleAtSeconds) {
+  const audio = noiseAudio(40, seed);
+  audio.set(JINGLE, jingleAtSeconds * SAMPLE_RATE);
+  return audio;
+}
+
+test('findSharedJingle finds the sound every break shares, wherever the host stopped talking', () => {
+  const samples = [
+    fingerprint(breakAudio(11, 5)),
+    fingerprint(breakAudio(22, 20)),
+    fingerprint(breakAudio(33, 12)),
+  ];
+  const jingle = findSharedJingle(samples);
+  assert.ok(jingle, 'a shared jingle is found');
+  assert.ok(jingle.support === 3);
+  // The template is the jingle: about 4 s long, found at 12 s in the newest sample.
+  assert.ok(jingle.frames * 0.0464 > 2 && jingle.frames * 0.0464 < 5, `length ${jingle.frames}`);
+});
+
+test('findSharedJingle finds nothing in breaks that share no sound', () => {
+  const samples = [11, 22, 33].map((seed) => fingerprint(noiseAudio(40, seed)));
+  assert.equal(findSharedJingle(samples), null);
 });

@@ -23,6 +23,7 @@
 import { isInWindow, DEFAULT_PRE_BREAK_TALK_SECONDS } from './stats.js';
 
 export const OUTSIDE_WINDOW_GRACE_SECONDS = 150;
+export const JINGLE_FALLBACK_GRACE_SECONDS = 90;
 // Safety net: never keep the volume down longer than this, whatever happens
 // (stream switched to a talk show, metadata feed stalled...). Longest break
 // measured on OUI FM: 495 s.
@@ -82,7 +83,7 @@ export function createAdBreakDetector({
   return {
     /**
      * @param {null | {key: string, hasMetadata: boolean, windows: Array<[number, number]>,
-     *   preBreakTalkSeconds?: number, preBreakTalkByHour?: number[],
+     *   preBreakTalkSeconds?: number, preBreakTalkByHour?: number[], hasStartJingle?: boolean,
      *   typicalBreakSeconds?: number|null}} next
      */
     setStation(next) {
@@ -102,6 +103,18 @@ export function createAdBreakDetector({
       }
       track = { startedAt, durationSeconds: Number(durationSeconds) || null };
       endBreak('next_song');
+    },
+
+    /** The station's learned "ads start" jingle was just heard. */
+    jingleStart() {
+      if (!breakState) {
+        startBreak('start_jingle', songEnd());
+      }
+    },
+
+    /** The station's learned "ads end" jingle was just heard. */
+    jingleEnd() {
+      endBreak('end_jingle');
     },
 
     /** Manual "it's an ad" — toggles the break on a station without metadata. */
@@ -145,10 +158,16 @@ export function createAdBreakDetector({
           return;
         }
         const inWindow = windowFresh && isInWindow(new Date(end).getMinutes(), station.windows);
+        const learnedTalk =
+          station.preBreakTalkByHour?.[new Date(end).getHours()] ??
+          station.preBreakTalkSeconds ??
+          DEFAULT_PRE_BREAK_TALK_SECONDS;
+        // With a learned start jingle, the jingle starts the break: this is
+        // only the fallback for a missed jingle, so give the host more room.
         const graceSeconds = inWindow
-          ? (station.preBreakTalkByHour?.[new Date(end).getHours()] ??
-            station.preBreakTalkSeconds ??
-            DEFAULT_PRE_BREAK_TALK_SECONDS)
+          ? station.hasStartJingle
+            ? Math.max(learnedTalk, JINGLE_FALLBACK_GRACE_SECONDS)
+            : learnedTalk
           : OUTSIDE_WINDOW_GRACE_SECONDS;
         if (t >= end + graceSeconds * 1000) {
           startBreak(inWindow ? 'song_ended_in_window' : 'song_ended_long_silence', end);
