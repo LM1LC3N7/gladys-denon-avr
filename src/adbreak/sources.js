@@ -42,13 +42,22 @@ export const STREAM_URL_HINTS = [
  *   heosTitle: string, heosArtist: string}}
  *   null when nothing radio-like is playing (no station, no stream).
  */
+// HEOS sometimes sends the station name URL-encoded ("OUI%20FM").
+const decode = (text) => {
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    return text;
+  }
+};
+
 export function identifyStation(payload) {
   if (!payload || typeof payload !== 'object') {
     return null;
   }
   const mid = typeof payload.mid === 'string' ? payload.mid : '';
   const albumId = typeof payload.album_id === 'string' ? payload.album_id : '';
-  const stationName = typeof payload.station === 'string' ? payload.station.trim() : '';
+  const stationName = typeof payload.station === 'string' ? decode(payload.station).trim() : '';
   const isStation = payload.type === 'station';
   const isStream = /^https?:\/\//i.test(mid);
   if (!isStation && !isStream) {

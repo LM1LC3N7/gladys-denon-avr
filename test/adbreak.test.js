@@ -623,3 +623,13 @@ test('lookupDurationSeconds picks the result matching artist and title', async (
   });
   assert.equal(await lookupDurationSeconds('NOBODY', 'NOTHING', other), null);
 });
+
+test('identifyStation decodes a URL-encoded station name', () => {
+  const station = identifyStation({
+    type: 'station',
+    station: 'OUI%20FM',
+    album_id: 's6586',
+    mid: 'http://ouifm.ice.infomaniak.ch/ouifm-high.aac',
+  });
+  assert.equal(station.name, 'OUI FM');
+});
