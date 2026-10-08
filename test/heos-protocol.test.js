@@ -26,6 +26,8 @@ import {
   heosPlayStateToPlaybackState,
   heosMuteStateToBoolean,
   parseNowPlayingMedia,
+  parseNowPlayingArtwork,
+  buildPlayPresetCommand,
 } from '../src/heos/protocol.js';
 
 test('HEOS_PORT is the well-known HEOS CLI port', () => {
@@ -239,4 +241,23 @@ test("parseNowPlayingMedia: falls back to HEOS's own station field when the rece
     title: '',
     artist: 'Oui FM',
   });
+});
+
+test('parseNowPlayingArtwork: album and an http(s) image_url only', () => {
+  assert.deepEqual(
+    parseNowPlayingArtwork({ album: ' Abbey Road ', image_url: 'https://cdn.example.com/a.jpg' }),
+    { album: 'Abbey Road', imageUrl: 'https://cdn.example.com/a.jpg' },
+  );
+  assert.deepEqual(parseNowPlayingArtwork({ image_url: 'file:///etc/passwd' }), {
+    album: '',
+    imageUrl: '',
+  });
+  assert.deepEqual(parseNowPlayingArtwork({ image_url: 'not a url' }).imageUrl, '');
+  assert.deepEqual(parseNowPlayingArtwork(null), { album: '', imageUrl: '' });
+});
+
+test('buildPlayPresetCommand: 1-based HEOS favorite', () => {
+  assert.equal(buildPlayPresetCommand(12, 3), 'browse/play_preset?pid=12&preset=3');
+  assert.throws(() => buildPlayPresetCommand(12, 0), /does not exist/);
+  assert.throws(() => buildPlayPresetCommand(12, 'x'), /does not exist/);
 });

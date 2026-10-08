@@ -40,6 +40,14 @@ export const DEFAULT_CONFIG = {
   // or 'zone3'. See ZONE in src/denon/protocol.js. Anything unknown falls
   // back to 'main'.
   zone: 'main',
+  // "Speak on a speaker" volume, 0-100 % — 0 keeps the receiver's current
+  // volume. Gladys drops the volume a scene asks for before it reaches an
+  // external integration (see src/devices/announcements.js), hence a
+  // setting of our own.
+  announcement_volume: 0,
+  // Give back the volume, input and power state the receiver had before an
+  // announcement, once it is over (src/devices/announcements.js).
+  announcement_restore: true,
 };
 
 /**
@@ -74,6 +82,10 @@ export function normalizeConfig(raw = {}) {
       Number(raw.reconnect_interval_seconds ?? DEFAULT_CONFIG.reconnect_interval_seconds) ||
       DEFAULT_CONFIG.reconnect_interval_seconds,
     zone: normalizeZone(raw.zone),
+    announcement_volume: Math.round(
+      Math.max(0, Math.min(100, Number(raw.announcement_volume ?? 0) || 0)),
+    ),
+    announcement_restore: raw.announcement_restore !== false,
     sourceOverrides: parseSourceOverrides(
       typeof raw.source_overrides === 'string'
         ? raw.source_overrides
