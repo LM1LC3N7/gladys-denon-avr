@@ -22,6 +22,16 @@
 //   MNENT / MNRTN / MNINF              -> Setup menu: enter / return / info
 //   MNMEN ON / MNMEN OFF               -> Setup menu open/close
 //   MVUP / MVDOWN                      -> relative volume step (the remote's +/- keys)
+//   MSQUICK1-5 / MSQUICK ? (Z2QUICK...) -> Quick Select presets (source + volume + mode)
+//   TFANUP / TFANDOWN / TFAN?          -> analog tuner frequency step / status
+//   TPANUP / TPANDOWN / TPAN?          -> analog tuner preset step / status
+//   TMANAM / TMANFM / TMANAUTO / TMANMANUAL / TMAN? -> tuner band, tuning mode
+//
+// The Quick Select and tuner rows come from Denon's own published protocol
+// (AVR-X2000/E400 "PROTOCOL 10.1.0", 2013), like the first four groups. The
+// tuner commands only act while the input source is TUNER (spelled out in
+// that document), and the AM/FM band commands are "North America model
+// only" there.
 //
 // The last four groups are NOT in the same official reference PDF the first
 // four come from (network/HEOS control and the Setup-menu remote keys were
@@ -248,7 +258,8 @@ const SECONDARY_ZONE_SOURCES = new Set([...SOURCE_CODES.map((code) => code.value
 
 function parseSecondaryZoneLine(line, prefix) {
   if (!line.startsWith(prefix)) {
-    return parseZoneIndependentLine(line);
+    // The main zone's Quick Select (MSQUICK) is not this zone's (Z2QUICK).
+    return line.startsWith('MSQUICK') ? null : parseZoneIndependentLine(line);
   }
   const rest = line.slice(prefix.length).trim();
   if (rest === 'ON') {
@@ -265,6 +276,9 @@ function parseSecondaryZoneLine(line, prefix) {
   }
   if (/^\d/.test(rest)) {
     return parseVolumeDigits(rest);
+  }
+  if (rest.startsWith('QUICK')) {
+    return parseQuickSelect(rest.slice(5));
   }
   if (SECONDARY_ZONE_SOURCES.has(rest)) {
     return { feature: 'source', value: rest };
@@ -287,6 +301,14 @@ function parseZoneIndependentLine(line) {
       return { feature: 'menu', value: 0 };
     }
     return null;
+  }
+
+  // MSQUICK<n> shares the MS prefix but is the main zone's Quick Select, not
+  // a sound mode: without this check, MSQUICK1 used to be published as a
+  // sound mode named "QUICK1". The secondary zones' own Z2QUICK/Z3QUICK are
+  // read in parseSecondaryZoneLine(); in main-zone mode they never reach here.
+  if (line.startsWith('MSQUICK')) {
+    return parseQuickSelect(line.slice(7));
   }
 
   // MS is the main zone's surround mode (secondary zones have none); still
@@ -327,7 +349,73 @@ function parseZoneIndependentLine(line) {
     return artist.length === 0 ? null : { feature: 'now_playing_artist', value: artist };
   }
 
+  // The tuner is shared by every zone, so its lines are reported whatever
+  // the zone, like the sound mode above.
+  if (line.startsWith('TFAN')) {
+    const digits = line.slice(4).trim();
+    return /^\d{6}$/.test(digits) ? { feature: 'tuner_frequency', value: Number(digits) } : null;
+  }
+  if (line.startsWith('TPAN')) {
+    return parseTunerPreset(line.slice(4).trim());
+  }
+  if (line.startsWith('TMAN')) {
+    const value = line.slice(4).trim();
+    if (value === 'AM' || value === 'FM') {
+      return { feature: 'tuner_band', value };
+    }
+    if (value === 'AUTO' || value === 'MANUAL') {
+      return { feature: 'tuner_mode', value };
+    }
+    return null;
+  }
+
   return null;
+}
+
+/** Whatever follows MSQUICK/Z2QUICK: "1"-"5" (selected) or "0" (none) -> quick_select. */
+function parseQuickSelect(rest) {
+  const value = rest.trim();
+  return /^[0-5]$/.test(value) ? { feature: 'quick_select', value: Number(value) } : null;
+}
+
+// Preset banks of the TPAN status, A1-G8 = channels 1-56 ("A5=CH5, B2=CH10,
+// C4=CH20" in Denon's protocol). Newer firmwares report the plain two-digit
+// channel instead ("TPAN06"), so both forms are read.
+const TUNER_PRESET_BANKS = 'ABCDEFG';
+
+function parseTunerPreset(rest) {
+  if (rest === 'OFF') {
+    return { feature: 'tuner_preset', value: 0 };
+  }
+  // TPANMEM<n> is "preset stored", not the current preset.
+  if (/^\d{2}$/.test(rest)) {
+    const channel = Number(rest);
+    return channel >= 1 && channel <= 56 ? { feature: 'tuner_preset', value: channel } : null;
+  }
+  const bank = /^([A-G])([1-8])$/.exec(rest);
+  if (bank) {
+    return {
+      feature: 'tuner_preset',
+      value: TUNER_PRESET_BANKS.indexOf(bank[1]) * 8 + Number(bank[2]),
+    };
+  }
+  return null;
+}
+
+/**
+ * Read a TFAN frequency (6 digits, "****.**") the way Denon's protocol
+ * defines it: below 050000 it is FM in MHz (008750 = 87.50 MHz), from
+ * 050000 up AM in kHz (105000 = 1050.00 kHz). Returns
+ * `{ band: 'FM' | 'AM', value, unit: 'MHz' | 'kHz' }`, or null.
+ */
+export function describeTunerFrequency(raw) {
+  const number = Number(raw);
+  if (!Number.isInteger(number) || number <= 0 || number > 999999) {
+    return null;
+  }
+  return number < 50000
+    ? { band: 'FM', value: number / 100, unit: 'MHz' }
+    : { band: 'AM', value: number / 100, unit: 'kHz' };
 }
 
 /**
@@ -460,3 +548,37 @@ export function buildVolumeUpCommand(zone = ZONE.MAIN) {
 export function buildVolumeDownCommand(zone = ZONE.MAIN) {
   return `${zonePrefix(zone) ?? 'MV'}DOWN`;
 }
+
+/** Quick Select presets 1-5 (no trailing CR): MSQUICK<n>, Z2QUICK<n> for Zone 2. */
+export function buildQuickSelectCommand(number, zone = ZONE.MAIN) {
+  const preset = Number(number);
+  if (!Number.isInteger(preset) || preset < 1 || preset > 5) {
+    throw new Error(`Quick Select ${number} does not exist (1-5)`);
+  }
+  return `${zonePrefix(zone) ?? 'MS'}QUICK${preset}`;
+}
+
+/** Build the command that queries the current Quick Select (no trailing CR). */
+export function buildQuickSelectQuery(zone = ZONE.MAIN) {
+  return `${zonePrefix(zone) ?? 'MS'}QUICK ?`;
+}
+
+/** Analog tuner queries (no trailing CR): frequency, preset, band + tuning mode. */
+export function buildTunerQueries() {
+  return ['TFAN?', 'TPAN?', 'TMAN?'];
+}
+
+/**
+ * Analog tuner commands (no trailing CR), keyed the way the Radio widget
+ * names its buttons. Only effective while the input source is TUNER.
+ */
+export const TUNER_COMMANDS = Object.freeze({
+  frequency_up: 'TFANUP',
+  frequency_down: 'TFANDOWN',
+  preset_up: 'TPANUP',
+  preset_down: 'TPANDOWN',
+  band_fm: 'TMANFM',
+  band_am: 'TMANAM',
+  mode_auto: 'TMANAUTO',
+  mode_manual: 'TMANMANUAL',
+});

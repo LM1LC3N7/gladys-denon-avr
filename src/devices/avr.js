@@ -54,9 +54,13 @@ import {
   buildMenuCommand,
   buildVolumeUpCommand,
   buildVolumeDownCommand,
+  buildQuickSelectCommand,
+  buildQuickSelectQuery,
+  buildTunerQueries,
   normalizeZone,
   SOURCE_CODES,
   SOUND_MODE_CODES,
+  TUNER_COMMANDS,
 } from '../denon/protocol.js';
 import { createHeosClient } from '../heos/client.js';
 import {
@@ -80,6 +84,7 @@ import {
   heosPlayStateToPlaybackState,
   heosMuteStateToBoolean,
   parseNowPlayingMedia,
+  parseNowPlayingArtwork,
   HEOS_EVENT,
 } from '../heos/protocol.js';
 
@@ -116,6 +121,35 @@ export const FEATURE = {
 // FEATURE so featureExternalId()/onSetValue never treat them as a feature.
 const NOW_PLAYING_TITLE = 'now_playing_title';
 const NOW_PLAYING_ARTIST = 'now_playing_artist';
+
+// Read by the dashboard widgets only (src/widgets/, through
+// getDeviceSnapshot()), never published as device features: the album and
+// cover art of the HEOS track, and the receiver's Quick Select and analog
+// tuner status (parseLine() in ../denon/protocol.js). Declaring them as
+// features would make every existing device need a Discovery "Update" for
+// data no generic Gladys control can use anyway.
+export const STATE = {
+  NOW_PLAYING_TITLE,
+  NOW_PLAYING_ARTIST,
+  NOW_PLAYING_ALBUM: 'now_playing_album',
+  NOW_PLAYING_IMAGE_URL: 'now_playing_image_url',
+  QUICK_SELECT: 'quick_select',
+  TUNER_FREQUENCY: 'tuner_frequency',
+  TUNER_PRESET: 'tuner_preset',
+  TUNER_BAND: 'tuner_band',
+  TUNER_MODE: 'tuner_mode',
+};
+const STATE_ONLY_KEYS = new Set([
+  STATE.QUICK_SELECT,
+  STATE.TUNER_FREQUENCY,
+  STATE.TUNER_PRESET,
+  STATE.TUNER_BAND,
+  STATE.TUNER_MODE,
+]);
+
+// The receiver's input for the analog tuner: TF/TP/TM commands only act
+// while it is selected (Denon's protocol), see sendTunerCommand().
+const TUNER_SOURCE_CODE = 'TUNER';
 
 const CONNECTION_FAILURE_THRESHOLD = 3;
 
@@ -160,6 +194,9 @@ const connections = new Map();
 const connectionHosts = new Map();
 // external_id -> last known state, used by the "Test connection" action.
 const lastKnownState = new Map();
+// Listeners of every state change of every AVR (the dashboard widgets
+// nudge Gladys to re-pull their content), see onDeviceStateChange().
+const stateListeners = new Set();
 // external_id -> { client, pid }. `pid` is null until a `get_players` reply
 // matches our IP (or forever, on a non-HEOS model / unreachable HEOS CLI) —
 // every caller must treat a missing/null pid as "fall back to legacy
@@ -168,6 +205,34 @@ const heosConnections = new Map();
 
 export function featureExternalId(deviceExternalId, key) {
   return `${deviceExternalId}:${key}`;
+}
+
+/**
+ * Subscribe to the state changes of every AVR: `listener(externalId, key)`
+ * runs after the cache read by getDeviceSnapshot() is updated. Returns the
+ * unsubscribe function. A throwing listener is logged, never propagated.
+ */
+export function onDeviceStateChange(listener) {
+  stateListeners.add(listener);
+  return () => stateListeners.delete(listener);
+}
+
+function notifyStateChange(externalId, key) {
+  for (const listener of stateListeners) {
+    try {
+      listener(externalId, key);
+    } catch (err) {
+      logger.error(`State change listener failed: ${err.message}`);
+    }
+  }
+}
+
+/** Merge `changes` into the last known state of one AVR, then notify the listeners. */
+function updateState(externalId, changes) {
+  lastKnownState.set(externalId, { ...lastKnownState.get(externalId), ...changes });
+  for (const key of Object.keys(changes)) {
+    notifyStateChange(externalId, key);
+  }
 }
 
 function ipAddressOf(device) {
@@ -640,6 +705,12 @@ export function connectDevice(gladys, device, config) {
         telnet.send(query);
       }
       telnet.send(buildMenuQuery());
+      // Widget-only state (src/widgets/): the current Quick Select and the
+      // analog tuner. A receiver without one just ignores the query.
+      telnet.send(buildQuickSelectQuery(zone));
+      for (const query of buildTunerQueries()) {
+        telnet.send(query);
+      }
       gladys.setConnectionStatus(true).catch(() => {});
     },
     onLine: (line) => {
@@ -647,17 +718,34 @@ export function connectDevice(gladys, device, config) {
       if (!update) {
         return;
       }
-      const state = { ...lastKnownState.get(device.external_id) };
-      state[update.feature] = update.value;
-      lastKnownState.set(device.external_id, state);
+      const isNowPlayingLine =
+        update.feature === NOW_PLAYING_TITLE || update.feature === NOW_PLAYING_ARTIST;
+      if (
+        heosState.pid != null &&
+        (isNowPlayingLine || update.feature === FEATURE.PLAYBACK_STATE)
+      ) {
+        // HEOS is authoritative once matched — see the comment above
+        // heosState. Not even cached: the widgets read the cache too.
+        return;
+      }
+      const changes = { [update.feature]: update.value };
+      if (isNowPlayingLine) {
+        // The legacy NSE lines carry no album or artwork: drop whatever a
+        // previous HEOS session left, it belongs to another track.
+        changes[STATE.NOW_PLAYING_ALBUM] = '';
+        changes[STATE.NOW_PLAYING_IMAGE_URL] = '';
+      }
+      updateState(device.external_id, changes);
+      const state = lastKnownState.get(device.external_id);
+
+      if (STATE_ONLY_KEYS.has(update.feature)) {
+        return; // Widget-only state, see STATE.
+      }
 
       // now_playing_title/artist are cached above like any other state, but
       // never published under their own name: NOW_PLAYING is the single
       // "Artist - Title" feature actually declared in buildFeatures().
-      if (update.feature === NOW_PLAYING_TITLE || update.feature === NOW_PLAYING_ARTIST) {
-        if (heosState.pid != null) {
-          return; // HEOS is authoritative once matched — see the comment above heosState.
-        }
+      if (isNowPlayingLine) {
         const id = featureExternalId(device.external_id, FEATURE.NOW_PLAYING);
         lastHeosPublished.delete(id);
         const nowPlaying = [state[NOW_PLAYING_ARTIST], state[NOW_PLAYING_TITLE]]
@@ -667,10 +755,6 @@ export function connectDevice(gladys, device, config) {
           .publishState(id, { text: nowPlaying })
           .catch((err) => logger.error(`publishState failed for ${id}: ${err.message}`));
         return;
-      }
-
-      if (update.feature === FEATURE.PLAYBACK_STATE && heosState.pid != null) {
-        return; // Same precedence rule — see the comment above heosState.
       }
 
       const id = featureExternalId(device.external_id, update.feature);
@@ -736,6 +820,13 @@ export function connectDevice(gladys, device, config) {
 
   function publishNowPlayingMedia(parsedPayload) {
     const media = parseNowPlayingMedia(parsedPayload);
+    const artwork = parseNowPlayingArtwork(parsedPayload);
+    updateState(device.external_id, {
+      [STATE.NOW_PLAYING_TITLE]: media?.title ?? '',
+      [STATE.NOW_PLAYING_ARTIST]: media?.artist ?? '',
+      [STATE.NOW_PLAYING_ALBUM]: media ? artwork.album : '',
+      [STATE.NOW_PLAYING_IMAGE_URL]: media ? artwork.imageUrl : '',
+    });
     const id = featureExternalId(device.external_id, FEATURE.NOW_PLAYING);
     const nowPlaying = media ? [media.artist, media.title].filter(Boolean).join(' - ') : '';
     publishHeosState(id, { text: nowPlaying });
@@ -754,9 +845,7 @@ export function connectDevice(gladys, device, config) {
     }
     const id = featureExternalId(device.external_id, FEATURE.VOLUME);
     const value = Math.round(Number(level));
-    const cached = { ...lastKnownState.get(device.external_id) };
-    cached[FEATURE.VOLUME] = value;
-    lastKnownState.set(device.external_id, cached);
+    updateState(device.external_id, { [FEATURE.VOLUME]: value });
     publishHeosState(id, value);
   }
 
@@ -765,18 +854,14 @@ export function connectDevice(gladys, device, config) {
       return;
     }
     const id = featureExternalId(device.external_id, FEATURE.MUTE);
-    const cached = { ...lastKnownState.get(device.external_id) };
-    cached[FEATURE.MUTE] = muted;
-    lastKnownState.set(device.external_id, cached);
+    updateState(device.external_id, { [FEATURE.MUTE]: muted });
     publishHeosState(id, muted);
   }
 
   function publishPlaybackState(state) {
     const id = featureExternalId(device.external_id, FEATURE.PLAYBACK_STATE);
     const value = heosPlayStateToPlaybackState(state);
-    const cached = { ...lastKnownState.get(device.external_id) };
-    cached[FEATURE.PLAYBACK_STATE] = value;
-    lastKnownState.set(device.external_id, cached);
+    updateState(device.external_id, { [FEATURE.PLAYBACK_STATE]: value });
     publishHeosState(id, value);
   }
 
@@ -998,6 +1083,7 @@ export function __clearConnectionsForTesting() {
   connections.clear();
   connectionHosts.clear();
   lastKnownState.clear();
+  stateListeners.clear();
   for (const heosState of heosConnections.values()) {
     clearInterval(heosState?.pollTimer);
   }
@@ -1302,4 +1388,74 @@ export async function runSelectSourceAction(gladys, { fields, config }) {
     en: `Source command sent: ${fields.source}.`,
     fr: `Commande source envoyée : ${fields.source}.`,
   };
+}
+
+/**
+ * What the dashboard widgets (src/widgets/) show for one AVR: whether its
+ * sessions are up, and a copy of its last known state — the published
+ * features plus the widget-only keys of STATE.
+ */
+export function getDeviceSnapshot(externalId) {
+  const telnet = connections.get(externalId);
+  const heos = heosConnections.get(externalId);
+  return {
+    known: connections.has(externalId),
+    telnetConnected: telnet?.isConnected() ?? false,
+    heosConnected: heos?.pid != null && (heos.client?.isConnected() ?? false),
+    state: { ...lastKnownState.get(externalId) },
+  };
+}
+
+function connectedTelnet(externalId) {
+  const telnet = connections.get(externalId);
+  if (!telnet?.isConnected()) {
+    throw new Error(`${externalId} is not connected`);
+  }
+  return telnet;
+}
+
+function send(telnet, externalId, command) {
+  if (!telnet.send(command)) {
+    throw new Error(`Failed to send command to ${externalId}`);
+  }
+}
+
+/** Shortcut widget: switch the configured zone to one input, by its SI code. */
+export function selectSource(externalId, code, config) {
+  if (!SOURCE_CODES.some((source) => source.value === code)) {
+    throw new Error(`Unknown input source "${code}"`);
+  }
+  send(
+    connectedTelnet(externalId),
+    externalId,
+    buildSourceCommand(code, normalizeZone(config?.zone)),
+  );
+}
+
+/** Shortcut widget: recall one of the receiver's Quick Select presets (1-5). */
+export function selectQuickSelect(externalId, number, config) {
+  const command = buildQuickSelectCommand(number, normalizeZone(config?.zone));
+  send(connectedTelnet(externalId), externalId, command);
+}
+
+/**
+ * Radio widget: one analog tuner command (a TUNER_COMMANDS key). The
+ * receiver ignores TF/TP/TM while another input is selected, so the zone is
+ * first switched to the tuner when its last reported source isn't it — the
+ * same settling pause as before a "Speak on a speaker" stream, as the input
+ * switch takes a moment to land.
+ */
+export async function sendTunerCommand(externalId, key, config) {
+  const command = TUNER_COMMANDS[key];
+  if (!command) {
+    throw new Error(`Unknown tuner command "${key}"`);
+  }
+  const telnet = connectedTelnet(externalId);
+  if (lastKnownState.get(externalId)?.source !== TUNER_SOURCE_CODE) {
+    send(telnet, externalId, buildSourceCommand(TUNER_SOURCE_CODE, normalizeZone(config?.zone)));
+    if (ZONE_SWITCH_DELAY_MS > 0) {
+      await new Promise((resolve) => setTimeout(resolve, ZONE_SWITCH_DELAY_MS));
+    }
+  }
+  send(telnet, externalId, command);
 }
