@@ -12,6 +12,7 @@ import {
   buildDiscoveredDevice,
   buildManualDevice,
   connectDevice,
+  refreshDevice,
   disconnectDevice,
   onSetValue,
   runTestConnectionAction,
@@ -912,6 +913,54 @@ test('connectDevice does not publish source_index when the reported source is hi
   }
 });
 
+// End-to-end: refreshDevice() (onDeviceUpdated) keeps the session on a mere
+// rename and moves it when the device's IP_ADDRESS param changed (DHCP).
+test('refreshDevice keeps the session on a rename, reconnects to the new IP when it changed', async () => {
+  // Two spellings of the loopback stand in for "the old IP" and "the new IP"
+  // (127.0.0.2 is not routable by default on every OS). Default listen()
+  // binds dual-stack, so whichever family `localhost` resolves to is accepted.
+  const sockets = [];
+  const closed = new Set();
+  const server = net.createServer((socket) => {
+    sockets.push(socket);
+    socket.on('close', () => closed.add(socket));
+    socket.resume(); // flowing mode, or the peer's EOF is never read and 'close' never fires
+  });
+  const port = await new Promise((resolve) =>
+    server.listen(0, () => resolve(server.address().port)),
+  );
+  const device = buildDiscoveredDevice(gladys, { ...DISCOVERED, host: '127.0.0.1' });
+  const localConfig = normalizeConfig({ port });
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 200));
+
+  try {
+    connectDevice(gladys, device, localConfig);
+    await settle();
+    assert.equal(sockets.length, 1);
+
+    refreshDevice(gladys, { ...device, name: 'Living room AVR' }, localConfig);
+    await settle();
+    assert.equal(sockets.length, 1, 'a rename must not reopen the session');
+
+    refreshDevice(
+      gladys,
+      { ...device, params: [{ name: 'IP_ADDRESS', value: 'localhost' }] },
+      localConfig,
+    );
+    await settle();
+    assert.equal(sockets.length, 2, 'a new IP must open a session to it');
+    assert.ok(closed.has(sockets[0]), 'the session to the old IP must be closed');
+    assert.ok(!closed.has(sockets[1]), 'the session to the new IP stays open');
+
+    refreshDevice(gladys, { ...device, params: [] }, localConfig);
+    await settle();
+    assert.ok(!closed.has(sockets[1]), 'an update with no address keeps the working session');
+  } finally {
+    disconnectDevice(device.external_id);
+    server.close();
+  }
+});
+
 // End-to-end: connectDevice() against BOTH a real fake Telnet server AND a
 // real fake HEOS CLI server for the same host, exercising the precedence
 // rule (HEOS wins once its player id is matched, legacy NSE0/NSE1/NSE2 must
@@ -931,6 +980,9 @@ test('connectDevice: HEOS becomes authoritative for playback state and now playi
     telnetServer.listen(0, '127.0.0.1', () => resolve(telnetServer.address().port)),
   );
 
+  // Playing for the first few polls, then paused: the poll must keep
+  // re-fetching, but only the CHANGE gets published (no history row per tick).
+  let playStateQueries = 0;
   const heosServer = net.createServer((socket) => {
     socket.setEncoding('utf8');
     let buffer = '';
@@ -947,12 +999,13 @@ test('connectDevice: HEOS becomes authoritative for playback state and now playi
             }) + '\r\n',
           );
         } else if (line.includes('player/get_play_state')) {
+          playStateQueries += 1;
           socket.write(
             JSON.stringify({
               heos: {
                 command: 'player/get_play_state',
                 result: 'success',
-                message: 'pid=999&state=play',
+                message: `pid=999&state=${playStateQueries <= 3 ? 'play' : 'pause'}`,
               },
             }) + '\r\n',
           );
@@ -976,6 +1029,10 @@ test('connectDevice: HEOS becomes authoritative for playback state and now playi
   const device = buildDiscoveredDevice(gladys, { ...DISCOVERED, host: '127.0.0.1' });
   const localConfig = normalizeConfig({ port: telnetPort });
 
+  // `gladys.published` is shared by every test in this file, same udn: only
+  // look at what this test publishes.
+  const publishedBefore = gladys.published.length;
+
   try {
     connectDevice(gladys, device, localConfig);
     await new Promise((resolve) => setTimeout(resolve, 400));
@@ -994,10 +1051,6 @@ test('connectDevice: HEOS becomes authoritative for playback state and now playi
       'HEOS get_now_playing_media is published',
     );
     assert.ok(
-      !gladys.published.some((p) => p.featureExternalId === playbackStateId && p.state === 0),
-      'the legacy NSE0 "Bluetooth Standby" banner must not overwrite HEOS-sourced playback state',
-    );
-    assert.ok(
       !gladys.published.some(
         (p) =>
           p.featureExternalId === nowPlayingId && p.state?.text === 'Wrong Artist - Wrong Title',
@@ -1005,12 +1058,18 @@ test('connectDevice: HEOS becomes authoritative for playback state and now playi
       'the legacy NSE1/NSE2 lines must not overwrite HEOS-sourced now playing',
     );
 
-    // The 50ms poll interval should have re-sent get_play_state/
-    // get_now_playing_media several times over the 400ms wait above,
-    // republishing the same HEOS-sourced values each time.
-    const publishCount = (id) => gladys.published.filter((p) => p.featureExternalId === id).length;
-    assert.ok(publishCount(playbackStateId) >= 3, 'the poll timer re-fetches playback state');
-    assert.ok(publishCount(nowPlayingId) >= 3, 'the poll timer re-fetches now playing');
+    // The 50ms poll interval re-sent get_play_state/get_now_playing_media
+    // several times over the 400ms wait above, but only changes reach Gladys:
+    // playing once, paused once, the unchanged now playing once.
+    const published = (id) =>
+      gladys.published.slice(publishedBefore).filter((p) => p.featureExternalId === id);
+    assert.ok(playStateQueries >= 5, 'the poll timer keeps re-fetching playback state');
+    assert.deepEqual(
+      published(playbackStateId).map((p) => p.state),
+      [1, 0],
+      'each playback state change is published once, the legacy NSE0 banner never',
+    );
+    assert.equal(published(nowPlayingId).length, 1, 'an unchanged now playing is not re-published');
   } finally {
     disconnectDevice(device.external_id);
     telnetServer.close();
@@ -1083,5 +1142,26 @@ test('connectDevice: volume/mute are published from HEOS when there is no Telnet
   } finally {
     disconnectDevice(device.external_id);
     heosServer.close();
+  }
+});
+
+// End-to-end: the per-device transport badge follows the real Telnet session.
+test('connectDevice publishes a local transport badge once Telnet is up', async () => {
+  const server = net.createServer((socket) => socket.resume());
+  const port = await new Promise((resolve) =>
+    server.listen(0, '127.0.0.1', () => resolve(server.address().port)),
+  );
+  const localGladys = createFakeGladys();
+  const device = buildDiscoveredDevice(localGladys, { ...DISCOVERED, host: '127.0.0.1' });
+  try {
+    connectDevice(localGladys, device, normalizeConfig({ port }));
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.deepEqual(localGladys.transports, [
+      { external_id: device.external_id, transport: 'local' },
+    ]);
+    assert.deepEqual(localGladys.connectionStatuses, [], 'no integration-wide status per device');
+  } finally {
+    disconnectDevice(device.external_id);
+    server.close();
   }
 });

@@ -16,16 +16,20 @@
 // -----------------------------------------------------------------------------
 
 import { GladysIntegration, logger } from '@gladysassistant/integration-sdk';
-import { normalizeConfig } from './src/config.js';
+import { normalizeConfig, sessionConfigChanged } from './src/config.js';
 import { buildDiscoveredDevices } from './src/devices/index.js';
 import {
   connectDevice,
+  refreshDevice,
   disconnectDevice,
   disconnectAllDevices,
   onSetValue as dispatchSetValue,
   runTestConnectionAction,
   runSelectSourceAction,
 } from './src/devices/avr.js';
+import { registerWidgets } from './src/widgets/index.js';
+import { registerSceneActions } from './src/scenes/actions.js';
+import { startSceneTriggers } from './src/scenes/triggers.js';
 
 const gladys = new GladysIntegration();
 
@@ -68,10 +72,25 @@ gladys.onSetValue(async (device, feature, value) => {
 gladys.onAction('test_connection', (fields) => runTestConnectionAction(gladys, { fields, config }));
 gladys.onAction('select_source', (fields) => runSelectSourceAction(gladys, { fields, config }));
 
+// --- Dashboard widgets and scene cards (Gladys >= 5.1.0) ---------------------
+// Five widgets (src/widgets/), scene actions and scene triggers
+// (src/scenes/), all reading the live config through this getter.
+const getConfig = () => config;
+const stopWidgets = registerWidgets(gladys, getConfig);
+registerSceneActions(gladys, getConfig);
+const stopSceneTriggers = startSceneTriggers(gladys, getConfig);
+
 // --- Device lifecycle: open/close the Telnet session as devices come and go -
 gladys.onDeviceCreated(async (device) => {
   logger.info(`Device created -> connecting ${device.external_id}`);
   connectDevice(gladys, device, config);
+});
+
+// An "Update" from the Discovery tab can carry a new IP_ADDRESS (DHCP): the
+// session is reopened only in that case, a rename keeps it as is.
+gladys.onDeviceUpdated(async (device) => {
+  logger.info(`Device updated -> refreshing ${device.external_id}`);
+  refreshDevice(gladys, device, config);
 });
 
 gladys.onDeviceDeleted(async (device) => {
@@ -82,20 +101,22 @@ gladys.onDeviceDeleted(async (device) => {
 // --- Configuration updated by the user ---------------------------------------
 gladys.onConfigUpdated(async (newConfig) => {
   logger.info('onConfigUpdated -> new configuration received');
-  const previousZone = config.zone;
+  const previousConfig = config;
   config = normalizeConfig(newConfig);
-  // Each Telnet/HEOS session parses lines and picks its HEOS player for one
-  // zone, fixed when it opens (see connectDevice()) — reopen them all so a
-  // zone change applies right away instead of at the next restart.
-  if (config.zone !== previousZone) {
-    logger.info(`Zone changed (${previousZone} -> ${config.zone}), reconnecting every AVR`);
+  // Each Telnet/HEOS session captures the zone, port, reconnect backoff and
+  // source overrides when it opens (see connectDevice()) — reopen them all so
+  // a change applies right away instead of at the next restart.
+  if (sessionConfigChanged(previousConfig, config)) {
+    logger.info(
+      `Session settings changed (zone ${previousConfig.zone} -> ${config.zone}, port ${previousConfig.port} -> ${config.port}), reconnecting every AVR`,
+    );
     disconnectAllDevices();
     try {
       for (const device of await gladys.getDevices()) {
         connectDevice(gladys, device, config);
       }
     } catch (err) {
-      logger.error(`Reconnecting the AVRs after a zone change failed: ${err.message}`);
+      logger.error(`Reconnecting the AVRs after a config change failed: ${err.message}`);
     }
   }
 });
@@ -146,6 +167,8 @@ gladys.on('disconnected', () => {
 // --- Graceful shutdown -------------------------------------------------------
 gladys.handleShutdown((signal) => {
   logger.info(`Received ${signal} -> graceful shutdown`);
+  stopWidgets();
+  stopSceneTriggers();
   disconnectAllDevices();
 });
 

@@ -177,6 +177,20 @@ export function buildClearQueueCommand(pid) {
 }
 
 /**
+ * `heos://browse/play_preset?pid=<pid>&preset=<n>` — play the n-th entry
+ * (1-based) of the HEOS account's Favorites, the "HEOS Favorites" list of
+ * the HEOS app (HEOS CLI spec 1.17, "Play Preset Station"). Fails with an
+ * eid when the account has fewer favorites or no HEOS account is signed in.
+ */
+export function buildPlayPresetCommand(pid, preset) {
+  const position = Number(preset);
+  if (!Number.isInteger(position) || position < 1) {
+    throw new Error(`HEOS favorite ${preset} does not exist (1 or more)`);
+  }
+  return `browse/play_preset?pid=${pid}&preset=${position}`;
+}
+
+/**
  * `heos://system/register_for_change_events?enable=on` — ask the HEOS
  * system to push `event/player_state_changed` (and other `event/*` lines)
  * unprompted, the same "push, don't poll" model as the legacy Telnet
@@ -184,6 +198,21 @@ export function buildClearQueueCommand(pid) {
  */
 export function buildRegisterForChangeEventsCommand(enable = true) {
   return `system/register_for_change_events?enable=${enable ? 'on' : 'off'}`;
+}
+
+/**
+ * decodeURIComponent() that never throws: HEOS escapes `&`/`=`/`%` in
+ * message values, but a stray `%` (e.g. a free-text error message) is not a
+ * valid escape and makes decodeURIComponent() throw a URIError. This runs
+ * inside the socket 'data' handler (src/denon/telnet.js), where an uncaught
+ * throw takes the whole container down — keep the raw text instead.
+ */
+function safeDecode(text) {
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    return text;
+  }
 }
 
 /** Parse a HEOS `key=value&key=value` message/query string into a plain object. */
@@ -196,9 +225,13 @@ function parseHeosQueryString(raw) {
     if (pair.length === 0) {
       continue;
     }
-    const [key, value] = pair.split('=');
+    // Split on the FIRST "=" only: a value can itself carry one (unescaped
+    // in some free-text fields), which split('=') used to silently truncate.
+    const equalsIndex = pair.indexOf('=');
+    const key = equalsIndex === -1 ? pair : pair.slice(0, equalsIndex);
+    const value = equalsIndex === -1 ? '' : pair.slice(equalsIndex + 1);
     if (key) {
-      result[decodeURIComponent(key)] = value === undefined ? '' : decodeURIComponent(value);
+      result[safeDecode(key)] = safeDecode(value);
     }
   }
   return result;
@@ -319,4 +352,30 @@ export function parseNowPlayingMedia(payload) {
     return null;
   }
   return { title, artist: artist || station };
+}
+
+/**
+ * Extract `{ album, imageUrl }` from the same `get_now_playing_media`
+ * payload, for the "Now playing" dashboard widget (src/widgets/). HEOS'
+ * `image_url` is the cover art of the track or the logo of the station —
+ * empty for many sources (Bluetooth, a USB file without embedded art...).
+ * Only http(s) URLs are kept: the widget fetches it itself (Gladys never
+ * loads a third-party URL in the browser), so nothing else is followed.
+ */
+export function parseNowPlayingArtwork(payload) {
+  if (!payload || typeof payload !== 'object') {
+    return { album: '', imageUrl: '' };
+  }
+  const album = typeof payload.album === 'string' ? payload.album.trim() : '';
+  const rawUrl = typeof payload.image_url === 'string' ? payload.image_url.trim() : '';
+  let imageUrl = '';
+  try {
+    const url = new URL(rawUrl);
+    if (url.protocol === 'http:' || url.protocol === 'https:') {
+      imageUrl = url.href;
+    }
+  } catch {
+    // Empty or not a URL: no artwork.
+  }
+  return { album, imageUrl };
 }

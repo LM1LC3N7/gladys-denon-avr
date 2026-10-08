@@ -41,8 +41,12 @@ TuneIn...) — see "Playback controls" below.
   (the main zone being the one named after none), lowest `pid` on a tie — never HEOS' list order.
   And before a "Speak on a speaker" stream, the configured zone is switched on and to `NET` over
   Telnet (skipped when the last reported state already says so), otherwise HEOS starts the stream
-  on whichever zone it last played on. Changing `zone` reconnects every AVR (`index.js`'s
-  `onConfigUpdated`). Sound mode and the Setup-menu keys stay main-zone only.
+  on whichever zone it last played on. Changing `zone` — or the Telnet port, the reconnect backoff
+  or the source overrides, which every session also captures when it opens — reconnects every AVR
+  (`sessionConfigChanged()` in `src/config.js`, called from `index.js`'s `onConfigUpdated`). A
+  device update carrying a new `IP_ADDRESS` (DHCP, then **Update** in the Discovery tab) reconnects
+  that AVR alone (`refreshDevice()`, `onDeviceUpdated`); a rename keeps its session. Sound mode and
+  the Setup-menu keys stay main-zone only.
   **Volume: 25% and 75% can never be displayed as themselves** — confirmed on real hardware (a
   slider that "jumps from 24% to 26%, can't land on 25%") and in the math: `percentToDenonVolume()`/
   `denonVolumeToPercent()` (`src/denon/protocol.js`) round-trip a plain 0-100 percent through the
@@ -59,7 +63,7 @@ TuneIn...) — see "Playback controls" below.
 - **Input source**: a dropdown on the dashboard, backed by `TEXT.SELECT` +
   `supported_options` (the receiver's own SI codes) — **not** the generic `TELEVISION.SOURCE`
   type, which Gladys' front-end renders as a one-shot remote-control button with no way to pick
-  a specific input (see the design notes in [`src/devices/avr.js`](./src/devices/avr.js)). The
+  a specific input (see the design notes in [`src/devices/features.js`](./src/devices/features.js)). The
   **Select input** manifest action is kept as an equivalent second path regardless. The
   `source_overrides` config field lets you rename an entry (the input actually plugged into
   `SAT/CBL` might really be a Chromecast) or hide ones you never use.
@@ -70,7 +74,7 @@ TuneIn...) — see "Playback controls" below.
   to a plain bounded number input/slider) that mirrors `Source` as a 0-based index into the
   dropdown's own `supported_options`, **as currently rendered — `source_overrides`-hidden
   entries excluded, and everything after a hidden one renumbers down**. Both features are built
-  from the same `visibleSourceCodes()` helper in `src/devices/avr.js` so they can never disagree
+  from the same `visibleSourceCodes()` helper in `src/devices/features.js` so they can never disagree
   on what index N means, and `onLine()`'s handler republishes it in lockstep with `Source` on
   every push so it never goes stale. Exists specifically for scene automation — see "Scene
   automation" below for why this is (and isn't, depending on your Gladys version) needed
@@ -88,13 +92,13 @@ TuneIn...) — see "Playback controls" below.
   `MUSIC.PLAYBACK_STATE` feature to even initialize (`MusicBox.jsx` dereferences it
   unconditionally), which is why one is declared here even though nothing calls it a "button".
   Two separate command paths feed these buttons, picked automatically per press
-  (`src/devices/avr.js`'s `onSetValue`, `src/heos/`):
+  (`src/devices/commands.js`'s `onSetValue`, `src/heos/`):
   - **HEOS CLI** (port 1255) — used whenever this AVR's own IP has been matched to a HEOS
     `pid` (via `player/get_players`, on every connect). This is the path that actually reaches
     HEOS-managed streaming sources: Qobuz, Spotify Connect, TIDAL, TuneIn, Amazon Music...
   - **Legacy `NS9x` Telnet commands** — the fallback whenever no HEOS `pid` is known yet, HEOS
     CLI is unreachable (firewalled, or a non-HEOS/older model), or on a genuinely non-HEOS
-    Net/USB source. This is the only path that existed before 1.1.0, and real-hardware feedback
+    Net/USB source. This is the only path that existed before 1.0.8, and real-hardware feedback
     confirmed it has **no effect at all** on HEOS-managed sources — which is exactly why the HEOS
     path above was added.
   - **Limits**: this is implemented from the HEOS CLI protocol as documented by `pyheos`
@@ -124,10 +128,13 @@ TuneIn...) — see "Playback controls" below.
   no guarantee every pushed event actually arrives, so the poll is a self-healing fallback rather
   than a bet on the push channel alone. Confirmed necessary on real hardware — the dashboard was
   observed stuck on "paused" indefinitely after playback started elsewhere (the Qobuz app), even
-  though HEOS commands sent _from_ Gladys worked fine.
+  though HEOS commands sent _from_ Gladys worked fine. Only values that **changed** are published
+  (`publishHeosState()`): Gladys core does not dedup, so re-publishing the same playback state every
+  30s wrote ~2,900 history rows a day per receiver for nothing (Gladys ≥5.1.2 flags a feature past
+  8,640 states a day as "verbose").
 - **Setup-menu remote-control keys**: cursor Up/Down/Left/Right, Enter, Return, Info, Menu and
   relative Volume Up/Down, all `TELEVISION`-category push buttons (`REMOTE_KEYS` in
-  [`src/devices/avr.js`](./src/devices/avr.js)). Unlike `MUSIC`, `TELEVISION` push-button types
+  [`src/devices/features.js`](./src/devices/features.js)). Unlike `MUSIC`, `TELEVISION` push-button types
   render directly as clickable buttons in the plain device list — confirmed by reading Gladys
   core's own `isPushButtonFeature`/`TelevisionPushButtonFeatureTypes`
   (`front/src/utils/consts.js`): every `TELEVISION` type except `BINARY`/`VOLUME`/`CHANNEL` is
@@ -148,7 +155,7 @@ TuneIn...) — see "Playback controls" below.
   including the current source's index (see "Source index" above) so it can be read off without
   guessing.
 - **Speak on a speaker**: a `MUSIC`-category, `MUSIC.PLAY_NOTIFICATION`-type feature
-  (`FEATURE.PLAY_NOTIFICATION` in `src/devices/avr.js`) — the exact category+type Gladys core's
+  (`FEATURE.PLAY_NOTIFICATION` in `src/devices/features.js`) — the exact category+type Gladys core's
   own **"Speak on a speaker"** scene action (`ACTIONS.MUSIC.PLAY_NOTIFICATION`,
   `editScene.actions.music.play-notification` = _"Parler sur une enceinte"_) filters its device
   picker on (`front/src/routes/scene/edit-scene/actions/PlayNotification.jsx` in Gladys core),
@@ -188,15 +195,22 @@ TuneIn...) — see "Playback controls" below.
   receiver still working through announcement #1 would play it, then #2, then #3..., each stacking
   behind the last rather than the latest one winning. The accepted tradeoff: this also clears any
   other HEOS content genuinely queued (a playlist mid-playback), the same disruption any
-  announcement system causes by interrupting regular playback. **Volume is not
-  adjustable for the announcement**, even though the
-  scene action's own editor always shows a volume slider: checked against Gladys core
-  (`server/lib/external-integration/externalIntegration.registerProxyService.js`), the proxy that
-  external (Docker-based) integrations go through only ever forwards `device.setValue`'s `value`
-  to `onSetValue()` — the `options` object carrying `volume` is dropped before it ever reaches the
-  WebSocket, unlike the in-process built-in services (Sonos, Google Cast, AirPlay) that get it as
-  a normal function argument. The announcement plays at the receiver's current volume; there is no
-  way for this integration to see or act on the slider's value.
+  announcement system causes by interrupting regular playback. **The volume chosen in the scene never
+  arrives**, even though the scene action's own editor always shows a volume slider: checked
+  against Gladys core (`server/lib/external-integration/externalIntegration.registerProxyService.js`),
+  the proxy that external (Docker-based) integrations go through only ever forwards
+  `device.setValue`'s `value` to `onSetValue()` — the `options` object carrying `volume` is
+  dropped before it ever reaches the WebSocket, unlike the in-process built-in services (Sonos,
+  Google Cast, AirPlay) that get it as a normal function argument
+  ([integration-sdk-js#33](https://github.com/GladysAssistant/integration-sdk-js/issues/33), still
+  open). Two config keys make up for it (`src/devices/announcements.js`): **`announcement_volume`**
+  (0 = keep the current volume) is set before the stream starts, and **`announcement_restore`**
+  (on by default) gives back the volume, the input and the standby state the receiver had before,
+  once HEOS reports the stream over (its own `player_state_changed` event, or a 1 s poll of
+  `get_play_state` while an announcement plays), refused by HEOS, never started (15 s) or capped
+  (3 min). The volume is left alone if someone changed it during the announcement; a second
+  announcement keeps the first one's snapshot; what HEOS was playing before is not resumed (the
+  queue was cleared, see above).
   **Works on a HEOS-only speaker (Denon Home, HEOS 1/3/5/7, Bar...) added through the manual IP
   fallback**, not just a real AV receiver: `onSetValue()` dispatches this feature before its
   Telnet-connectivity check, not after, specifically because a pure HEOS speaker has no "AVR
@@ -206,11 +220,45 @@ TuneIn...) — see "Playback controls" below.
   (Power, Volume, Source...) still requires Telnet and simply won't work on that kind of device —
   see the "v1 scope" note below.
 
-A scene's generic **"Control a device"** action (`ACTIONS.DEVICE.SET_VALUE` in Gladys core) is
-the only way to set `Source`/`Sound mode` from a scene — there is no scene-action type for a
-manifest's own custom actions (`select_source` here), on any Gladys version, and there never has
-been one; that part is a permanent Gladys-core limitation, not something this integration can
-work around.
+- **Dashboard widgets** (Gladys >=5.1.0, `src/widgets/`): five cards a user adds from the
+  dashboard editor, each bound to a receiver picked in its settings (the first one when left
+  empty). **Now playing** — the HEOS cover art (downloaded by the integration, checked with the
+  SDK's `validateWidgetImage()` and simply left out when it doesn't fit Gladys' 300 KB/4096 px
+  bound: no resizing dependency), title, artist/station, album, input, sound mode, a live volume
+  tile, and previous / play-or-pause / next / mute — what the core "Music" box can't show (no
+  title, no artwork, and no volume for an AVR whose volume is a `TELEVISION` feature).
+  **Shortcuts** — four one-tap buttons chosen among the inputs (labelled with `source_overrides`),
+  Quick Select 1-5 (`MSQUICK<n>`, Smart Select on Marantz) and HEOS favorites 1-8, the active one
+  ticked. **Amplifier** — power/input/sound mode/mute at a glance, live volume, power,
+  volume −/+ and mute. **Remote** — four keys of the user's choice (arrows by default): several
+  instances side by side make a full pad. **Radio** — the analog tuner (`TFAN`/`TPAN`/`TMAN`):
+  frequency, preset, band, tuning mode and four configurable buttons; the input is switched to
+  the tuner first, since the receiver ignores tuner commands on another input. Widgets are
+  read-and-tap only by design (no slider, no dropdown: those stay the core widgets rendering the
+  device features), at most 8 components and 4 buttons each — every content is checked against
+  the SDK's own `validateWidgetContent()` in `test/widgets.test.js`. The current choice is marked
+  by an icon, never the `primary` style (Gladys paints it like the others in dark mode). Refresh
+  nudges are coalesced to the core's 1-per-10 s window with a trailing nudge
+  (`src/widgets/refresh.js`), so a card always ends on the receiver's last state.
+- **Scene actions and triggers** (Gladys >=5.1.0, `src/scenes/`): **AVR: recall a Quick Select**,
+  **AVR: play a HEOS favorite** (`browse/play_preset`), **AVR: set up the receiver** (power, input,
+  sound mode and volume in one card, each optional — power on first with the wake-up pause,
+  standby alone) and **AVR: read the receiver state** (outputs: power, volume, input code and
+  name, sound mode, Quick Select, playing, title, artist — what the core's "Continue only if"
+  needs to test a text value). Triggers: **AVR: input changed** (filterable by receiver and new
+  input) and **AVR: track changed** (title/artist/album as variables), never fired on the first
+  value seen after a (re)connect.
+- **Per-device connection badge** (`src/devices/transport.js`, `publishTransports()`): each AVR
+  shows its own _local_ / _unreachable_ badge, with an orange "degraded" dot and its reason when
+  HEOS lists no player at the receiver's IP ("Speak on a speaker" cannot work) or when only HEOS
+  answers (Telnet down: a HEOS-only speaker). It replaces the integration-wide
+  `setConnectionStatus(false, "Cannot reach…")` every Telnet session used to send, which flapped
+  between receivers and never said which one failed.
+
+A scene's generic **"Control a device"** action (`ACTIONS.DEVICE.SET_VALUE` in Gladys core) can
+also set `Source`/`Sound mode` — and since Gladys 5.1.0, **AVR: set up the receiver** above does
+it in one card, by name, on any Gladys that runs this version of the integration. The manifest
+`select_source` action still only lives on the Configuration screen.
 
 Whether the generic action can actually target `Source`/`Sound mode` **depends on your Gladys
 core version**, and this was misdiagnosed once already during this project's own development —
@@ -258,7 +306,7 @@ you never touch that connection directly, you just react to the events it emits 
 
 This integration then opens a **second, completely separate connection**: a plain TCP/Telnet
 socket (port 23) straight to the AV receiver on the local network. That's the actual point of
-the project — everything in `src/denon/` and `src/devices/avr.js` exists to manage that second
+the project — everything in `src/denon/` and `src/devices/` exists to manage that second
 connection and translate between "what the receiver says" and "what Gladys understands".
 
 On a HEOS-equipped receiver there's a **third connection**, to the separate HEOS CLI service
@@ -289,11 +337,18 @@ Recommended reading order, each file assumes only the one(s) before it:
    above, for the separate HEOS CLI service (port 1255) used only by the playback buttons. Reuses
    `telnet.js`'s socket/reconnect logic (`lineTerminator: '\r\n'` instead of `'\r'`); read this
    after 1-2 since it leans on that split rather than repeating it.
-5. [`src/devices/avr.js`](./src/devices/avr.js) — the glue: keeps one Telnet client (and,
-   best-effort, one HEOS client) per AVR the user added, and wires `protocol.js`/`telnet.js`/
-   `heos/` to what the SDK expects (features, actions).
-6. [`src/devices/index.js`](./src/devices/index.js) and [`src/config.js`](./src/config.js) —
-   small composition/config-normalization helpers used by the entry point.
+5. [`src/devices/avr.js`](./src/devices/avr.js) — the map of `src/devices/`: one file per
+   responsibility, each listed at the top of `avr.js`. Read
+   [`features.js`](./src/devices/features.js) (what a device declares),
+   [`registry.js`](./src/devices/registry.js) (the shared state every other module reads),
+   [`session.js`](./src/devices/session.js) and [`heos-session.js`](./src/devices/heos-session.js)
+   (the two connections per AVR), then [`commands.js`](./src/devices/commands.js) (the
+   `onSetValue` routing) and [`control.js`](./src/devices/control.js) (the controls shared by
+   commands, announcements, scenes and widgets).
+6. [`src/widgets/`](./src/widgets) and [`src/scenes/`](./src/scenes) — the Gladys 5.1 surfaces
+   built on top: pure content builders (`content.js`) plus the SDK wiring (`index.js`), and the
+   scene actions/triggers. [`src/devices/index.js`](./src/devices/index.js) and
+   [`src/config.js`](./src/config.js) are small composition/config-normalization helpers.
 7. [`index.js`](./index.js) — the entry point. On purpose the shortest, least interesting file:
    it only creates the SDK client and wires its events to the functions above.
 
@@ -307,8 +362,11 @@ This project intentionally has a **single runtime dependency**:
 
 Everything else needed at runtime is a Node.js built-in, on purpose (fewer dependencies = fewer
 things that can break or need updating): `node:net` for the Telnet socket
-([`src/denon/telnet.js`](./src/denon/telnet.js)) and the global `fetch` for reading a receiver's
-UPnP description ([`src/denon/discovery.js`](./src/denon/discovery.js)).
+([`src/denon/telnet.js`](./src/denon/telnet.js)), the global `fetch` for reading a receiver's
+UPnP description ([`src/denon/discovery.js`](./src/denon/discovery.js)) and the cover art of the
+"Now playing" widget ([`src/widgets/artwork.js`](./src/widgets/artwork.js), with `node:crypto`
+for its image key). No image library: a cover above Gladys' 300 KB bound is left out, not
+resized.
 
 Dev-only dependencies (never shipped in the Docker image, see the `Dockerfile`'s
 `npm ci --omit=dev`):
@@ -342,8 +400,26 @@ notes Dependabot links in the PR body) and merge it like any other PR once CI is
 ├─ index.js                          # SDK bootstrap + event wiring (no protocol logic)
 ├─ src/
 │  ├─ devices/
-│  │  ├─ avr.js                      # discovery payloads, Telnet connection registry, onSetValue, actions
+│  │  ├─ avr.js                      # public face + map of this folder (re-exports)
+│  │  ├─ features.js                 # feature/state keys, discovery payload (buildFeatures)
+│  │  ├─ registry.js                 # shared state: sessions, last known state, listeners
+│  │  ├─ session.js                  # Telnet session lifecycle: connect / refresh / disconnect
+│  │  ├─ heos-session.js             # HEOS CLI session: player match, poll, deduped publishes
+│  │  ├─ transport.js                # per-device local/unreachable badge
+│  │  ├─ control.js                  # controls shared by commands, scenes and widgets
+│  │  ├─ commands.js                 # onSetValue routing (Telnet vs HEOS)
+│  │  ├─ announcements.js            # "Speak on a speaker": volume, end, restore
+│  │  ├─ actions.js                  # Configuration-screen actions (test, select input)
 │  │  └─ index.js                    # composes SSDP discovery + the manual host fallback
+│  ├─ widgets/                       # dashboard widgets (Gladys >=5.1.0)
+│  │  ├─ content.js                  # PURE: one content builder per widget
+│  │  ├─ common.js                   # widget keys, texts, setting options
+│  │  ├─ actions.js                  # what each widget button does
+│  │  ├─ artwork.js / refresh.js     # cover download + cache, coalesced refresh nudges
+│  │  └─ index.js                    # SDK handlers + state-change nudges
+│  ├─ scenes/
+│  │  ├─ actions.js                  # scene actions (Quick Select, HEOS favorite, set up, read)
+│  │  └─ triggers.js                 # scene triggers (input changed, track changed)
 │  ├─ denon/
 │  │  ├─ protocol.js                 # PURE: parse Telnet lines <-> feature values, build commands
 │  │  ├─ telnet.js                   # raw net.Socket client: line framing, reconnect w/ backoff
@@ -352,9 +428,10 @@ notes Dependabot links in the PR body) and merge it like any other PR once CI is
 │  │  ├─ protocol.js                 # PURE: parse HEOS CLI JSON lines, build heos:// commands
 │  │  └─ client.js                   # thin wrapper of denon/telnet.js for the HEOS CLI socket
 │  └─ config.js                      # config defaults + normalization
-├─ test/                             # one *.test.js per src/ file above, node --test, no library
+├─ test/                             # *.test.js per src/ module, node --test, no library
 ├─ test-fixtures/
-│  └─ fakeGladys.js                  # minimal in-memory stand-in for the SDK client, used by tests
+│  ├─ fakeGladys.js                  # minimal in-memory stand-in for the SDK client, used by tests
+│  └─ fakeClients.js                 # fake Telnet/HEOS sessions injected through registry.js
 │                                     # — deliberately OUTSIDE test/: `node --test` treats every
 │                                     # .js file under test/ as a test file to run, fixtures included
 ├─ scripts/
@@ -366,10 +443,10 @@ notes Dependabot links in the PR body) and merge it like any other PR once CI is
 │                                     # UI (not this README) — what someone installing the
 │                                     # integration from the Gladys store reads, not a developer
 ├─ gladys-assistant-integration.json # the "manifest": declares the integration to the Gladys
-│                                     # store/hub (name, version, Docker image, the config form
-│                                     # and actions you see in the Configuration screen)
+│                                     # store/hub (name, version, Docker image, the config form,
+│                                     # actions, widgets, scene actions and triggers)
 ├─ Dockerfile                        # packages index.js + src/ into the image Gladys runs,
-│                                     # Node 24 Alpine, prod dependencies only
+│                                     # Node 26 Alpine, prod dependencies only
 └─ cover.png                         # catalog cover, 800×534 px, ≤150 KB
 ```
 
@@ -391,6 +468,7 @@ npm run format:check   # Prettier
 npm run format          # Prettier, write
 npm run lint             # ESLint
 npm test                 # node --test
+npm run test:coverage    # node --test + coverage thresholds on src/ (what CI runs)
 ```
 
 `protocol.js` and `telnet.js`/`discovery.js` are unit-tested without a real receiver: pure
@@ -428,13 +506,13 @@ while the manifest still points at the last released version/image — run the R
 (any release type; nothing else forces `package.json`'s version to match how many PRs merged
 since) whenever you want those changes to actually reach users.
 
-`gladys_version` is pinned to `>=4.86.1`. 4.86.0 is the floor `categories` needs to declare
-(checked against the store's `manifest.schema.json` — an older core "rejects unknown manifest
-fields" outright rather than ignoring just that one, so that change and `TEXT.SELECT` support
-had to land together), but the manifest is pinned one patch higher, to 4.86.1: that's the release
-that fixed [#2883](https://github.com/GladysAssistant/Gladys/pull/2883), a bug specific to
-`supported_options` declared by an _external_ integration (this one) rather than a built-in
-device type — see "Scene automation" above.
+`gladys_version` is pinned to `>=5.1.0`: the manifest declares `widgets`, `scene_actions` and
+`scene_triggers`, which only the 5.1.0 validator accepts — an older core "rejects unknown manifest
+fields" outright (checked against the store's `manifest.schema.json` and the Gladys tags: 5.0.4
+has neither), so a Gladys 4.86/5.0 user stays on the last release of this integration that
+declared `>=4.86.1` until they update Gladys. The previous floor came from
+[#2883](https://github.com/GladysAssistant/Gladys/pull/2883) (4.86.1), the fix for
+`supported_options` declared by an _external_ integration, which 5.1.0 includes.
 
 ## v1 scope
 
@@ -442,12 +520,15 @@ Power, volume, mute (legacy Telnet when reachable, HEOS CLI fallback otherwise),
 (status + selection, with per-user renaming/hiding, plus a numeric `Source index` alias for scene
 automation), sound mode, network/USB playback controls (HEOS CLI when available, legacy `NS9x`
 Telnet otherwise), speak-on-a-speaker TTS playback (HEOS `browse/play_stream`, see "Speak on a
-speaker" above), now-playing metadata, Setup-menu remote-control keys (cursor pad,
-Enter/Return/Info/Menu, relative Volume Up/Down), zone selection (main zone by default, or Zone
-2/3 — one zone per integration, not several zones side by side), SSDP discovery.
+speaker" above, with an announcement volume and a return to the previous state), now-playing
+metadata, Setup-menu remote-control keys (cursor pad, Enter/Return/Info/Menu, relative Volume
+Up/Down), zone selection (main zone by default, or Zone 2/3 — one zone per integration, not
+several zones side by side), SSDP discovery, five dashboard widgets, four scene actions, two
+scene triggers, a per-device connection badge.
 Deliberately out of scope for now: controlling several zones at once (one device per zone),
-HEOS-specific features beyond play/pause/next/previous (grouping, queue browsing, volume-per-
-player...), and an HTTP fallback control channel — see the design notes at the top of
+HEOS-specific features beyond play/pause/next/previous and favorites by number (grouping, queue
+or favorites browsing, volume-per-player...), resuming what HEOS played before an announcement,
+and an HTTP fallback control channel — see the design notes at the top of
 [`src/devices/avr.js`](./src/devices/avr.js) and
 [`src/denon/discovery.js`](./src/denon/discovery.js).
 
@@ -471,7 +552,8 @@ Every other generic Gladys scene action that could plausibly target this kind of
 integration already declares: `ACTIONS.DEVICE.SET_VALUE`/`GET_VALUE` (the generic "Control a
 device"/read-a-value actions) already work against every feature declared here, and
 `ACTIONS.MUSIC.PLAY_NOTIFICATION` ("Speak on a speaker") is the one covered above — it was the
-only gap. Everything else in that map (`LIGHT.*`, `SWITCH.*`, `ALARM.*`, `CALENDAR.*`, `SMS.*`...)
+only gap among the core's own actions. Since Gladys 5.1.0 the integration declares its own scene
+actions and triggers on top (see "What it does"). Everything else in that map (`LIGHT.*`, `SWITCH.*`, `ALARM.*`, `CALENDAR.*`, `SMS.*`...)
 targets a different device category entirely, or isn't device-specific at all (delays, HTTP
 requests, variables...), so there is nothing else this device type could plug into.
 
@@ -532,6 +614,16 @@ Honest status, so it's clear what "it works" actually rests on:
     `src/heos/`, not yet re-verified against a real HEOS speaker. Same fallback safety as the rest
     of the HEOS layer: it only ever engages when the legacy Telnet session isn't reachable at all,
     so a real AVR receiver's confirmed-working Telnet volume/mute is never affected either way.
+
+  - **Everything added for Gladys 5.1**: the five dashboard
+    widgets, the scene actions and triggers, the per-device connection badge, the announcement
+    volume/restore, the Quick Select (`MSQUICK`) and tuner (`TFAN`/`TPAN`/`TMAN`) lines and
+    commands. Every widget content is checked against the SDK's `validateWidgetContent()`, the
+    manifest passes the store validator, and the Quick Select/tuner codes come from Denon's own
+    protocol PDF (AVR-X2000/E400, "PROTOCOL 10.1.0"; the AM/FM band commands are documented there
+    as North America only) — but none of it has run against a real receiver and a real Gladys
+    5.1 yet. The cover art in particular depends on the container reaching the HEOS `image_url`
+    host (usually an Internet CDN) and on the cover fitting 300 KB.
 
   Use [`scripts/debug-telnet.js`](./scripts/debug-telnet.js) against your own receiver to check
   any of the above — in particular, send `MS?` and start streaming on a NET/USB source to see
