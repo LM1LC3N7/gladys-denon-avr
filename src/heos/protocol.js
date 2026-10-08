@@ -177,6 +177,20 @@ export function buildClearQueueCommand(pid) {
 }
 
 /**
+ * `heos://browse/play_preset?pid=<pid>&preset=<n>` — play the n-th entry
+ * (1-based) of the HEOS account's Favorites, the "HEOS Favorites" list of
+ * the HEOS app (HEOS CLI spec 1.17, "Play Preset Station"). Fails with an
+ * eid when the account has fewer favorites or no HEOS account is signed in.
+ */
+export function buildPlayPresetCommand(pid, preset) {
+  const position = Number(preset);
+  if (!Number.isInteger(position) || position < 1) {
+    throw new Error(`HEOS favorite ${preset} does not exist (1 or more)`);
+  }
+  return `browse/play_preset?pid=${pid}&preset=${position}`;
+}
+
+/**
  * `heos://system/register_for_change_events?enable=on` — ask the HEOS
  * system to push `event/player_state_changed` (and other `event/*` lines)
  * unprompted, the same "push, don't poll" model as the legacy Telnet
