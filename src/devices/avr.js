@@ -8,8 +8,9 @@
 //   - buildDiscoveredDevice() / buildManualDevice() to build discovery payloads
 //   - a small connection registry (external_id -> Telnet client) driven by the
 //     device lifecycle: connectDevice() on gladys.onDeviceCreated / at startup
-//     (for devices the user already created), disconnectDevice() on
-//     gladys.onDeviceDeleted
+//     (for devices the user already created), refreshDevice() on
+//     gladys.onDeviceUpdated (reconnects only when the IP changed),
+//     disconnectDevice() on gladys.onDeviceDeleted
 //   - onSetValue() / runTestConnectionAction() / runSelectSourceAction() that
 //     look up the right connection from that registry
 //
@@ -154,6 +155,9 @@ const logger = createLogger({ name: DEVICE_TYPE });
 
 // external_id -> Telnet client (one persistent session per AVR the user created).
 const connections = new Map();
+// external_id -> host that session was opened against, so refreshDevice() can
+// tell an address change apart from a mere rename/room change.
+const connectionHosts = new Map();
 // external_id -> last known state, used by the "Test connection" action.
 const lastKnownState = new Map();
 // external_id -> { client, pid }. `pid` is null until a `get_players` reply
@@ -695,6 +699,7 @@ export function connectDevice(gladys, device, config) {
   });
 
   connections.set(device.external_id, telnet);
+  connectionHosts.set(device.external_id, host);
 
   // Best-effort HEOS CLI connection, entirely separate from (and never
   // allowed to affect the status of) the legacy Telnet session above: a
@@ -901,6 +906,27 @@ export function connectDevice(gladys, device, config) {
 }
 
 /**
+ * `onDeviceUpdated`: reopen the session only when the device's address
+ * actually changed (a new DHCP lease picked up by a Discovery scan, then
+ * "Update" clicked on the device) — connectDevice() alone is idempotent and
+ * would keep talking to the old IP until the container restarts. A rename or
+ * a room change keeps the session as is; a device that had no session yet
+ * (no IP known before) gets one now.
+ */
+export function refreshDevice(gladys, device, config) {
+  const host = ipAddressOf(device) || config.host;
+  // No usable address in the update: never tear down a session that works.
+  if (
+    !host ||
+    (connections.has(device.external_id) && connectionHosts.get(device.external_id) === host)
+  ) {
+    return;
+  }
+  disconnectDevice(device.external_id);
+  connectDevice(gladys, device, config);
+}
+
+/**
  * Test-only hook: inject a fake `{ send, isConnected }` client for a given
  * external_id, so onSetValue()/the manifest actions can be unit tested
  * without a real socket (mirrors the template's `simulateLanSession` hook
@@ -951,6 +977,7 @@ export function __setZoneSwitchDelayMsForTesting(ms) {
 /** Test-only hook: drop every registered connection between tests. */
 export function __clearConnectionsForTesting() {
   connections.clear();
+  connectionHosts.clear();
   lastKnownState.clear();
   for (const heosState of heosConnections.values()) {
     clearInterval(heosState?.pollTimer);
@@ -964,6 +991,7 @@ export function __clearConnectionsForTesting() {
 export function disconnectDevice(externalId) {
   connections.get(externalId)?.stop();
   connections.delete(externalId);
+  connectionHosts.delete(externalId);
   lastKnownState.delete(externalId);
   const heosState = heosConnections.get(externalId);
   clearInterval(heosState?.pollTimer);

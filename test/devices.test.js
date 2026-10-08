@@ -12,6 +12,7 @@ import {
   buildDiscoveredDevice,
   buildManualDevice,
   connectDevice,
+  refreshDevice,
   disconnectDevice,
   onSetValue,
   runTestConnectionAction,
@@ -906,6 +907,54 @@ test('connectDevice does not publish source_index when the reported source is hi
       !gladys.published.slice(publishedBefore).some((p) => p.featureExternalId === sourceIndexId),
       'TUNER is hidden, so it has no index in the visible list to publish',
     );
+  } finally {
+    disconnectDevice(device.external_id);
+    server.close();
+  }
+});
+
+// End-to-end: refreshDevice() (onDeviceUpdated) keeps the session on a mere
+// rename and moves it when the device's IP_ADDRESS param changed (DHCP).
+test('refreshDevice keeps the session on a rename, reconnects to the new IP when it changed', async () => {
+  // Two spellings of the loopback stand in for "the old IP" and "the new IP"
+  // (127.0.0.2 is not routable by default on every OS). Default listen()
+  // binds dual-stack, so whichever family `localhost` resolves to is accepted.
+  const sockets = [];
+  const closed = new Set();
+  const server = net.createServer((socket) => {
+    sockets.push(socket);
+    socket.on('close', () => closed.add(socket));
+    socket.resume(); // flowing mode, or the peer's EOF is never read and 'close' never fires
+  });
+  const port = await new Promise((resolve) =>
+    server.listen(0, () => resolve(server.address().port)),
+  );
+  const device = buildDiscoveredDevice(gladys, { ...DISCOVERED, host: '127.0.0.1' });
+  const localConfig = normalizeConfig({ port });
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 200));
+
+  try {
+    connectDevice(gladys, device, localConfig);
+    await settle();
+    assert.equal(sockets.length, 1);
+
+    refreshDevice(gladys, { ...device, name: 'Living room AVR' }, localConfig);
+    await settle();
+    assert.equal(sockets.length, 1, 'a rename must not reopen the session');
+
+    refreshDevice(
+      gladys,
+      { ...device, params: [{ name: 'IP_ADDRESS', value: 'localhost' }] },
+      localConfig,
+    );
+    await settle();
+    assert.equal(sockets.length, 2, 'a new IP must open a session to it');
+    assert.ok(closed.has(sockets[0]), 'the session to the old IP must be closed');
+    assert.ok(!closed.has(sockets[1]), 'the session to the new IP stays open');
+
+    refreshDevice(gladys, { ...device, params: [] }, localConfig);
+    await settle();
+    assert.ok(!closed.has(sockets[1]), 'an update with no address keeps the working session');
   } finally {
     disconnectDevice(device.external_id);
     server.close();

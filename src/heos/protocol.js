@@ -186,6 +186,21 @@ export function buildRegisterForChangeEventsCommand(enable = true) {
   return `system/register_for_change_events?enable=${enable ? 'on' : 'off'}`;
 }
 
+/**
+ * decodeURIComponent() that never throws: HEOS escapes `&`/`=`/`%` in
+ * message values, but a stray `%` (e.g. a free-text error message) is not a
+ * valid escape and makes decodeURIComponent() throw a URIError. This runs
+ * inside the socket 'data' handler (src/denon/telnet.js), where an uncaught
+ * throw takes the whole container down — keep the raw text instead.
+ */
+function safeDecode(text) {
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    return text;
+  }
+}
+
 /** Parse a HEOS `key=value&key=value` message/query string into a plain object. */
 function parseHeosQueryString(raw) {
   const result = {};
@@ -196,9 +211,13 @@ function parseHeosQueryString(raw) {
     if (pair.length === 0) {
       continue;
     }
-    const [key, value] = pair.split('=');
+    // Split on the FIRST "=" only: a value can itself carry one (unescaped
+    // in some free-text fields), which split('=') used to silently truncate.
+    const equalsIndex = pair.indexOf('=');
+    const key = equalsIndex === -1 ? pair : pair.slice(0, equalsIndex);
+    const value = equalsIndex === -1 ? '' : pair.slice(equalsIndex + 1);
     if (key) {
-      result[decodeURIComponent(key)] = value === undefined ? '' : decodeURIComponent(value);
+      result[safeDecode(key)] = safeDecode(value);
     }
   }
   return result;

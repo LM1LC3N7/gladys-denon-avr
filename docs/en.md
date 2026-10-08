@@ -142,7 +142,9 @@ reachable, please report it (with the logs mentioned below) so it can be fixed.
 1. Open the **Discovery** tab of the integration and run a scan. Denon/Marantz receivers answer
    automatically (SSDP/UPnP) — no IP to type, no account. The receiver should appear with its
    real name and model.
-2. Add the discovered device. Gladys keeps a persistent connection to it from then on.
+2. Add the discovered device. Gladys keeps a persistent connection to it from then on. If the
+   receiver later gets a new IP address (DHCP), run a Discovery scan again and click **Update** on
+   the device: the connection moves to the new address right away, no restart needed.
 3. **If nothing is found**: your network likely blocks multicast between segments (VLANs, several
    network interfaces on the Gladys host, some mesh Wi-Fi setups...). Open the integration's
    **Configuration** tab and fill in the receiver's IP address manually, save, then scan again —

@@ -160,7 +160,10 @@ que ce soit corrigé.
 1. Ouvrez l'onglet **Découverte** de l'intégration et lancez un scan. Les amplis Denon/Marantz
    répondent automatiquement (SSDP/UPnP) — aucune IP à saisir, aucun compte. L'ampli devrait
    apparaître avec son vrai nom et son modèle.
-2. Ajoutez l'appareil découvert. Gladys maintient ensuite une connexion persistante avec lui.
+2. Ajoutez l'appareil découvert. Gladys maintient ensuite une connexion persistante avec lui. Si
+   l'ampli change ensuite d'adresse IP (DHCP), relancez un scan Découverte et cliquez sur **Mettre
+   à jour** sur l'appareil : la connexion bascule aussitôt sur la nouvelle adresse, sans
+   redémarrage.
 3. **Si rien n'est trouvé** : votre réseau bloque probablement le multicast entre segments
    (VLAN, plusieurs cartes réseau sur l'hôte Gladys, certains Wi-Fi maillés...). Ouvrez l'onglet
    **Configuration** de l'intégration et renseignez manuellement l'adresse IP de l'ampli,

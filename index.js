@@ -16,10 +16,11 @@
 // -----------------------------------------------------------------------------
 
 import { GladysIntegration, logger } from '@gladysassistant/integration-sdk';
-import { normalizeConfig } from './src/config.js';
+import { normalizeConfig, sessionConfigChanged } from './src/config.js';
 import { buildDiscoveredDevices } from './src/devices/index.js';
 import {
   connectDevice,
+  refreshDevice,
   disconnectDevice,
   disconnectAllDevices,
   onSetValue as dispatchSetValue,
@@ -74,6 +75,13 @@ gladys.onDeviceCreated(async (device) => {
   connectDevice(gladys, device, config);
 });
 
+// An "Update" from the Discovery tab can carry a new IP_ADDRESS (DHCP): the
+// session is reopened only in that case, a rename keeps it as is.
+gladys.onDeviceUpdated(async (device) => {
+  logger.info(`Device updated -> refreshing ${device.external_id}`);
+  refreshDevice(gladys, device, config);
+});
+
 gladys.onDeviceDeleted(async (device) => {
   logger.info(`Device deleted -> disconnecting ${device.external_id}`);
   disconnectDevice(device.external_id);
@@ -82,20 +90,22 @@ gladys.onDeviceDeleted(async (device) => {
 // --- Configuration updated by the user ---------------------------------------
 gladys.onConfigUpdated(async (newConfig) => {
   logger.info('onConfigUpdated -> new configuration received');
-  const previousZone = config.zone;
+  const previousConfig = config;
   config = normalizeConfig(newConfig);
-  // Each Telnet/HEOS session parses lines and picks its HEOS player for one
-  // zone, fixed when it opens (see connectDevice()) — reopen them all so a
-  // zone change applies right away instead of at the next restart.
-  if (config.zone !== previousZone) {
-    logger.info(`Zone changed (${previousZone} -> ${config.zone}), reconnecting every AVR`);
+  // Each Telnet/HEOS session captures the zone, port, reconnect backoff and
+  // source overrides when it opens (see connectDevice()) — reopen them all so
+  // a change applies right away instead of at the next restart.
+  if (sessionConfigChanged(previousConfig, config)) {
+    logger.info(
+      `Session settings changed (zone ${previousConfig.zone} -> ${config.zone}, port ${previousConfig.port} -> ${config.port}), reconnecting every AVR`,
+    );
     disconnectAllDevices();
     try {
       for (const device of await gladys.getDevices()) {
         connectDevice(gladys, device, config);
       }
     } catch (err) {
-      logger.error(`Reconnecting the AVRs after a zone change failed: ${err.message}`);
+      logger.error(`Reconnecting the AVRs after a config change failed: ${err.message}`);
     }
   }
 });

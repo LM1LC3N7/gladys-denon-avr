@@ -117,6 +117,27 @@ test('parseMessage: an event push, message parsed from its k=v&k=v form', () => 
   });
 });
 
+test('parseMessage: a malformed %-escape is kept raw instead of throwing', () => {
+  // decodeURIComponent('100%') throws a URIError — inside the socket 'data'
+  // handler that used to crash the whole integration.
+  const line = JSON.stringify({
+    heos: { command: 'browse/play_stream', result: 'fail', message: 'eid=2&text=100% invalid' },
+  });
+  assert.deepEqual(parseMessage(line).message, { eid: '2', text: '100% invalid' });
+});
+
+test('parseMessage: a value carrying "=" is kept whole, escapes still decoded', () => {
+  const line = JSON.stringify({
+    heos: { command: 'event/x', message: 'pid=1&text=a=b&url=http%3A%2F%2Fhost%2Fx&flag' },
+  });
+  assert.deepEqual(parseMessage(line).message, {
+    pid: '1',
+    text: 'a=b',
+    url: 'http://host/x',
+    flag: '',
+  });
+});
+
 test('parseMessage: malformed JSON or a non-HEOS shape returns null, never throws', () => {
   assert.equal(parseMessage('not json'), null);
   assert.equal(parseMessage(''), null);

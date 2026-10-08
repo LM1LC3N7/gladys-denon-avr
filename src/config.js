@@ -83,6 +83,25 @@ export function normalizeConfig(raw = {}) {
 }
 
 /**
+ * Whether a config change affects the AVR sessions already open: each
+ * Telnet/HEOS session captures the zone (line parsing, HEOS player pick), the
+ * port, the reconnect backoff and the source overrides (source_index
+ * publishing) when it opens — see connectDevice() in src/devices/avr.js — so
+ * any of them changing means reopening every session for the change to apply
+ * right away instead of at the next container restart.
+ * @param {ReturnType<typeof normalizeConfig>} previous
+ * @param {ReturnType<typeof normalizeConfig>} next
+ */
+export function sessionConfigChanged(previous, next) {
+  return (
+    previous.zone !== next.zone ||
+    previous.port !== next.port ||
+    previous.reconnect_interval_seconds !== next.reconnect_interval_seconds ||
+    JSON.stringify(previous.sourceOverrides) !== JSON.stringify(next.sourceOverrides)
+  );
+}
+
+/**
  * Parse the `source_overrides` string into `{ [SI code]: label }`, consumed
  * by src/devices/avr.js#buildFeatures() to build the source dropdown's
  * `supported_options`. Syntax: comma-separated `CODE=Label` pairs.

@@ -41,8 +41,12 @@ TuneIn...) — see "Playback controls" below.
   (the main zone being the one named after none), lowest `pid` on a tie — never HEOS' list order.
   And before a "Speak on a speaker" stream, the configured zone is switched on and to `NET` over
   Telnet (skipped when the last reported state already says so), otherwise HEOS starts the stream
-  on whichever zone it last played on. Changing `zone` reconnects every AVR (`index.js`'s
-  `onConfigUpdated`). Sound mode and the Setup-menu keys stay main-zone only.
+  on whichever zone it last played on. Changing `zone` — or the Telnet port, the reconnect backoff
+  or the source overrides, which every session also captures when it opens — reconnects every AVR
+  (`sessionConfigChanged()` in `src/config.js`, called from `index.js`'s `onConfigUpdated`). A
+  device update carrying a new `IP_ADDRESS` (DHCP, then **Update** in the Discovery tab) reconnects
+  that AVR alone (`refreshDevice()`, `onDeviceUpdated`); a rename keeps its session. Sound mode and
+  the Setup-menu keys stay main-zone only.
   **Volume: 25% and 75% can never be displayed as themselves** — confirmed on real hardware (a
   slider that "jumps from 24% to 26%, can't land on 25%") and in the math: `percentToDenonVolume()`/
   `denonVolumeToPercent()` (`src/denon/protocol.js`) round-trip a plain 0-100 percent through the
@@ -369,7 +373,7 @@ notes Dependabot links in the PR body) and merge it like any other PR once CI is
 │                                     # store/hub (name, version, Docker image, the config form
 │                                     # and actions you see in the Configuration screen)
 ├─ Dockerfile                        # packages index.js + src/ into the image Gladys runs,
-│                                     # Node 24 Alpine, prod dependencies only
+│                                     # Node 26 Alpine, prod dependencies only
 └─ cover.png                         # catalog cover, 800×534 px, ≤150 KB
 ```
 
