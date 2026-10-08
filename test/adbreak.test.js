@@ -5,16 +5,15 @@ import {
   recordBreak,
   recordMarkOffset,
   learnedWindows,
+  learnedSchedule,
+  windowsAt,
   isInWindow,
   preBreakTalkSeconds,
   preBreakTalkByHour,
   typicalBreakSeconds,
   DEFAULT_PRE_BREAK_TALK_SECONDS,
 } from '../src/adbreak/stats.js';
-import {
-  createAdBreakDetector,
-  MAX_BREAK_SECONDS,
-} from '../src/adbreak/detector.js';
+import { createAdBreakDetector, MAX_BREAK_SECONDS } from '../src/adbreak/detector.js';
 import {
   SAMPLE_RATE,
   FRAME_SECONDS,
@@ -83,13 +82,59 @@ test('learnedWindows follows the breaks of the last days, not the old schedule',
   const days = (n) => n * 86_400_000;
   let stats = emptyStats();
   for (let i = 0; i < 10; i++) {
-    // The old schedule (a week ago) at :20, the current one at :40.
-    stats = recordBreak(stats, { startedAt: at(10, 20) - days(7), durationSeconds: 300, source: 'auto' });
-    stats = recordBreak(stats, { startedAt: at(10, 40) - days(i % 3), durationSeconds: 300, source: 'auto' });
+    // The old schedule (three weeks ago) at :20, the current one at :40.
+    stats = recordBreak(stats, {
+      startedAt: at(10, 20) - days(21),
+      durationSeconds: 300,
+      source: 'auto',
+    });
+    stats = recordBreak(stats, {
+      startedAt: at(10, 40) - days(i % 3),
+      durationSeconds: 300,
+      source: 'auto',
+    });
   }
   const windows = learnedWindows(stats, [], now);
   assert.ok(isInWindow(40, windows), JSON.stringify(windows));
   assert.ok(!isInWindow(20, windows), JSON.stringify(windows));
+});
+
+test('learnedSchedule learns the hours with ads, and weekends apart', () => {
+  // Two weeks of history: on weekdays, breaks at :12 and :40 from 6h to
+  // 20h; on weekends at :25 only, from 9h to 19h. Nothing at night.
+  const end = new Date(2026, 9, 19, 0, 0).getTime(); // a Monday, midnight
+  const coveredFrom = end - 14 * 86_400_000;
+  let stats = emptyStats();
+  for (let day = 0; day < 14; day++) {
+    const midnight = coveredFrom + day * 86_400_000;
+    const weekend = [0, 6].includes(new Date(midnight).getDay());
+    for (let hour = weekend ? 9 : 6; hour < (weekend ? 19 : 21); hour++) {
+      for (const minute of weekend ? [25] : [12, 40]) {
+        const startedAt = midnight + hour * 3_600_000 + minute * 60_000;
+        stats = recordBreak(stats, { startedAt, durationSeconds: 300, source: 'history' });
+      }
+    }
+  }
+  const schedule = learnedSchedule(stats, { coveredFrom, now: end });
+  const tuesday = (h, m) => new Date(2026, 9, 13, h, m).getTime();
+  const saturday = (h, m) => new Date(2026, 9, 17, h, m).getTime();
+  assert.ok(isInWindow(12, windowsAt(schedule, tuesday(10, 12))));
+  assert.ok(isInWindow(40, windowsAt(schedule, tuesday(10, 40))));
+  assert.deepEqual(windowsAt(schedule, tuesday(23, 12)), [], 'no ads at night');
+  assert.deepEqual(windowsAt(schedule, tuesday(3, 40)), [], 'no ads at night');
+  assert.ok(isInWindow(25, windowsAt(schedule, saturday(10, 25))));
+  assert.ok(!isInWindow(40, windowsAt(schedule, saturday(10, 40))), 'weekend schedule');
+  assert.deepEqual(windowsAt(schedule, saturday(7, 25)), [], 'weekend mornings have none');
+});
+
+test('learnedSchedule without a full coverage (no history) keeps every hour', () => {
+  let stats = emptyStats();
+  for (const minute of OUIFM_BREAK_MINUTES) {
+    stats = recordBreak(stats, { startedAt: at(10, minute), durationSeconds: 300, source: 'auto' });
+  }
+  const schedule = learnedSchedule(stats, { now: at(12, 0) });
+  assert.equal(schedule.hours, null);
+  assert.ok(isInWindow(40, windowsAt(schedule, at(23, 40))));
 });
 
 test('learnedWindows keeps a window wrapping past the hour in one piece', () => {
@@ -209,6 +254,24 @@ test('outside an ad window even a long talk is not a break, only the jingle star
   assert.deepEqual(h.events, []);
   h.detector.jingleStart(); // ... until an ad jingle (once learned)
   assert.deepEqual(h.events, [['start', 'start_jingle']]);
+});
+
+test('in an hour without ads, a song ending in a window is not a break', () => {
+  const hours = Array.from({ length: 24 }, (_, h) => h < 21);
+  const windows = [
+    [9, 15],
+    [34, 48],
+  ];
+  const h = harness({
+    schedule: {
+      windows: { week: windows, sat: windows, sun: windows },
+      hours: { week: hours, sat: hours, sun: hours },
+    },
+  });
+  h.setTime(at(22, 36));
+  h.detector.onTrack({ startedAt: at(22, 34), durationSeconds: 120 }); // ends 22:36
+  h.runUntil(at(22, 42)); // a long late-evening talk
+  assert.deepEqual(h.events, []);
 });
 
 test('a short false break (the host, then a song) does not use the window up', () => {

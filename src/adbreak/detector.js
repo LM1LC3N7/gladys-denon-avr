@@ -21,7 +21,7 @@
 // one there. The next song ends the break.
 // -----------------------------------------------------------------------------
 
-import { isInWindow, DEFAULT_PRE_BREAK_TALK_SECONDS } from './stats.js';
+import { isInWindow, windowsAt, DEFAULT_PRE_BREAK_TALK_SECONDS } from './stats.js';
 
 export const JINGLE_FALLBACK_GRACE_SECONDS = 90;
 // Safety net: never keep the volume down longer than this, whatever happens
@@ -61,6 +61,12 @@ export function createAdBreakDetector({
   let lastBreakAt = 0;
   let previousBreakAt = 0; // lastBreakAt before the current break
 
+  // The station's ad windows at `time`: by day type and hour when its
+  // schedule is learned (see learnedSchedule), else the same every hour.
+  function adWindows(time) {
+    return station.schedule ? windowsAt(station.schedule, time) : station.windows;
+  }
+
   function songEnd() {
     return track?.durationSeconds > 0 ? track.startedAt + track.durationSeconds * 1000 : null;
   }
@@ -91,6 +97,7 @@ export function createAdBreakDetector({
   return {
     /**
      * @param {null | {key: string, hasMetadata: boolean, windows: Array<[number, number]>,
+     *   schedule?: {windows: object, hours: object|null},
      *   preBreakTalkSeconds?: number, preBreakTalkByHour?: number[], hasStartJingle?: boolean,
      *   typicalBreakSeconds?: number|null}} next
      */
@@ -165,7 +172,7 @@ export function createAdBreakDetector({
         if (end === null || t < end || track.breakHandled) {
           return;
         }
-        const inWindow = windowFresh && isInWindow(new Date(end).getMinutes(), station.windows);
+        const inWindow = windowFresh && isInWindow(new Date(end).getMinutes(), adWindows(end));
         if (!inWindow) {
           return; // Outside the ad windows: only the jingle starts a break.
         }
@@ -186,7 +193,7 @@ export function createAdBreakDetector({
       // No metadata: only the learned schedule (from manual marks) is known.
       // Start at the opening minute of a window, once per window.
       const date = new Date(t);
-      const opensNow = station.windows.some(([from]) => from % 60 === date.getMinutes());
+      const opensNow = adWindows(t).some(([from]) => from % 60 === date.getMinutes());
       if (windowFresh && opensNow) {
         startBreak('schedule', null);
       }

@@ -168,9 +168,13 @@ l'heure. Pour chaque station, l'intégration apprend les minutes de l'heure où 
   ouvrir une coupure ;
 - la coupure se termine quand le titre suivant démarre, avec 10 minutes maximum par sécurité.
 
-L'apprentissage est continu : tant que la station est suivie, son historique de diffusion est relu
-toutes les heures, et les fenêtres sont calculées sur les coupures des 3 derniers jours. Un
-changement de grille est donc pris en compte en quelques jours.
+Les fenêtres dépendent du jour et de l'heure : la semaine, le samedi et le dimanche ont chacun les
+leurs, et une heure où la station ne passe habituellement pas de pub (le soir, la nuit) n'en a
+aucune. L'apprentissage est continu : tant que la station est suivie, son historique de diffusion
+est relu toutes les heures, et le tout est calculé sur les 2 dernières semaines (chaque jour de la
+semaine vu deux fois). Un changement de grille est donc pris en compte en quelques jours. Les
+heures sans pub ne s'apprennent que sur les stations qui publient leur historique ; ailleurs,
+toutes les heures gardent les fenêtres.
 
 **Le jingle pub.** Chaque station ouvre ses coupures par le même jingle (sur OUI FM, « restez avec
 nous pendant la pub »). Pendant l'écoute, l'intégration décode le flux de la station (ffmpeg) et

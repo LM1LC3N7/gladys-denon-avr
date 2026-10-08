@@ -32,6 +32,7 @@ import {
   recordBreak,
   recordMarkOffset,
   learnedWindows,
+  learnedSchedule,
   LEARNING_DAYS,
   preBreakTalkSeconds,
   preBreakTalkByHour,
@@ -186,6 +187,7 @@ export function createAdBreakController({
       key: station.key,
       hasMetadata: station.hasMetadata,
       windows: learnedWindows(stats),
+      schedule: learnedSchedule(stats, { coveredFrom: stats.historyFrom ?? null }),
       preBreakTalkSeconds: preBreakTalkSeconds(stats),
       preBreakTalkByHour: preBreakTalkByHour(stats),
       typicalBreakSeconds: typicalBreakSeconds(stats),
@@ -280,7 +282,11 @@ export function createAdBreakController({
         // The stream itself carries no title: show the feed's instead of
         // the bare station name HEOS reports.
         publishNowPlaying([track.artist, track.title].filter(Boolean).join(' - '));
-        lastPlayed = { station: current, startedAt: playedAt, durationSeconds: track.durationSeconds };
+        lastPlayed = {
+          station: current,
+          startedAt: playedAt,
+          durationSeconds: track.durationSeconds,
+        };
         detector.onTrack({ startedAt: playedAt, durationSeconds: track.durationSeconds });
         jingles?.onSongStarted(playedAt);
       },
@@ -345,13 +351,12 @@ export function createAdBreakController({
   // while nobody listens to it.
   async function learnFromHistory(current) {
     const store = await getStore();
-    const readUntil = store[current.key]?.historyReadUntil ?? 0;
+    // Never read with its coverage (historyFrom): read it all.
+    const readUntil =
+      store[current.key]?.historyFrom != null ? store[current.key].historyReadUntil : 0;
     // One hour of overlap: the song before the first new one is needed to
     // measure the gap after it.
-    const hours = Math.min(
-      LEARNING_DAYS * 24,
-      Math.ceil((Date.now() - readUntil) / 3_600_000) + 1,
-    );
+    const hours = Math.min(LEARNING_DAYS * 24, Math.ceil((Date.now() - readUntil) / 3_600_000) + 1);
     const readAt = Date.now();
     const { site, mdsId } = current.feed;
     const songs = await fetchPlaylistHistory({ site, mdsId, hours });
@@ -384,7 +389,14 @@ export function createAdBreakController({
         added += 1;
       }
     }
-    store[current.key] = { ...stats, historyReadUntil: readAt };
+    // The history covers every hour since historyFrom (an hour without break
+    // in it had none): what learnedSchedule needs to learn the hours with
+    // ads. A read that does not reach back to the previous one leaves a
+    // hole: the coverage restarts.
+    const oldest = songs.length ? Math.min(...songs.map((s) => s.startedAt)) : readAt;
+    const continuous = stats.historyFrom != null && oldest <= readUntil;
+    const historyFrom = continuous ? stats.historyFrom : oldest;
+    store[current.key] = { ...stats, historyReadUntil: readAt, historyFrom };
     await persist(store);
     logger.info(
       `${name}: ${current.name}: ${added} new ad breaks from ${songs.length} songs of the last ${hours} h of playlist history`,

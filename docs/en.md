@@ -149,9 +149,12 @@ integration learns the minutes of the hour its breaks (4 to 8 minutes long) star
   interview are not ads. Only the station's ad jingle, once learned, can open a break there;
 - the break ends when the next song starts, with a 10-minute safety limit.
 
-The learning is continuous: while the station is followed, its playlist history is read again every
-hour, and the windows come from the breaks of the last 3 days. A schedule change is picked up
-within days.
+The windows depend on the day and the hour: weekdays, Saturdays and Sundays each have their own,
+and an hour in which the station usually airs no ads (evenings, nights) has none. The learning is
+continuous: while the station is followed, its playlist history is read again every hour, and
+everything comes from the last 2 weeks (every day of the week seen twice). A schedule change is
+picked up within days. The hours without ads are only learned on stations that publish their
+playlist history; elsewhere, every hour keeps the windows.
 
 **The ad jingle.** Each station opens its breaks with the same jingle (on OUI FM, "stay with us
 during the ads"). While a station plays, the integration decodes its stream (ffmpeg) and compares

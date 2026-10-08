@@ -31,15 +31,16 @@ export const BREAK_MAX_SECONDS = 900;
 
 // Keep a bounded history per station: enough for a few weeks of listening,
 // and a schedule change is learned as the old samples roll off.
-const MAX_BREAKS = 200;
+const MAX_BREAKS = 1000; // OUI FM: ~30 breaks a day, LEARNING_DAYS of them
 const MAX_MARK_OFFSETS = 50;
 
 // The windows follow the station as it is now: they are learned from the
 // breaks of the last LEARNING_DAYS days only (kept up to date from the
 // playlist history, see index.js), so a schedule change is picked up within
-// days. A station with too few recent breaks (no history, little listening)
+// days. Two weeks: every day of the week is seen twice (weekends differ).
+// A station with too few recent breaks (no history, little listening)
 // falls back to all the breaks recorded.
-export const LEARNING_DAYS = 3;
+export const LEARNING_DAYS = 14;
 
 // Below this many recorded breaks the histogram is too thin to trust: fall
 // back to the station's built-in seed windows (if any), else no window.
@@ -63,7 +64,9 @@ export function emptyStats() {
  */
 export function recordBreak(stats, { startedAt, durationSeconds = null, source }) {
   const minute = new Date(startedAt).getMinutes();
-  const breaks = [...stats.breaks, { at: startedAt, minute, durationSeconds, source }];
+  const breaks = [...stats.breaks, { at: startedAt, minute, durationSeconds, source }]
+    .filter((b) => b.at >= startedAt - 2 * LEARNING_DAYS * 86_400_000)
+    .sort((a, b) => a.at - b.at);
   return { ...stats, breaks: breaks.slice(-MAX_BREAKS) };
 }
 
@@ -134,6 +137,80 @@ export function learnedWindows(stats, seedWindows = [], now = Date.now()) {
     }
   }
   return windows.sort((a, b) => a[0] - b[0]);
+}
+
+// Day types: stations run one schedule on weekdays and others on weekends.
+const DAY_TYPES = ['sun', 'week', 'week', 'week', 'week', 'week', 'sat'];
+export function dayType(time) {
+  return DAY_TYPES[new Date(time).getDay()];
+}
+
+// An hour of a day type has ads when breaks were heard in it on at least
+// this share of the days it was covered (on OUI FM: every hour from 6h to
+// 21h Paris time, then almost never at night).
+const HOUR_MIN_SHARE = 0.5;
+
+/**
+ * The station's ad schedule by day type: the minute windows (from the
+ * breaks of that day type, else of all days) and, when the playlist history
+ * covers every hour since `coveredFrom` (so an hour without break really had
+ * none), the hours of the day that have ads.
+ * @param {{breaks: Array}} stats
+ * @param {{coveredFrom?: number|null, now?: number, seedWindows?: Array}} [opts]
+ * @returns {{windows: Record<string, Array>, hours: Record<string, boolean[]>|null}}
+ */
+export function learnedSchedule(
+  stats,
+  { coveredFrom = null, now = Date.now(), seedWindows = [] } = {},
+) {
+  const since = now - LEARNING_DAYS * 86_400_000;
+  const recent = stats.breaks.filter((b) => b.at >= since);
+  const all = learnedWindows(stats, seedWindows, now);
+  const windows = {};
+  for (const type of ['week', 'sat', 'sun']) {
+    const ofType = recent.filter((b) => dayType(b.at) === type);
+    windows[type] =
+      ofType.length >= MIN_BREAKS_FOR_WINDOWS ? learnedWindows({ breaks: ofType }, all, now) : all;
+  }
+  if (coveredFrom == null || recent.length < MIN_BREAKS_FOR_WINDOWS) {
+    return { windows, hours: null };
+  }
+  // Every full hour covered: was there a break in it?
+  const slots = {}; // "type hour" -> { covered, withBreak }
+  const withBreak = new Set(recent.map((b) => Math.floor(b.at / 3_600_000)));
+  const first = Math.ceil(Math.max(coveredFrom, since) / 3_600_000);
+  const last = Math.floor(now / 3_600_000);
+  for (let h = first; h < last; h++) {
+    const key = `${dayType(h * 3_600_000)} ${new Date(h * 3_600_000).getHours()}`;
+    slots[key] ??= { covered: 0, withBreak: 0 };
+    slots[key].covered += 1;
+    slots[key].withBreak += withBreak.has(h) ? 1 : 0;
+  }
+  const hours = {};
+  for (const type of ['week', 'sat', 'sun']) {
+    hours[type] = Array.from({ length: 24 }, (_, hour) => {
+      let slot = slots[`${type} ${hour}`];
+      if (!slot) {
+        // That day type not covered yet (e.g. no weekend read): all days.
+        slot = { covered: 0, withBreak: 0 };
+        for (const t of ['week', 'sat', 'sun']) {
+          slot.covered += slots[`${t} ${hour}`]?.covered ?? 0;
+          slot.withBreak += slots[`${t} ${hour}`]?.withBreak ?? 0;
+        }
+      }
+      return slot.covered === 0 || slot.withBreak / slot.covered >= HOUR_MIN_SHARE;
+    });
+  }
+  return { windows, hours };
+}
+
+/** The ad windows that apply at `time` (none in an hour without ads). */
+export function windowsAt(schedule, time) {
+  const type = dayType(time);
+  if (schedule.hours && !schedule.hours[type][new Date(time).getHours()]) {
+    return [];
+  }
+  return schedule.windows[type];
 }
 
 /** Is `minute` (0-59) inside one of `windows`? */

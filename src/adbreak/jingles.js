@@ -247,9 +247,7 @@ export function createJingleListener({
     if (offsetSeconds == null) {
       return true;
     }
-    return side === 'start'
-      ? offsetSeconds <= MAX_START_OFFSET
-      : offsetSeconds >= -MAX_END_OFFSET;
+    return side === 'start' ? offsetSeconds <= MAX_START_OFFSET : offsetSeconds >= -MAX_END_OFFSET;
   }
 
   function prepare(side) {
