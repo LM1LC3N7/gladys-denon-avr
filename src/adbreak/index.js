@@ -92,6 +92,7 @@ export function createAdBreakController({
   let lastHeosTitle = null;
   let duck = null; // { saved, ducked } while the volume is lowered by us
   let jingles = null; // jingle listener of the station playing, see jingles.js
+  let lastPlayed = null; // last feed song applied: { station, startedAt, durationSeconds }
   const pendingTracks = new Set(); // feed song changes waiting for the stream lag
 
   const detector = createAdBreakDetector({
@@ -272,6 +273,7 @@ export function createAdBreakController({
         // The stream itself carries no title: show the feed's instead of
         // the bare station name HEOS reports.
         publishNowPlaying([track.artist, track.title].filter(Boolean).join(' - '));
+        lastPlayed = { station: current, startedAt: playedAt, durationSeconds: track.durationSeconds };
         detector.onTrack({ startedAt: playedAt, durationSeconds: track.durationSeconds });
         jingles?.onSongStarted(playedAt);
       },
@@ -410,7 +412,14 @@ export function createAdBreakController({
     onPlayState(isPlaying) {
       if (isPlaying !== playing) {
         playing = isPlaying;
-        refreshDetectorStation();
+        refreshDetectorStation().then(() => {
+          // Paused, the detector forgot the song: give it back the one
+          // playing now, so that resuming during a break (or just before
+          // one) is caught without waiting for the next song.
+          if (playing && lastPlayed && lastPlayed.station === station) {
+            detector.onTrack(lastPlayed);
+          }
+        });
       }
     },
 
