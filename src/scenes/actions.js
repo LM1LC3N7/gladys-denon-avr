@@ -22,7 +22,6 @@ import {
   setSource,
   setVolume,
   sourceLabel,
-  soundModeLabel,
 } from '../devices/avr.js';
 
 export const SCENE_ACTION = Object.freeze({
@@ -101,9 +100,8 @@ export function createSceneActionHandlers(getConfig) {
         source_label: state[FEATURE.SOURCE]
           ? plainLabel(sourceLabel(state[FEATURE.SOURCE], sourceOverrides))
           : '',
-        sound_mode: state[FEATURE.SOUND_MODE]
-          ? plainLabel(soundModeLabel(state[FEATURE.SOUND_MODE]))
-          : '',
+        // The MS code, as set_amp takes it ("MOVIE", "PURE DIRECT"…).
+        sound_mode: state[FEATURE.SOUND_MODE] ?? '',
         quick_select: state[STATE.QUICK_SELECT] ?? null,
         playing: state[FEATURE.PLAYBACK_STATE] === 1,
         title: state[STATE.NOW_PLAYING_TITLE] ?? '',

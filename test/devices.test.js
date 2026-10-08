@@ -1144,3 +1144,24 @@ test('connectDevice: volume/mute are published from HEOS when there is no Telnet
     heosServer.close();
   }
 });
+
+// End-to-end: the per-device transport badge follows the real Telnet session.
+test('connectDevice publishes a local transport badge once Telnet is up', async () => {
+  const server = net.createServer((socket) => socket.resume());
+  const port = await new Promise((resolve) =>
+    server.listen(0, '127.0.0.1', () => resolve(server.address().port)),
+  );
+  const localGladys = createFakeGladys();
+  const device = buildDiscoveredDevice(localGladys, { ...DISCOVERED, host: '127.0.0.1' });
+  try {
+    connectDevice(localGladys, device, normalizeConfig({ port }));
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.deepEqual(localGladys.transports, [
+      { external_id: device.external_id, transport: 'local' },
+    ]);
+    assert.deepEqual(localGladys.connectionStatuses, [], 'no integration-wide status per device');
+  } finally {
+    disconnectDevice(device.external_id);
+    server.close();
+  }
+});

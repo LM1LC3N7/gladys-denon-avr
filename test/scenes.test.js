@@ -114,7 +114,7 @@ test('get_state returns the declared outputs, with the user source label', async
     muted: false,
     source: 'SAT/CBL',
     source_label: 'Chromecast',
-    sound_mode: 'Movie',
+    sound_mode: 'MOVIE',
     quick_select: 2,
     playing: true,
     title: 'Song',

@@ -27,6 +27,9 @@ import {
   runTestConnectionAction,
   runSelectSourceAction,
 } from './src/devices/avr.js';
+import { registerWidgets } from './src/widgets/index.js';
+import { registerSceneActions } from './src/scenes/actions.js';
+import { startSceneTriggers } from './src/scenes/triggers.js';
 
 const gladys = new GladysIntegration();
 
@@ -68,6 +71,14 @@ gladys.onSetValue(async (device, feature, value) => {
 // --- Manifest actions: buttons in the Configuration screen -------------------
 gladys.onAction('test_connection', (fields) => runTestConnectionAction(gladys, { fields, config }));
 gladys.onAction('select_source', (fields) => runSelectSourceAction(gladys, { fields, config }));
+
+// --- Dashboard widgets and scene cards (Gladys >= 5.1.0) ---------------------
+// Five widgets (src/widgets/), scene actions and scene triggers
+// (src/scenes/), all reading the live config through this getter.
+const getConfig = () => config;
+const stopWidgets = registerWidgets(gladys, getConfig);
+registerSceneActions(gladys, getConfig);
+const stopSceneTriggers = startSceneTriggers(gladys, getConfig);
 
 // --- Device lifecycle: open/close the Telnet session as devices come and go -
 gladys.onDeviceCreated(async (device) => {
@@ -156,6 +167,8 @@ gladys.on('disconnected', () => {
 // --- Graceful shutdown -------------------------------------------------------
 gladys.handleShutdown((signal) => {
   logger.info(`Received ${signal} -> graceful shutdown`);
+  stopWidgets();
+  stopSceneTriggers();
   disconnectAllDevices();
 });
 

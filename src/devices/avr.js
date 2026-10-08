@@ -24,6 +24,8 @@ export {
   DEVICE_TYPE,
   FEATURE,
   STATE,
+  TUNER_SOURCE_CODE,
+  HEOS_SOURCE_CODE,
   featureExternalId,
   sourceLabel,
   soundModeLabel,
