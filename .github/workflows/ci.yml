@@ -2,7 +2,9 @@
 # Continuous integration: runs on every push and every pull request.
 #
 # Two independent jobs:
-#   1. quality -> Prettier, ESLint, `node --test` (no extra dependency).
+#   1. quality -> Prettier, ESLint, `node --test` with coverage thresholds
+#      on src/ (see `test:coverage` in package.json), and the Gladys store's
+#      own manifest validator (the admission rules the indexer applies).
 #   2. docker  -> `docker build .`, no push. Without this job a Dockerfile
 #      change (base image bump, a COPY typo...) goes green on `quality` alone
 #      and is only ever actually built the day someone cuts a release — this
@@ -48,8 +50,11 @@ jobs:
       - name: Lint (ESLint)
         run: npm run lint
 
-      - name: Run tests
-        run: npm test
+      - name: Run tests (with coverage thresholds)
+        run: npm run test:coverage
+
+      - name: Validate the manifest (Gladys store rules)
+        run: npx --yes github:GladysAssistant/integration-store .
 
   docker:
     runs-on: ubuntu-latest

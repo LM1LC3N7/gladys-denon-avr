@@ -93,6 +93,11 @@ export function connectDevice(gladys, device, config) {
   // playback anyway, per real-hardware feedback) must not overwrite it with
   // a stale or unrelated Net/USB-subsystem guess.
   let heos = null;
+  // Whether `client` still is this device's live session: a session closed
+  // by refreshDevice()/disconnectDevice() still emits its socket 'close'
+  // (and HEOS its disconnect) a tick later — possibly after the new session
+  // reported itself up — and must never move the badge of its successor.
+  const isCurrent = (field, client) => getSession(externalId)?.[field] === client;
 
   const telnet = createTelnetClient({
     host,
@@ -110,7 +115,9 @@ export function connectDevice(gladys, device, config) {
       for (const query of buildTunerQueries()) {
         telnet.send(query);
       }
-      reportHealth(gladys, externalId, { telnetUp: true, telnetFailures: 0, host, port });
+      if (isCurrent('telnet', telnet)) {
+        reportHealth(gladys, externalId, { telnetUp: true, telnetFailures: 0, host, port });
+      }
     },
     onLine: (line) => {
       const update = parseLine(line, zone);
@@ -175,6 +182,9 @@ export function connectDevice(gladys, device, config) {
       }
     },
     onDisconnect: (consecutiveFailures) => {
+      if (!isCurrent('telnet', telnet)) {
+        return;
+      }
       reportHealth(gladys, externalId, {
         telnetUp: false,
         telnetFailures: consecutiveFailures,
@@ -191,7 +201,11 @@ export function connectDevice(gladys, device, config) {
     zone,
     config,
     isTelnetConnected: () => telnet.isConnected(),
-    onMatchChange: (heosMatch) => reportHealth(gladys, externalId, { heosMatch, host, port }),
+    onMatchChange: (heosMatch) => {
+      if (isCurrent('heos', heos)) {
+        reportHealth(gladys, externalId, { heosMatch, host, port });
+      }
+    },
   });
   setSession(externalId, { heos });
 }

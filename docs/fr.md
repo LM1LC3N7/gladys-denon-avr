@@ -64,9 +64,12 @@ Voici ce qui apparaît par ampli :
   lira votre texte à voix haute. Nécessite HEOS (voir « Support HEOS » ci-dessous) — il n'existe
   aucun moyen via le Telnet classique de lire une URL audio arbitraire, donc ceci n'apparaît/ne
   fonctionne qu'une fois qu'un identifiant de lecteur HEOS a été trouvé pour cet ampli. Le curseur
-  de volume de cette action de scène n'a aucun effet ici : Gladys ne le transmet pas à ce type
-  d'intégration (une limitation du cœur de Gladys, pas quelque chose que cette intégration peut
-  contourner) — l'annonce est lue au volume actuel de l'ampli. C'est aussi une des fonctionnalités
+  de volume de cette action de scène n'arrive pas jusqu'ici : Gladys ne le transmet pas à ce type
+  d'intégration (une limitation du cœur de Gladys). À la place, réglez **Volume des annonces**
+  dans la Configuration (0 = volume actuel), et laissez **Rétablir l'ampli après une annonce**
+  activé : une fois l'annonce terminée, l'ampli retrouve son volume, son entrée et sa veille
+  d'avant (le volume n'est pas touché si quelqu'un l'a changé pendant l'annonce). Ce que HEOS
+  jouait avant l'annonce (une radio, une playlist) ne reprend pas tout seul. C'est aussi une des fonctionnalités
   de cette page qui fonctionne sur une enceinte HEOS autonome (Denon Home, HEOS 1/3/5/7, Bar...)
   ajoutée via l'IP manuelle dans la Configuration, et pas seulement sur un vrai ampli-tuner — aux
   côtés de Volume, Muet et Lecture/Pause/Suivant/Précédent (qui ont tous un équivalent HEOS réel,
@@ -85,30 +88,59 @@ Voici ce qui apparaît par ampli :
   vous ne vous servez pas comme n'importe quelle autre fonctionnalité d'appareil — rien à
   configurer du côté de cette intégration.
 
-## Automatiser la source/le mode sonore depuis une scène
+## Widgets du tableau de bord
 
-Dans une scène, c'est l'action générique **« Contrôler un appareil »** qui permet de régler
-Source/Mode sonore/Index de source — il n'existe aucune action de scène pour les boutons propres
-au manifeste d'une intégration (**Sélectionner l'entrée** ici), sur aucune version de Gladys.
+Depuis Gladys 5.1, cette intégration ajoute ses propres cartes au tableau de bord : modifiez un
+tableau de bord, ajoutez une carte et cherchez « Denon / Marantz AVR ». Chaque carte a un réglage
+**Ampli** pour choisir l'appareil (laissé vide : le premier ampli ajouté). Les cartes affichent
+et déclenchent ; le curseur de volume et le menu déroulant des entrées restent ceux de la carte
+« Appareils » de Gladys.
 
-- **Sur Gladys 4.86.1 ou plus récent**, « Contrôler un appareil » affiche déjà un vrai menu
-  déroulant avec les libellés pour Source et Mode sonore, exactement comme le tableau de bord :
-  choisissez l'appareil, puis la fonctionnalité, puis la valeur. L'Index de source fonctionne
-  aussi si vous préférez fixer un simple nombre.
-- **Sur une version plus ancienne de Gladys**, ce menu déroulant n'est soit pas proposé, soit
-  n'accepte pas la valeur — utilisez plutôt **l'Index de source** : c'est un simple nombre, que
-  « Contrôler un appareil » a toujours su régler, et qui correspond à la même entrée que le menu
-  déroulant (position dans la liste Source _actuellement visible_, 0 = première entrée).
-- **Si « Contrôler un appareil » n'affiche strictement rien pour cet ampli** (ni menu Source/Mode
-  sonore, ni Index de source) : essayez d'abord un **rafraîchissement forcé / de vider le cache
-  du navigateur** — confirmé une fois comme étant la vraie cause : un bundle front mis en cache
-  affichait un sélecteur totalement vide pour cet appareil alors que d'autres intégrations (MQTT,
-  Zigbee2MQTT) fonctionnaient normalement, corrigé instantanément en vidant le cache, sans aucun
-  changement de configuration. Toujours rien après ça ? L'appareil a probablement été ajouté avant
-  que cette intégration ne propose l'Index de source, combiné à une version de Gladys antérieure à
-  4.86.1 — ouvrez l'onglet **Découverte** de l'intégration, lancez un scan, puis cliquez sur
-  **Mettre à jour** sur l'appareil, comme tout autre changement de structure (voir Configuration
-  ci-dessous).
+- **En cours de lecture** — la pochette (ou le logo de la station), le titre, l'artiste ou la
+  station, l'album, l'entrée et le mode son, le volume en direct, avec Précédent, Lecture/Pause,
+  Suivant et Sourdine. C'est ce que la carte « Musique » de Gladys n'affiche pas : ni titre, ni
+  pochette, ni volume pour un ampli. La pochette n'apparaît que si elle pèse moins de 300 Ko
+  (limite de Gladys) et que le conteneur de l'intégration peut la télécharger (souvent sur
+  Internet).
+- **Raccourcis** — quatre boutons en un appui, chacun choisi parmi les entrées (avec vos noms de
+  « Renommer/masquer des sources »), les **Quick Select 1 à 5** (Smart Select chez Marantz : entrée,
+  volume et mode son mémorisés dans l'ampli) et les **favoris HEOS 1 à 8**. Le raccourci actif est
+  coché. Un libellé personnalisé est possible pour chaque bouton.
+- **Ampli** — alimentation, entrée, mode son et sourdine d'un coup d'œil, le volume en direct, et
+  les boutons Allumer/Veille, Vol −, Vol + et Sourdine.
+- **Télécommande** — quatre touches au choix (Haut, Bas, Gauche, Droite, OK, Retour, Menu, Info,
+  Vol −, Vol +, Sourdine, Allumer, Veille ; les quatre flèches par défaut). Posez-en plusieurs côte
+  à côte pour un pavé complet (par exemple une carte « flèches » et une carte « OK / Retour /
+  Menu / Info »).
+- **Radio (tuner)** — le tuner FM/AM : fréquence, présélection, bande et mode d'accord, avec
+  quatre boutons au choix (Fréq −/+, Présélection −/+, AM/FM, Auto/Manuel, Entrée Tuner). L'ampli
+  n'accepte ces commandes que sur l'entrée Tuner : un appui bascule d'abord dessus si besoin. La
+  bascule AM/FM n'est documentée par Denon que pour les modèles nord-américains.
+
+## Scènes
+
+Depuis Gladys 5.1, l'éditeur de scènes propose les actions et déclencheurs de cette intégration
+(cherchez « Ampli : ») :
+
+- **Ampli : rappeler un Quick Select** — Quick Select 1 à 5 (Smart Select chez Marantz).
+- **Ampli : jouer un favori HEOS** — la n-ième entrée des favoris de l'application HEOS (une
+  radio, une playlist…), sur la zone configurée, allumée et basculée sur HEOS si besoin.
+- **Ampli : régler l'ampli** — alimentation, entrée, mode son et volume en une seule action ; un
+  champ laissé vide n'est pas modifié. Idéal pour une scène « Film » ou « Musique ».
+- **Ampli : lire l'état de l'ampli** — renvoie l'alimentation, le volume, l'entrée (code et nom),
+  le mode son, le Quick Select, la lecture, le titre et l'artiste, pour les actions suivantes de la
+  scène — par exemple un « Continuer seulement si » sur l'entrée.
+- Déclencheur **Ampli : l'entrée a changé** — depuis Gladys, la télécommande ou l'application,
+  filtrable sur l'ampli et sur la nouvelle entrée (par exemple : passage sur l'entrée TV →
+  baisser les lumières). L'entrée précédente est disponible en variable.
+- Déclencheur **Ampli : le morceau a changé** — un nouveau titre sur HEOS ou l'entrée réseau, avec
+  titre, artiste, album et entrée en variables.
+
+L'action générique **« Contrôler un appareil »** fonctionne toujours pour Source, Mode sonore et
+Index de source. Si elle n'affiche strictement rien pour cet ampli, essayez d'abord un
+**rafraîchissement forcé / de vider le cache du navigateur** (cause confirmée une fois : un bundle
+front mis en cache), puis relancez un scan **Découverte** et cliquez sur **Mettre à jour** sur
+l'appareil.
 
 ## Support HEOS
 
@@ -148,6 +180,8 @@ que ce soit corrigé.
 
 ## Prérequis
 
+- **Gladys 5.1.0 ou plus récent** (widgets et actions/déclencheurs de scène propres à
+  l'intégration).
 - Un ampli-tuner Denon ou Marantz avec une connexion réseau (Ethernet/Wi-Fi).
 - La **veille réseau** (parfois appelée veille « ECO ») activée dans le menu de configuration de
   l'ampli. Sans cela, l'ampli disparaît complètement du réseau une fois éteint et Gladys ne peut
@@ -195,8 +229,18 @@ que ce soit corrigé.
    mode sonore et les touches du menu de configuration agissent toujours sur la zone principale,
    la seule à avoir un menu à l'écran). Le changement s'applique immédiatement, inutile de
    rajouter l'appareil.
+7. **Annonces** (onglet Configuration) : **Volume des annonces** (0 = garder le volume actuel) et
+   **Rétablir l'ampli après une annonce** pour l'action « Parler sur une enceinte » — voir
+   « Diffuser une notification » plus haut.
 
 ## Dépannage
+
+- **Le badge de l'appareil** (liste des appareils) dit l'état de chaque ampli : _local_ = joignable ;
+  _injoignable_ = ni le contrôle Telnet ni HEOS ne répondent (ampli débranché, veille réseau
+  désactivée, mauvaise IP) ; un **point orange** signale un fonctionnement dégradé, avec la raison
+  au survol — HEOS ne connaît aucun lecteur à l'IP de l'ampli (« Parler sur une enceinte » ne
+  fonctionnera pas), ou seul HEOS répond (une enceinte HEOS autonome, ou un ampli dont le port 23
+  est fermé).
 
 - **Le scan ne trouve rien** : vérifiez que Gladys et l'ampli sont sur le même segment réseau et
   que le multicast/UPnP n'est pas filtré par votre routeur ou vos switchs, puis utilisez l'IP

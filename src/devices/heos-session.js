@@ -55,6 +55,7 @@ export const HEOS_MATCH = {
  * @param {object} opts
  * @param {string} opts.host the receiver's IP, matched against HEOS players
  * @param {string} opts.zone the configured zone (HEOS player pick)
+ * @param {number} [opts.port] the HEOS CLI port (tests only, against a local fake server)
  * @param {object} opts.config the normalized config (reconnect backoff)
  * @param {() => boolean} opts.isTelnetConnected whether Telnet is up (volume/mute precedence)
  * @param {(match: string) => void} [opts.onMatchChange] called when HEOS_MATCH moves
@@ -63,7 +64,7 @@ export const HEOS_MATCH = {
 export function openHeosSession(
   gladys,
   device,
-  { host, zone, config, isTelnetConnected, onMatchChange },
+  { host, zone, config, isTelnetConnected, onMatchChange, port },
 ) {
   const externalId = device.external_id;
   const session = {
@@ -163,6 +164,7 @@ export function openHeosSession(
 
   session.client = createHeosClient({
     host,
+    port,
     reconnectIntervalSeconds: config.reconnect_interval_seconds,
     onConnect: () => {
       logger.debug(`${externalId}: HEOS CLI connected, looking up this receiver's player id`);
