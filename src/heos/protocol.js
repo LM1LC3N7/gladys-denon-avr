@@ -320,3 +320,29 @@ export function parseNowPlayingMedia(payload) {
   }
   return { title, artist: artist || station };
 }
+
+/**
+ * Extract `{ album, imageUrl }` from the same `get_now_playing_media`
+ * payload, for the "Now playing" dashboard widget (src/widgets/). HEOS'
+ * `image_url` is the cover art of the track or the logo of the station —
+ * empty for many sources (Bluetooth, a USB file without embedded art...).
+ * Only http(s) URLs are kept: the widget fetches it itself (Gladys never
+ * loads a third-party URL in the browser), so nothing else is followed.
+ */
+export function parseNowPlayingArtwork(payload) {
+  if (!payload || typeof payload !== 'object') {
+    return { album: '', imageUrl: '' };
+  }
+  const album = typeof payload.album === 'string' ? payload.album.trim() : '';
+  const rawUrl = typeof payload.image_url === 'string' ? payload.image_url.trim() : '';
+  let imageUrl = '';
+  try {
+    const url = new URL(rawUrl);
+    if (url.protocol === 'http:' || url.protocol === 'https:') {
+      imageUrl = url.href;
+    }
+  } catch {
+    // Empty or not a URL: no artwork.
+  }
+  return { album, imageUrl };
+}
