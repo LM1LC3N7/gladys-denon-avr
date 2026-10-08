@@ -51,6 +51,13 @@ const SIDE_BEFORE = 10;
 const SIDE_AFTER = 150;
 const MARK_BEFORE = 30;
 const MARK_AFTER = 5;
+// A jingle marks the transition: the start one within MAX_START_OFFSET s
+// of the song end, the end one within MAX_END_OFFSET s of the next song.
+// A sound shared deeper in the break is an ad aired often (on OUI FM, one
+// came back at ~141 s after the song end in 4 breaks of 6): taken for the
+// end jingle, it would restore the volume minutes before the music.
+const MAX_START_OFFSET = 90;
+const MAX_END_OFFSET = 60;
 const MAX_SAMPLES = 6;
 const MIN_SAMPLES = 3;
 
@@ -236,6 +243,15 @@ export function createJingleListener({
   const templates = { start: null, end: null }; // normalized, from state.jingles
   const pending = []; // shadow-mode hits waiting for the metadata verdict
 
+  function nearTransition(side, offsetSeconds) {
+    if (offsetSeconds == null) {
+      return true;
+    }
+    return side === 'start'
+      ? offsetSeconds <= MAX_START_OFFSET
+      : offsetSeconds >= -MAX_END_OFFSET;
+  }
+
   function prepare(side) {
     const jingle = state.jingles[side];
     templates[side] = jingle
@@ -250,6 +266,11 @@ export function createJingleListener({
       // Version 1 (landmark hashes) cannot be converted: start over.
       if (parsed.version === STORE_VERSION) {
         state = { ...emptyState(), ...parsed };
+        for (const side of ['start', 'end']) {
+          if (!nearTransition(side, state.jingles[side]?.offsetSeconds)) {
+            state.jingles[side] = null;
+          }
+        }
       }
     })
     .catch(() => {})
@@ -390,7 +411,7 @@ export function createJingleListener({
     const samples = state.samples[side].map((s) => ({ frames: decodeFrames(s), anchor: s.anchor }));
     const found = findSharedJingle(samples);
     const current = state.jingles[side];
-    if (!found) {
+    if (!found || !nearTransition(side, found.offsetSeconds)) {
       return;
     }
     const template = normalizedWindow(found.frames, 0, found.frames.length);
