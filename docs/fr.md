@@ -163,19 +163,22 @@ l'heure. Pour chaque station, l'intégration apprend les minutes de l'heure où 
 
 - **dans une de ces fenêtres**, une fin de chanson suivie de ~45 s sans musique est traitée comme une
   coupure. Ce délai laisse passer l'animateur avant le jingle pub ;
-- **en dehors**, il faut 2 min 30 sans musique. L'animateur ne parle jamais aussi longtemps entre deux
-  morceaux ;
+- **en dehors**, le volume ne baisse jamais sur un simple silence musical : une chronique, les infos
+  ou une interview ne sont pas des pubs. Seul le jingle pub de la station, une fois appris, peut y
+  ouvrir une coupure ;
 - la coupure se termine quand le titre suivant démarre, avec 10 minutes maximum par sécurité.
 
-L'apprentissage est enregistré par station et se recale si la grille change.
+L'apprentissage est continu : tant que la station est suivie, son historique de diffusion est relu
+toutes les heures, et les fenêtres sont calculées sur les coupures des 3 derniers jours. Un
+changement de grille est donc pris en compte en quelques jours.
 
 **Le jingle pub.** Chaque station ouvre ses coupures par le même jingle (sur OUI FM, « restez avec
 nous pendant la pub »). Pendant l'écoute, l'intégration décode le flux de la station (ffmpeg) et
 compare le son des coupures entre elles. Le son qui revient dans la plupart d'entre elles, même
 couvert par la voix de l'animateur, devient le jingle de la station. Il reste d'abord en
 observation, puis devient actif après 2 détections suivies d'une vraie coupure. Dès lors, le
-volume baisse **au jingle**, au lieu d'attendre 45 s, et l'animateur n'est plus coupé. Hors des
-fenêtres pub, un long passage parlé (chronique, infos) ne baisse plus le volume sans le jingle. Il faut
+volume baisse **au jingle**, au lieu d'attendre 45 s, et l'animateur n'est plus coupé. Si une
+coupure arrive sans jingle, la règle des fenêtres prend le relais. Il faut
 compter quelques heures d'écoute (3 longues coupures), ou 3 appuis sur **Mark ad break** juste
 après le jingle. Un jingle qui se met à donner de fausses alertes est oublié et réappris.
 

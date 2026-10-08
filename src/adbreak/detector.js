@@ -12,17 +12,17 @@
 //
 // The rule, validated by ear on OUI FM: radio metadata never says "ad", only
 // "song X started, lasts N s". Once a song is over with no next song, the
-// station is either in an ad break or the host is talking. Host talk between
-// songs lasts up to ~2 min, so outside the station's learned ad windows we
-// wait OUTSIDE_WINDOW_GRACE_SECONDS before calling it a break; inside a
-// window (where breaks statistically happen) we only wait for the usual host
-// talk before the ad jingle (learned, ~45 s by default). The next song ends
-// the break.
+// station is either in an ad break or the host is talking. Two clues must
+// agree: the song ended inside one of the station's learned ad windows
+// (where its breaks statistically happen, see stats.js), and the host has
+// been talking longer than usual before the ads (learned, ~45 s by default).
+// Outside the windows a long talk (news, a feature, an interview) is never
+// taken for a break; only the station's ad jingle, once learned, can start
+// one there. The next song ends the break.
 // -----------------------------------------------------------------------------
 
 import { isInWindow, DEFAULT_PRE_BREAK_TALK_SECONDS } from './stats.js';
 
-export const OUTSIDE_WINDOW_GRACE_SECONDS = 150;
 export const JINGLE_FALLBACK_GRACE_SECONDS = 90;
 // Safety net: never keep the volume down longer than this, whatever happens
 // (stream switched to a talk show, metadata feed stalled...). Longest break
@@ -30,8 +30,11 @@ export const JINGLE_FALLBACK_GRACE_SECONDS = 90;
 export const MAX_BREAK_SECONDS = 600;
 // A window already "used" by a break is not trusted again for this long:
 // stations air one break per window, so a second long silence in the same
-// window is more likely the host than a second ad break.
+// window is more likely the host than a second ad break. A "break" ended by
+// a song within SHORT_BREAK_SECONDS was the host after all: it does not use
+// the window up.
 const WINDOW_REUSE_MS = 20 * 60 * 1000;
+const SHORT_BREAK_SECONDS = 120;
 // Without metadata (manual marks only), a predicted break lasts this long
 // unless the station's measured typical length says otherwise.
 export const DEFAULT_BREAK_SECONDS = 240;
@@ -56,6 +59,7 @@ export function createAdBreakDetector({
   let track = null; // { startedAt, durationSeconds }
   let breakState = null; // { startedAt, songEndedAt, reason }
   let lastBreakAt = 0;
+  let previousBreakAt = 0; // lastBreakAt before the current break
 
   function songEnd() {
     return track?.durationSeconds > 0 ? track.startedAt + track.durationSeconds * 1000 : null;
@@ -68,6 +72,7 @@ export function createAdBreakDetector({
       track.breakHandled = true;
     }
     breakState = { startedAt: now(), songEndedAt, reason };
+    previousBreakAt = lastBreakAt;
     lastBreakAt = now();
     onBreakStart({ reason, songEndedAt });
   }
@@ -75,6 +80,9 @@ export function createAdBreakDetector({
   function endBreak(reason) {
     if (!breakState) {
       return;
+    }
+    if (reason === 'next_song' && now() - breakState.startedAt < SHORT_BREAK_SECONDS * 1000) {
+      lastBreakAt = previousBreakAt;
     }
     breakState = null;
     onBreakEnd({ reason });
@@ -158,11 +166,8 @@ export function createAdBreakDetector({
           return;
         }
         const inWindow = windowFresh && isInWindow(new Date(end).getMinutes(), station.windows);
-        if (!inWindow && station.hasStartJingle) {
-          // The station's jingle is known: outside its ad windows, a long
-          // talk without music (news, a feature, an interview) is not
-          // taken for a break unless the jingle is heard.
-          return;
+        if (!inWindow) {
+          return; // Outside the ad windows: only the jingle starts a break.
         }
         const learnedTalk =
           station.preBreakTalkByHour?.[new Date(end).getHours()] ??
@@ -170,13 +175,11 @@ export function createAdBreakDetector({
           DEFAULT_PRE_BREAK_TALK_SECONDS;
         // With a learned start jingle, the jingle starts the break: this is
         // only the fallback for a missed jingle, so give the host more room.
-        const graceSeconds = inWindow
-          ? station.hasStartJingle
-            ? Math.max(learnedTalk, JINGLE_FALLBACK_GRACE_SECONDS)
-            : learnedTalk
-          : OUTSIDE_WINDOW_GRACE_SECONDS;
+        const graceSeconds = station.hasStartJingle
+          ? Math.max(learnedTalk, JINGLE_FALLBACK_GRACE_SECONDS)
+          : learnedTalk;
         if (t >= end + graceSeconds * 1000) {
-          startBreak(inWindow ? 'song_ended_in_window' : 'song_ended_long_silence', end);
+          startBreak('song_ended_in_window', end);
         }
         return;
       }

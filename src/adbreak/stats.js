@@ -34,6 +34,13 @@ export const BREAK_MAX_SECONDS = 900;
 const MAX_BREAKS = 200;
 const MAX_MARK_OFFSETS = 50;
 
+// The windows follow the station as it is now: they are learned from the
+// breaks of the last LEARNING_DAYS days only (kept up to date from the
+// playlist history, see index.js), so a schedule change is picked up within
+// days. A station with too few recent breaks (no history, little listening)
+// falls back to all the breaks recorded.
+export const LEARNING_DAYS = 3;
+
 // Below this many recorded breaks the histogram is too thin to trust: fall
 // back to the station's built-in seed windows (if any), else no window.
 export const MIN_BREAKS_FOR_WINDOWS = 6;
@@ -90,19 +97,22 @@ function median(values) {
  * a window wrapping past the hour, e.g. [58, 63] = :58–:02).
  * @param {{breaks: Array}} stats
  * @param {Array<[number, number]>} [seedWindows] used until enough breaks are learned
+ * @param {number} [now]
  */
-export function learnedWindows(stats, seedWindows = []) {
-  if (stats.breaks.length < MIN_BREAKS_FOR_WINDOWS) {
+export function learnedWindows(stats, seedWindows = [], now = Date.now()) {
+  const recent = stats.breaks.filter((b) => b.at >= now - LEARNING_DAYS * 86_400_000);
+  const breaks = recent.length >= MIN_BREAKS_FOR_WINDOWS ? recent : stats.breaks;
+  if (breaks.length < MIN_BREAKS_FOR_WINDOWS) {
     return seedWindows;
   }
   const counts = new Array(60).fill(0);
-  for (const { minute } of stats.breaks) {
+  for (const { minute } of breaks) {
     counts[minute] += 1;
   }
   // Smooth over ±1 minute: a break starting at :13 one day and :14 the next
   // is the same slot, and a song ending a few seconds either side of the
   // minute boundary must not flip the decision.
-  const threshold = Math.max(2, stats.breaks.length * WINDOW_MIN_SHARE);
+  const threshold = Math.max(2, breaks.length * WINDOW_MIN_SHARE);
   const inWindow = counts.map(
     (_, m) => counts[(m + 59) % 60] + counts[m] + counts[(m + 1) % 60] >= threshold,
   );

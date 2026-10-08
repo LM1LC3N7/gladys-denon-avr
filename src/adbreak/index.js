@@ -32,6 +32,7 @@ import {
   recordBreak,
   recordMarkOffset,
   learnedWindows,
+  LEARNING_DAYS,
   preBreakTalkSeconds,
   preBreakTalkByHour,
   typicalBreakSeconds,
@@ -65,9 +66,12 @@ export function __resetStoreForTesting() {
 }
 
 const TICK_MS = 1000;
-// How often a station's feed is looked for again when it had none, and its
-// playlist history re-learned.
+// How often a station's feed is looked for again when it had none.
 const RECHECK_MS = 7 * 24 * 3_600_000;
+// While a station is followed, its playlist history is read again this
+// often (only the part not read yet): a continuous learning of its ad
+// breaks, see LEARNING_DAYS in stats.js.
+const HISTORY_REFRESH_MS = 3_600_000;
 
 /**
  * @param {object} opts
@@ -92,6 +96,7 @@ export function createAdBreakController({
   let lastHeosTitle = null;
   let duck = null; // { saved, ducked } while the volume is lowered by us
   let jingles = null; // jingle listener of the station playing, see jingles.js
+  let historyTimer = null;
   let lastPlayed = null; // last feed song applied: { station, startedAt, durationSeconds }
   const pendingTracks = new Set(); // feed song changes waiting for the stream lag
 
@@ -252,6 +257,8 @@ export function createAdBreakController({
   function stopFeed() {
     feed?.stop();
     feed = null;
+    clearInterval(historyTimer);
+    historyTimer = null;
     for (const timer of pendingTracks) {
       clearTimeout(timer);
     }
@@ -322,20 +329,32 @@ export function createAdBreakController({
     });
     logger.info(`${name}: ${current.name}: following its live song feed (${info.site})`);
     await refreshDetectorStation();
-    await bootstrapFromHistory(current);
+    const learn = () =>
+      learnFromHistory(current).catch((err) =>
+        logger.warn(`${name}: ${current.name}: playlist history failed: ${err.message}`),
+      );
+    historyTimer = setInterval(learn, HISTORY_REFRESH_MS);
+    historyTimer.unref?.();
+    await learn();
   }
 
   // Learn from the days of playlist the station already published, instead
   // of only from what is heard here: a new station's ad windows are known
-  // within a minute of first playing it. Refreshed weekly.
-  async function bootstrapFromHistory(current) {
+  // within a minute of first playing it. Then, every HISTORY_REFRESH_MS,
+  // the hours published since: the station is learned continuously, even
+  // while nobody listens to it.
+  async function learnFromHistory(current) {
     const store = await getStore();
-    const bootstrappedAt = store[current.key]?.bootstrappedAt ?? 0;
-    if (Date.now() - bootstrappedAt < RECHECK_MS) {
-      return;
-    }
+    const readUntil = store[current.key]?.historyReadUntil ?? 0;
+    // One hour of overlap: the song before the first new one is needed to
+    // measure the gap after it.
+    const hours = Math.min(
+      LEARNING_DAYS * 24,
+      Math.ceil((Date.now() - readUntil) / 3_600_000) + 1,
+    );
+    const readAt = Date.now();
     const { site, mdsId } = current.feed;
-    const songs = await fetchPlaylistHistory({ site, mdsId });
+    const songs = await fetchPlaylistHistory({ site, mdsId, hours });
     // The history has no durations: Deezer's, by track id or else by a
     // search, politely (Deezer allows 50 requests per 5 s).
     const keyOf = (s) => s.deezerId || `${s.artist}\n${s.title}`.toLowerCase();
@@ -357,16 +376,18 @@ export function createAdBreakController({
       max: BREAK_MAX_SECONDS,
     });
     let stats = store[current.key] ?? emptyStats();
-    const already = new Set(stats.breaks.map((b) => Math.round(b.at / 60_000)));
+    let added = 0;
     for (const brk of found) {
-      if (!already.has(Math.round(brk.startedAt / 60_000))) {
+      // Already known (heard live, or read in a previous pass)?
+      if (!stats.breaks.some((b) => Math.abs(b.at - brk.startedAt) < 3 * 60_000)) {
         stats = recordBreak(stats, { ...brk, source: 'history' });
+        added += 1;
       }
     }
-    store[current.key] = { ...stats, bootstrappedAt: Date.now() };
+    store[current.key] = { ...stats, historyReadUntil: readAt };
     await persist(store);
     logger.info(
-      `${name}: ${current.name}: learned ${found.length} ad breaks from ${songs.length} songs of playlist history`,
+      `${name}: ${current.name}: ${added} new ad breaks from ${songs.length} songs of the last ${hours} h of playlist history`,
     );
     if (station === current) {
       await refreshDetectorStation();

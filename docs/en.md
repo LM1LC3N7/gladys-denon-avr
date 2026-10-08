@@ -145,18 +145,21 @@ integration learns the minutes of the hour its breaks (4 to 8 minutes long) star
 
 - **inside one of these windows**, a song ending with ~45 s of no music afterwards counts as a
   break. That delay lets the host talk before the ad jingle;
-- **outside them**, it takes 2 min 30 s of no music. The host never talks that long between songs;
+- **outside them**, the volume never drops on a mere lack of music: a feature, the news or an
+  interview are not ads. Only the station's ad jingle, once learned, can open a break there;
 - the break ends when the next song starts, with a 10-minute safety limit.
 
-What is learned is stored per station and follows schedule changes.
+The learning is continuous: while the station is followed, its playlist history is read again every
+hour, and the windows come from the breaks of the last 3 days. A schedule change is picked up
+within days.
 
 **The ad jingle.** Each station opens its breaks with the same jingle (on OUI FM, "stay with us
 during the ads"). While a station plays, the integration decodes its stream (ffmpeg) and compares
 the sound of its breaks with each other. The sound found in most of them, even under the host's
 voice, becomes the station's jingle. It is only observed at first, and becomes active after 2
 detections followed by a real break. From then on the volume drops **at the jingle** instead of
-after 45 s, and the host is no longer ducked. Outside the ad windows, a long talk (a feature,
-the news) no longer lowers the volume without the jingle. Expect a few hours of listening (3 long breaks), or 3
+after 45 s, and the host is no longer ducked. A break that comes without its jingle is still
+caught by the windows rule. Expect a few hours of listening (3 long breaks), or 3
 presses of **Mark ad break** right after the jingle. A jingle that starts giving false alarms is
 forgotten and learned again.
 

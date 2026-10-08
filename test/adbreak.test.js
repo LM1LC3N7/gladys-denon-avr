@@ -13,7 +13,6 @@ import {
 } from '../src/adbreak/stats.js';
 import {
   createAdBreakDetector,
-  OUTSIDE_WINDOW_GRACE_SECONDS,
   MAX_BREAK_SECONDS,
 } from '../src/adbreak/detector.js';
 import {
@@ -77,6 +76,20 @@ test('learnedWindows falls back to the seed windows until enough breaks are lear
   assert.deepEqual(learnedWindows(stats, seed), seed);
   stats = recordBreak(stats, { startedAt: at(10, 30), durationSeconds: 300, source: 'auto' });
   assert.deepEqual(learnedWindows(stats, seed), seed);
+});
+
+test('learnedWindows follows the breaks of the last days, not the old schedule', () => {
+  const now = at(12, 0);
+  const days = (n) => n * 86_400_000;
+  let stats = emptyStats();
+  for (let i = 0; i < 10; i++) {
+    // The old schedule (a week ago) at :20, the current one at :40.
+    stats = recordBreak(stats, { startedAt: at(10, 20) - days(7), durationSeconds: 300, source: 'auto' });
+    stats = recordBreak(stats, { startedAt: at(10, 40) - days(i % 3), durationSeconds: 300, source: 'auto' });
+  }
+  const windows = learnedWindows(stats, [], now);
+  assert.ok(isInWindow(40, windows), JSON.stringify(windows));
+  assert.ok(!isInWindow(20, windows), JSON.stringify(windows));
 });
 
 test('learnedWindows keeps a window wrapping past the hour in one piece', () => {
@@ -188,33 +201,40 @@ test('outside an ad window only a long silence counts as a break (host talk is s
   assert.deepEqual(h.events, [['gap', 101]]);
 });
 
-test('outside an ad window a silence longer than the host ever talks is a break', () => {
+test('outside an ad window even a long talk is not a break, only the jingle starts one', () => {
   const h = harness();
-  h.setTime(at(12, 17));
-  h.detector.onTrack({ startedAt: at(12, 17), durationSeconds: 180 }); // ends 12:20
-  h.runUntil(at(12, 20) + OUTSIDE_WINDOW_GRACE_SECONDS * 1000 - 1000);
-  assert.deepEqual(h.events, []);
-  h.runUntil(at(12, 20) + OUTSIDE_WINDOW_GRACE_SECONDS * 1000);
-  assert.deepEqual(h.events, [['start', 'song_ended_long_silence']]);
-});
-
-test('with a learned jingle, a long talk outside the ad windows is not a break', () => {
-  const h = harness({ hasStartJingle: true });
   h.setTime(at(12, 17));
   h.detector.onTrack({ startedAt: at(12, 17), durationSeconds: 180 }); // ends 12:20
   h.runUntil(at(12, 26)); // a 6 min feature, no music
   assert.deepEqual(h.events, []);
-  h.detector.jingleStart(); // ... until the ad jingle
+  h.detector.jingleStart(); // ... until an ad jingle (once learned)
   assert.deepEqual(h.events, [['start', 'start_jingle']]);
+});
+
+test('a short false break (the host, then a song) does not use the window up', () => {
+  const h = harness();
+  h.setTime(at(12, 36));
+  h.detector.onTrack({ startedAt: at(12, 34), durationSeconds: 120 }); // ends 12:36
+  h.runUntil(at(12, 36, 46));
+  h.detector.onTrack({ startedAt: at(12, 37, 10), durationSeconds: 180 }); // ends 12:40:10
+  h.runUntil(at(12, 40, 56));
+  assert.deepEqual(
+    h.events.filter(([e]) => e !== 'gap'),
+    [
+      ['start', 'song_ended_in_window'],
+      ['end', 'next_song'],
+      ['start', 'song_ended_in_window'],
+    ],
+  );
 });
 
 test('a window already used by a break is not trusted again for a second one', () => {
   const h = harness();
   h.setTime(at(12, 40));
   h.detector.onTrack({ startedAt: at(12, 38), durationSeconds: 120 }); // ends 12:40
-  h.runUntil(at(12, 40, 46));
-  h.detector.onTrack({ startedAt: at(12, 41), durationSeconds: 60 }); // ends 12:42, same window
-  h.runUntil(at(12, 43));
+  h.runUntil(at(12, 44)); // a real break
+  h.detector.onTrack({ startedAt: at(12, 44), durationSeconds: 120 }); // ends 12:46, same window
+  h.runUntil(at(12, 47, 30));
   assert.deepEqual(
     h.events.filter(([kind]) => kind === 'start'),
     [['start', 'song_ended_in_window']],
