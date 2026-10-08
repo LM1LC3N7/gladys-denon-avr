@@ -158,6 +158,12 @@ export function createAdBreakDetector({
           return;
         }
         const inWindow = windowFresh && isInWindow(new Date(end).getMinutes(), station.windows);
+        if (!inWindow && station.hasStartJingle) {
+          // The station's jingle is known: outside its ad windows, a long
+          // talk without music (news, a feature, an interview) is not
+          // taken for a break unless the jingle is heard.
+          return;
+        }
         const learnedTalk =
           station.preBreakTalkByHour?.[new Date(end).getHours()] ??
           station.preBreakTalkSeconds ??

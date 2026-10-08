@@ -174,7 +174,8 @@ nous pendant la pub »). Pendant l'écoute, l'intégration décode le flux de la
 compare le son des coupures entre elles. Le son qui revient dans la plupart d'entre elles, même
 couvert par la voix de l'animateur, devient le jingle de la station. Il reste d'abord en
 observation, puis devient actif après 2 détections suivies d'une vraie coupure. Dès lors, le
-volume baisse **au jingle**, au lieu d'attendre 45 s, et l'animateur n'est plus coupé. Il faut
+volume baisse **au jingle**, au lieu d'attendre 45 s, et l'animateur n'est plus coupé. Hors des
+fenêtres pub, un long passage parlé (chronique, infos) ne baisse plus le volume sans le jingle. Il faut
 compter quelques heures d'écoute (3 longues coupures), ou 3 appuis sur **Mark ad break** juste
 après le jingle. Un jingle qui se met à donner de fausses alertes est oublié et réappris.
 

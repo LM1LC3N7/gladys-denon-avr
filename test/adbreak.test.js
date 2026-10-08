@@ -198,6 +198,16 @@ test('outside an ad window a silence longer than the host ever talks is a break'
   assert.deepEqual(h.events, [['start', 'song_ended_long_silence']]);
 });
 
+test('with a learned jingle, a long talk outside the ad windows is not a break', () => {
+  const h = harness({ hasStartJingle: true });
+  h.setTime(at(12, 17));
+  h.detector.onTrack({ startedAt: at(12, 17), durationSeconds: 180 }); // ends 12:20
+  h.runUntil(at(12, 26)); // a 6 min feature, no music
+  assert.deepEqual(h.events, []);
+  h.detector.jingleStart(); // ... until the ad jingle
+  assert.deepEqual(h.events, [['start', 'start_jingle']]);
+});
+
 test('a window already used by a break is not trusted again for a second one', () => {
   const h = harness();
   h.setTime(at(12, 40));

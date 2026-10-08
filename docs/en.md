@@ -155,7 +155,8 @@ during the ads"). While a station plays, the integration decodes its stream (ffm
 the sound of its breaks with each other. The sound found in most of them, even under the host's
 voice, becomes the station's jingle. It is only observed at first, and becomes active after 2
 detections followed by a real break. From then on the volume drops **at the jingle** instead of
-after 45 s, and the host is no longer ducked. Expect a few hours of listening (3 long breaks), or 3
+after 45 s, and the host is no longer ducked. Outside the ad windows, a long talk (a feature,
+the news) no longer lowers the volume without the jingle. Expect a few hours of listening (3 long breaks), or 3
 presses of **Mark ad break** right after the jingle. A jingle that starts giving false alarms is
 forgotten and learned again.
 
