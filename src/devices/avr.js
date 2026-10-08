@@ -617,6 +617,18 @@ export function connectDevice(gladys, device, config) {
   // playback anyway, per real-hardware feedback) must not overwrite it with
   // a stale or unrelated Net/USB-subsystem guess.
   const heosState = { client: null, pid: null, pollTimer: null };
+  // feature external_id -> last value Gladys acknowledged from the HEOS side.
+  // The 30 s poll re-fetches every HEOS value whether or not it moved, and
+  // Gladys core keeps NO dedup of its own: every numeric publishState of a
+  // keep_history feature is one more history row (playback state alone was
+  // ~2,900 rows a day per receiver), and Gladys >=5.1.2 flags features past
+  // 8,640 states a day as "verbose". publishHeosState() only publishes what
+  // changed — the poll still self-heals a missed event, it just no longer
+  // re-writes the same value. Recorded on success only (a publish that failed
+  // while the Gladys WebSocket was down is retried on the next tick), dropped
+  // whenever the legacy Telnet side publishes the same feature or HEOS
+  // disconnects, so Gladys is never left on a value HEOS didn't send last.
+  const lastHeosPublished = new Map();
 
   const telnet = createTelnetClient({
     host,
@@ -647,6 +659,7 @@ export function connectDevice(gladys, device, config) {
           return; // HEOS is authoritative once matched — see the comment above heosState.
         }
         const id = featureExternalId(device.external_id, FEATURE.NOW_PLAYING);
+        lastHeosPublished.delete(id);
         const nowPlaying = [state[NOW_PLAYING_ARTIST], state[NOW_PLAYING_TITLE]]
           .filter(Boolean)
           .join(' - ');
@@ -661,6 +674,7 @@ export function connectDevice(gladys, device, config) {
       }
 
       const id = featureExternalId(device.external_id, update.feature);
+      lastHeosPublished.delete(id);
       const isTextFeature =
         update.feature === FEATURE.SOURCE || update.feature === FEATURE.SOUND_MODE;
       const value = isTextFeature ? { text: update.value } : update.value;
@@ -708,13 +722,23 @@ export function connectDevice(gladys, device, config) {
   // falls back to the legacy NS9x transport commands (see onSetValue()).
   heosConnections.set(device.external_id, heosState);
 
+  // Only publish what changed on the HEOS side — see lastHeosPublished above.
+  function publishHeosState(id, value) {
+    const key = JSON.stringify(value);
+    if (lastHeosPublished.get(id) === key) {
+      return;
+    }
+    gladys
+      .publishState(id, value)
+      .then(() => lastHeosPublished.set(id, key))
+      .catch((err) => logger.error(`publishState failed for ${id}: ${err.message}`));
+  }
+
   function publishNowPlayingMedia(parsedPayload) {
     const media = parseNowPlayingMedia(parsedPayload);
     const id = featureExternalId(device.external_id, FEATURE.NOW_PLAYING);
     const nowPlaying = media ? [media.artist, media.title].filter(Boolean).join(' - ') : '';
-    gladys
-      .publishState(id, { text: nowPlaying })
-      .catch((err) => logger.error(`publishState failed for ${id}: ${err.message}`));
+    publishHeosState(id, { text: nowPlaying });
   }
 
   // Telnet's own MV/MU pushes (onLine above) stay authoritative for
@@ -733,9 +757,7 @@ export function connectDevice(gladys, device, config) {
     const cached = { ...lastKnownState.get(device.external_id) };
     cached[FEATURE.VOLUME] = value;
     lastKnownState.set(device.external_id, cached);
-    gladys
-      .publishState(id, value)
-      .catch((err) => logger.error(`publishState failed for ${id}: ${err.message}`));
+    publishHeosState(id, value);
   }
 
   function publishMute(muted) {
@@ -746,9 +768,7 @@ export function connectDevice(gladys, device, config) {
     const cached = { ...lastKnownState.get(device.external_id) };
     cached[FEATURE.MUTE] = muted;
     lastKnownState.set(device.external_id, cached);
-    gladys
-      .publishState(id, muted)
-      .catch((err) => logger.error(`publishState failed for ${id}: ${err.message}`));
+    publishHeosState(id, muted);
   }
 
   function publishPlaybackState(state) {
@@ -757,9 +777,7 @@ export function connectDevice(gladys, device, config) {
     const cached = { ...lastKnownState.get(device.external_id) };
     cached[FEATURE.PLAYBACK_STATE] = value;
     lastKnownState.set(device.external_id, cached);
-    gladys
-      .publishState(id, value)
-      .catch((err) => logger.error(`publishState failed for ${id}: ${err.message}`));
+    publishHeosState(id, value);
   }
 
   heosState.client = createHeosClient({
@@ -886,6 +904,7 @@ export function connectDevice(gladys, device, config) {
       // fallback in onSetValue() (and the legacy NSE0/NSE1/NSE2 precedence
       // above) until (if ever) HEOS reconnects and re-matches.
       heosState.pid = null;
+      lastHeosPublished.clear();
     },
   });
 

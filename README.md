@@ -128,7 +128,10 @@ TuneIn...) — see "Playback controls" below.
   no guarantee every pushed event actually arrives, so the poll is a self-healing fallback rather
   than a bet on the push channel alone. Confirmed necessary on real hardware — the dashboard was
   observed stuck on "paused" indefinitely after playback started elsewhere (the Qobuz app), even
-  though HEOS commands sent _from_ Gladys worked fine.
+  though HEOS commands sent _from_ Gladys worked fine. Only values that **changed** are published
+  (`publishHeosState()`): Gladys core does not dedup, so re-publishing the same playback state every
+  30s wrote ~2,900 history rows a day per receiver for nothing (Gladys ≥5.1.2 flags a feature past
+  8,640 states a day as "verbose").
 - **Setup-menu remote-control keys**: cursor Up/Down/Left/Right, Enter, Return, Info, Menu and
   relative Volume Up/Down, all `TELEVISION`-category push buttons (`REMOTE_KEYS` in
   [`src/devices/avr.js`](./src/devices/avr.js)). Unlike `MUSIC`, `TELEVISION` push-button types

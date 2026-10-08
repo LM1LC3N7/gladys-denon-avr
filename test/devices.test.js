@@ -980,6 +980,9 @@ test('connectDevice: HEOS becomes authoritative for playback state and now playi
     telnetServer.listen(0, '127.0.0.1', () => resolve(telnetServer.address().port)),
   );
 
+  // Playing for the first few polls, then paused: the poll must keep
+  // re-fetching, but only the CHANGE gets published (no history row per tick).
+  let playStateQueries = 0;
   const heosServer = net.createServer((socket) => {
     socket.setEncoding('utf8');
     let buffer = '';
@@ -996,12 +999,13 @@ test('connectDevice: HEOS becomes authoritative for playback state and now playi
             }) + '\r\n',
           );
         } else if (line.includes('player/get_play_state')) {
+          playStateQueries += 1;
           socket.write(
             JSON.stringify({
               heos: {
                 command: 'player/get_play_state',
                 result: 'success',
-                message: 'pid=999&state=play',
+                message: `pid=999&state=${playStateQueries <= 3 ? 'play' : 'pause'}`,
               },
             }) + '\r\n',
           );
@@ -1025,6 +1029,10 @@ test('connectDevice: HEOS becomes authoritative for playback state and now playi
   const device = buildDiscoveredDevice(gladys, { ...DISCOVERED, host: '127.0.0.1' });
   const localConfig = normalizeConfig({ port: telnetPort });
 
+  // `gladys.published` is shared by every test in this file, same udn: only
+  // look at what this test publishes.
+  const publishedBefore = gladys.published.length;
+
   try {
     connectDevice(gladys, device, localConfig);
     await new Promise((resolve) => setTimeout(resolve, 400));
@@ -1043,10 +1051,6 @@ test('connectDevice: HEOS becomes authoritative for playback state and now playi
       'HEOS get_now_playing_media is published',
     );
     assert.ok(
-      !gladys.published.some((p) => p.featureExternalId === playbackStateId && p.state === 0),
-      'the legacy NSE0 "Bluetooth Standby" banner must not overwrite HEOS-sourced playback state',
-    );
-    assert.ok(
       !gladys.published.some(
         (p) =>
           p.featureExternalId === nowPlayingId && p.state?.text === 'Wrong Artist - Wrong Title',
@@ -1054,12 +1058,18 @@ test('connectDevice: HEOS becomes authoritative for playback state and now playi
       'the legacy NSE1/NSE2 lines must not overwrite HEOS-sourced now playing',
     );
 
-    // The 50ms poll interval should have re-sent get_play_state/
-    // get_now_playing_media several times over the 400ms wait above,
-    // republishing the same HEOS-sourced values each time.
-    const publishCount = (id) => gladys.published.filter((p) => p.featureExternalId === id).length;
-    assert.ok(publishCount(playbackStateId) >= 3, 'the poll timer re-fetches playback state');
-    assert.ok(publishCount(nowPlayingId) >= 3, 'the poll timer re-fetches now playing');
+    // The 50ms poll interval re-sent get_play_state/get_now_playing_media
+    // several times over the 400ms wait above, but only changes reach Gladys:
+    // playing once, paused once, the unchanged now playing once.
+    const published = (id) =>
+      gladys.published.slice(publishedBefore).filter((p) => p.featureExternalId === id);
+    assert.ok(playStateQueries >= 5, 'the poll timer keeps re-fetching playback state');
+    assert.deepEqual(
+      published(playbackStateId).map((p) => p.state),
+      [1, 0],
+      'each playback state change is published once, the legacy NSE0 banner never',
+    );
+    assert.equal(published(nowPlayingId).length, 1, 'an unchanged now playing is not re-published');
   } finally {
     disconnectDevice(device.external_id);
     telnetServer.close();
