@@ -24,7 +24,7 @@ import {
   encodeFrames,
   decodeFrames,
 } from '../src/adbreak/bands.js';
-import { findSharedJingle } from '../src/adbreak/jingles.js';
+import { findSharedJingle, hitVerdict } from '../src/adbreak/jingles.js';
 import {
   identifyStation,
   parseIndesRadiosEvent,
@@ -589,6 +589,32 @@ function breakSample(seed, sounds) {
   // The anchor (song end) is 10 s into the sample.
   return { frames: bandFrames(audio), anchor: Math.round(10 / FRAME_SECONDS) };
 }
+
+test('hitVerdict: with titles, a song right after a start hit disproves it', () => {
+  const hit = { side: 'start', at: 0 };
+  assert.equal(hitVerdict(hit, { now: 30_000, songAt: 30_000, hasSongs: true }), false);
+  assert.equal(hitVerdict(hit, { now: 100_000, hasSongs: true }), null);
+  assert.equal(hitVerdict(hit, { now: 151_000, hasSongs: true }), true);
+  const end = { side: 'end', at: 0 };
+  assert.equal(hitVerdict(end, { now: 90_000, songAt: 90_000, hasSongs: true }), true);
+  assert.equal(hitVerdict(end, { now: 151_000, hasSongs: true }), false);
+});
+
+test('hitVerdict: without titles, a hit is checked against the schedule and the presses', () => {
+  const late = { now: 151_000, hasSongs: false };
+  assert.equal(hitVerdict({ side: 'start', at: 0, inAdWindow: false }, late), false);
+  assert.equal(hitVerdict({ side: 'start', at: 0, inAdWindow: true }, late), true);
+  assert.equal(
+    hitVerdict({ side: 'start', at: 0, inAdWindow: false }, { now: 100_000, hasSongs: false }),
+    null,
+  );
+  assert.equal(
+    hitVerdict({ side: 'start', at: 0, marked: true }, { now: 10_000, hasSongs: false }),
+    true,
+  );
+  assert.equal(hitVerdict({ side: 'end', at: 0, inBreak: false }, late), false);
+  assert.equal(hitVerdict({ side: 'end', at: 0, inBreak: true }, late), true);
+});
 
 test('findSharedJingle finds the sound every break shares, wherever the host stopped talking', () => {
   const samples = [

@@ -199,6 +199,10 @@ après le jingle. Un jingle qui se met à donner de fausses alertes est oublié 
   la pub commence, puis à nouveau quand elle se termine. Après quelques coupures signalées,
   l'intégration connaît l'horaire de la station et baisse le volume toute seule à ces moments-là.
   C'est moins précis qu'avec des titres, faute de savoir quand la musique s'arrête vraiment.
+  Appuyez juste après le jingle de début, puis juste après celui de fin : l'intégration apprend
+  les deux (ils peuvent être différents). Faute de titres pour les vérifier, un jingle repéré
+  n'est validé que s'il tombe dans une fenêtre pub de la station, ou si vous appuyez juste après ;
+  pour celui de fin, s'il tombe pendant une coupure.
 
 Sur une station avec titres, **Mark ad break** sert aussi à affiner le délai : appuyez au moment du
 jingle pub, et l'intégration apprend le jingle lui-même et combien de temps l'animateur parle avant

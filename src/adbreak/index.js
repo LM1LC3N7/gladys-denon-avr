@@ -155,13 +155,15 @@ export function createAdBreakController({
         );
       }
     },
-    onMark({ at, offsetSeconds, durationSeconds }) {
-      if (durationSeconds == null) {
-        // A press (not the end of a manual break): teaches the jingle too.
-        jingles
-          ?.learnFromMark(at)
-          .catch((err) => logger.warn(`${name}: jingle learning failed: ${err.message}`));
-      }
+    onMark({ at, offsetSeconds, durationSeconds, endedAt }) {
+      // A press teaches the jingles too: the start one, or the end one when
+      // it ends a manual break (a station without titles).
+      jingles
+        ?.learnFromMark(
+          durationSeconds == null ? at : endedAt,
+          durationSeconds == null ? 'start' : 'end',
+        )
+        .catch((err) => logger.warn(`${name}: jingle learning failed: ${err.message}`));
       updateStats((stats) => {
         let next = offsetSeconds != null ? recordMarkOffset(stats, offsetSeconds, at) : stats;
         // On a station with song metadata the break itself is measured from
@@ -227,6 +229,11 @@ export function createAdBreakController({
         }
       },
       onChange: () => refreshDetectorStation(),
+      context: () => ({
+        hasSongs: Boolean(wanted.hasMetadata),
+        inAdWindow: (at) => detector.isAdTime(at),
+        inBreak: detector.isInBreak(),
+      }),
     });
     jingles = Object.assign(listener, { station: wanted });
     listener.ready.then(() => refreshDetectorStation());

@@ -137,7 +137,7 @@ export function createAdBreakDetector({
       const at = now();
       if (breakState && station && !station.hasMetadata) {
         const durationSeconds = Math.round((at - breakState.startedAt) / 1000);
-        onMark?.({ at: breakState.startedAt, offsetSeconds: null, durationSeconds });
+        onMark?.({ at: breakState.startedAt, offsetSeconds: null, durationSeconds, endedAt: at });
         endBreak('manual');
         return;
       }
@@ -197,6 +197,11 @@ export function createAdBreakDetector({
       if (windowFresh && opensNow) {
         startBreak('schedule', null);
       }
+    },
+
+    /** Is `time` inside one of the station's ad windows (that day, that hour)? */
+    isAdTime(time) {
+      return Boolean(station) && isInWindow(new Date(time).getMinutes(), adWindows(time));
     },
 
     isInBreak() {

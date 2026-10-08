@@ -221,11 +221,54 @@ function emptyState() {
  * @param {() => void} [opts.onChange] a jingle became active or was dropped
  * @param {string} [opts.ffmpegPath]
  */
+// How long a hit in observation waits for its verdict.
+const VERDICT_SECONDS = 150;
+
+/**
+ * Verdict of a jingle hit in observation, or null while it is not due.
+ * With song changes, a start hit followed by a song within 60 s was not a
+ * break, and an end hit followed by one within VERDICT_SECONDS was a real
+ * end. Without any (a station with no titles), nothing would ever contradict
+ * a hit: it is checked against what is known of the station instead — a
+ * start hit counts when it falls in one of its ad windows (that day, that
+ * hour) or when "it's an ad" is pressed right after it; an end hit when a
+ * break was in progress, or when the end of the break is pressed right
+ * after it.
+ * @param {{side: 'start'|'end', at: number, inAdWindow?: boolean, inBreak?: boolean,
+ *   marked?: boolean}} hit
+ * @param {{now: number, songAt?: number|null, hasSongs: boolean}} news
+ * @returns {boolean|null}
+ */
+export function hitVerdict(hit, { now, songAt = null, hasSongs }) {
+  if (hit.marked) {
+    return true;
+  }
+  const age = (now - hit.at) / 1000;
+  if (hasSongs) {
+    if (songAt !== null && songAt > hit.at) {
+      const after = (songAt - hit.at) / 1000;
+      if (hit.side === 'start' && after < 60) {
+        return false;
+      }
+      if (hit.side === 'end' && after <= VERDICT_SECONDS) {
+        return true;
+      }
+    }
+    return age > VERDICT_SECONDS ? hit.side === 'start' : null;
+  }
+  if (age <= VERDICT_SECONDS) {
+    return null;
+  }
+  return hit.side === 'start' ? Boolean(hit.inAdWindow) : Boolean(hit.inBreak);
+}
+
 export function createJingleListener({
   stationKey,
   streamUrl,
   onHit,
   onChange,
+  // What is known of the station when a hit is heard (for hitVerdict).
+  context = () => ({ hasSongs: true, inAdWindow: () => false, inBreak: false }),
   ffmpegPath = 'ffmpeg',
 }) {
   const file = path.join(STORE_DIR, `${stationKey.replace(/[^a-z0-9_-]/gi, '_')}.json`);
@@ -322,7 +365,8 @@ export function createJingleListener({
           `${stationKey}: ${side} jingle heard (score ${score.toFixed(2)}, ${jingle.active ? 'active' : 'observing'})`,
         );
         if (!jingle.active) {
-          pending.push({ side, at });
+          const { inAdWindow, inBreak } = context();
+          pending.push({ side, at, inAdWindow: inAdWindow(at), inBreak });
         }
         onHit({ side, active: Boolean(jingle.active), at, score });
       }
@@ -469,6 +513,16 @@ export function createJingleListener({
     save();
   }
 
+  function settle(news) {
+    for (let i = pending.length - 1; i >= 0; i--) {
+      const confirmed = hitVerdict(pending[i], news);
+      if (confirmed !== null) {
+        verdict(pending[i], confirmed);
+        pending.splice(i, 1);
+      }
+    }
+  }
+
   const waitUntilHeard = async (at) => {
     const wait = at + 3000 - Date.now();
     if (wait > 0) {
@@ -511,52 +565,35 @@ export function createJingleListener({
      * The user pressed "it's an ad", usually right after the station's ad
      * jingle: the most precise sample there is.
      */
-    async learnFromMark(at) {
+    /**
+     * "It's an ad" pressed at `at` (side 'start'), or the end of a manual
+     * break pressed (side 'end'): learn from the sound just before, and
+     * confirm a hit of that side heard just before.
+     */
+    async learnFromMark(at, side = 'start') {
+      for (const hit of pending) {
+        if (hit.side === side && hit.at <= at && at - hit.at <= VERDICT_SECONDS * 1000) {
+          hit.marked = true;
+        }
+      }
+      settle({ now: Date.now(), hasSongs: context().hasSongs });
       await loaded;
       await waitUntilHeard(at + MARK_AFTER * 1000);
       const sample = !stopped && heard(at - MARK_BEFORE * 1000, at + MARK_AFTER * 1000, at);
       if (sample) {
-        addSample('start', sample);
+        addSample(side, sample);
         await save();
       }
     },
 
-    /**
-     * Metadata news for the observed (shadow) hits: a song started at `at`.
-     * A start-jingle hit followed by a song within 60 s was not a break; one
-     * still unanswered after 150 s was. An end-jingle hit followed by a song
-     * within 150 s was a real end of break.
-     */
+    /** Metadata news for the observed (shadow) hits: a song started at `at`. */
     onSongStarted(at) {
-      for (let i = pending.length - 1; i >= 0; i--) {
-        const hit = pending[i];
-        if (at <= hit.at) {
-          continue;
-        }
-        const after = (at - hit.at) / 1000;
-        if (hit.side === 'start' && after < 60) {
-          verdict(hit, false);
-          pending.splice(i, 1);
-        } else if (hit.side === 'end' && after <= 150) {
-          verdict(hit, true);
-          pending.splice(i, 1);
-        }
-      }
+      settle({ now: Date.now(), songAt: at, hasSongs: true });
     },
 
     /** Called every few seconds: settle the hits whose verdict is due. */
     tick(now = Date.now()) {
-      for (let i = pending.length - 1; i >= 0; i--) {
-        const hit = pending[i];
-        const age = (now - hit.at) / 1000;
-        if (hit.side === 'start' && age > 150) {
-          verdict(hit, true);
-          pending.splice(i, 1);
-        } else if (hit.side === 'end' && age > 150) {
-          verdict(hit, false);
-          pending.splice(i, 1);
-        }
-      }
+      settle({ now, hasSongs: context().hasSongs });
     },
 
     /** Is the `side` ('start'/'end') jingle learned and confirmed? */

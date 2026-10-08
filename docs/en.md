@@ -179,6 +179,10 @@ forgotten and learned again.
   and again when they end. After a few marked breaks the integration knows the station's schedule
   and lowers the volume at those times on its own. This is less precise than with song changes,
   since it cannot tell when the music actually stops.
+  Press right after the opening jingle, then right after the closing one: the integration learns
+  both (they may differ). With no song changes to check them against, a detected jingle only
+  counts when it falls in one of the station's ad windows or you press right after it; the
+  closing one, when it falls during a break.
 
 On a station with song changes, **Mark ad break** also fine-tunes the delay: press it at the ad
 jingle and the integration learns the jingle itself and how long the host talks before the ads,
