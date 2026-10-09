@@ -59,12 +59,12 @@ export async function onSetValue(gladys, { device, feature, value, config }) {
   // for the transport buttons, HEOS-with-a-Telnet-fallback) and keeps the
   // gate right where it was.
   // Pure integration-side logic, no receiver command: no transport gate.
-  if (key === FEATURE.AD_BREAK_MARK) {
+  if (key === FEATURE.AD_BREAK || key === FEATURE.AD_BREAK_MARK) {
     const adBreak = getHeos(device.external_id)?.adBreak;
     if (!adBreak) {
       throw new Error(`${device.external_id} is not connected`);
     }
-    adBreak.mark();
+    adBreak.setAdBreak(key === FEATURE.AD_BREAK_MARK || Number(value) === 1);
     return;
   }
 

@@ -74,7 +74,7 @@ test('buildDiscoveredDevice exposes power/volume/mute/source with the right cate
   assert.equal(device.name, 'Denon AVR-S970H (AVR-S970H)');
   assert.ok(device.external_id.includes('abc-123'));
   assert.deepEqual(device.params, [{ name: 'IP_ADDRESS', value: '192.168.1.50' }]);
-  assert.equal(device.features.length, 25);
+  assert.equal(device.features.length, 24);
 
   const byKey = Object.fromEntries(device.features.map((f) => [f.external_id, f]));
   const power = byKey[featureExternalId(device.external_id, FEATURE.POWER)];
@@ -238,7 +238,7 @@ test('every feature declares a non-null min/max (Gladys rejects a null one at "a
 test('buildManualDevice builds a stable device keyed on the configured host', () => {
   const device = buildManualDevice(gladys, '192.168.1.77');
   assert.deepEqual(device.params, [{ name: 'IP_ADDRESS', value: '192.168.1.77' }]);
-  assert.equal(device.features.length, 25);
+  assert.equal(device.features.length, 24);
 });
 
 test('onSetValue routes power/volume to the right telnet command', async () => {
@@ -1163,5 +1163,28 @@ test('connectDevice publishes a local transport badge once Telnet is up', async 
   } finally {
     disconnectDevice(device.external_id);
     server.close();
+  }
+});
+
+test('the Radio ad break switch is named, writable, and routed to the ad-break controller', async () => {
+  const device = buildManualDevice(gladys, '192.168.1.77');
+  const feature = device.features.find(
+    (f) => f.external_id === featureExternalId(device.external_id, FEATURE.AD_BREAK),
+  );
+  assert.equal(feature.name, 'Radio ad break');
+  assert.equal(feature.read_only, false);
+
+  const calls = [];
+  __setHeosConnectionForTesting(device.external_id, {
+    pid: null,
+    client: { isConnected: () => false },
+    adBreak: { setAdBreak: (on) => calls.push(on) },
+  });
+  try {
+    await onSetValue(gladys, { device, feature, value: 1 });
+    await onSetValue(gladys, { device, feature, value: 0 });
+    assert.deepEqual(calls, [true, false]);
+  } finally {
+    __clearConnectionsForTesting();
   }
 });

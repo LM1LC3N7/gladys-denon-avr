@@ -53,6 +53,8 @@ export const FEATURE = {
   NOW_PLAYING: 'now_playing',
   PLAY_NOTIFICATION: 'play_notification',
   AD_BREAK: 'ad_break',
+  // The former "Mark ad break" push button (dev builds only), still
+  // honored until the device is updated: the AD_BREAK switch replaces it.
   AD_BREAK_MARK: 'ad_break_mark',
 };
 
@@ -468,29 +470,22 @@ export function buildFeatures(deviceExternalId, sourceOverrides = {}) {
       // station, see src/adbreak/stats.js — so a scene can react to it;
       // the integration itself lowers the volume meanwhile unless
       // ad_break_auto_duck is switched off in the configuration.
-      name: 'Ad break',
+      //
+      // Also a control: switching it on says "it's an ad" (teaches the ad
+      // schedule of a station with no song metadata at all, the host talk
+      // before the ads, and the jingles), switching it off ends the break.
+      // A switch rather than a separate push button: Gladys names a feature
+      // by its own name only when the device has another of the same type
+      // (Power is binary too), a lone button showed as the bare "Push
+      // button".
+      name: 'Radio ad break',
       external_id: featureExternalId(deviceExternalId, FEATURE.AD_BREAK),
       category: DEVICE_FEATURE_CATEGORIES.SWITCH,
       type: DEVICE_FEATURE_TYPES.SWITCH.BINARY,
       min: 0,
       max: 1,
-      read_only: true,
-      has_feedback: false,
-    },
-    {
-      // "It's an ad": teaches the ad schedule of a station with no song
-      // metadata at all (and, on one with metadata, how long its host
-      // talks before the ad jingle), and its jingles. On a station without
-      // metadata a second press ends the break.
-      name: 'Mark ad break',
-      external_id: featureExternalId(deviceExternalId, FEATURE.AD_BREAK_MARK),
-      category: DEVICE_FEATURE_CATEGORIES.BUTTON,
-      type: DEVICE_FEATURE_TYPES.BUTTON.PUSH,
-      min: 0,
-      max: 1,
       read_only: false,
-      has_feedback: false,
-      keep_history: false,
+      has_feedback: true,
     },
   ];
 }

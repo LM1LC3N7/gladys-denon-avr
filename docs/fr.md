@@ -181,11 +181,13 @@ que ce soit corrigé.
 ## Coupures pub des radios
 
 Quand une radio joue via HEOS (TuneIn, favori, URL de flux), l'intégration repère ses coupures pub
-et active l'état **Ad break** de l'appareil pendant celles-ci. Par défaut, elle baisse aussi le
+et allume l'interrupteur **Radio ad break** de l'appareil pendant celles-ci. Par défaut, elle baisse aussi le
 volume de 20 crans, sans descendre sous 20, puis le remet quand la musique reprend. Si vous avez touché au volume entre-temps,
 c'est votre réglage qui est gardé. Le tout se règle dans la section « Coupures pub des radios » de
 la configuration. Pour agir vous-même dans une scène (changer de station, couper le son…), désactivez
-la baisse automatique et déclenchez votre scène sur l'état **Ad break**.
+la baisse automatique et déclenchez votre scène sur **Radio ad break**. Vous pouvez aussi l'actionner vous-même :
+l'allumer veut dire « c'est la pub » (le volume baisse tout de suite, et l'intégration apprend),
+l'éteindre termine la coupure et remet le volume.
 
 **Comment ça marche.** Aucune radio n'annonce « c'est la pub » dans son flux. En revanche, beaucoup
 indiquent le titre en cours, et parfois sa durée. Quand une chanson se termine sans qu'une autre
@@ -215,7 +217,7 @@ couvert par la voix de l'animateur, devient le jingle de la station. Il reste d'
 observation, puis devient actif après 2 détections suivies d'une vraie coupure. Dès lors, le
 volume baisse **au jingle**, au lieu d'attendre 45 s, et l'animateur n'est plus coupé. Si une
 coupure arrive sans jingle, la règle des fenêtres prend le relais. Il faut
-compter quelques heures d'écoute (3 longues coupures), ou 3 appuis sur **Mark ad break** juste
+compter quelques heures d'écoute (3 longues coupures), ou allumer 3 fois **Radio ad break** juste
 après le jingle. Un jingle qui se met à donner de fausses alertes est oublié et réappris.
 
 **D'où viennent les titres :**
@@ -227,19 +229,19 @@ après le jingle. Un jingle qui se met à donner de fausses alertes est oublié 
   s'affiche alors aussi dans « Now playing », au lieu du simple nom de la station. Les fenêtres pub sont
   apprises dès la première écoute à partir des ~3 jours d'historique publiés par le site (de même
   pour Voltage, Alouette, Hit West et les autres stations de la plateforme Les Indés Radios).
-- **Rien du tout** (ex. certaines stations TuneIn) : appuyez sur le bouton **Mark ad break** quand
-  la pub commence, puis à nouveau quand elle se termine. Après quelques coupures signalées,
+- **Rien du tout** (ex. certaines stations TuneIn) : allumez **Radio ad break** quand
+  la pub commence, éteignez-le quand elle se termine. Après quelques coupures signalées,
   l'intégration connaît l'horaire de la station et baisse le volume toute seule à ces moments-là.
   C'est moins précis qu'avec des titres, faute de savoir quand la musique s'arrête vraiment.
-  Appuyez juste après le jingle de début, puis juste après celui de fin : l'intégration apprend
+  Allumez-le juste après le jingle de début, éteignez-le juste après celui de fin : l'intégration apprend
   les deux (ils peuvent être différents). Faute de titres pour les vérifier, un jingle repéré
-  n'est validé que s'il tombe dans une fenêtre pub de la station, ou si vous appuyez juste après ;
+  n'est validé que s'il tombe dans une fenêtre pub de la station, ou si vous allumez l'interrupteur juste après ;
   pour celui de fin, s'il tombe pendant une coupure.
 
-Sur une station avec titres, **Mark ad break** sert aussi à affiner le délai : appuyez au moment du
+Sur une station avec titres, allumer **Radio ad break** sert aussi à affiner le délai : faites-le au moment du
 jingle pub, et l'intégration apprend le jingle lui-même et combien de temps l'animateur parle avant
 les pubs, heure par heure. Exemple : le matin sur OUI FM, il n'y a pas d'animateur et la pub suit directement
-la chanson. Deux appuis à ces heures-là suffisent pour que la baisse y soit immédiate.
+la chanson. Deux fois à ces heures-là suffisent pour que la baisse y soit immédiate.
 
 **Limite connue** : la fin de coupure n'est connue qu'au démarrage du titre suivant. Si l'animateur
 reprend la parole après les pubs, il reste à volume réduit jusqu'à la chanson.

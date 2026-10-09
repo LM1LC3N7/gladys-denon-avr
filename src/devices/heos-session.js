@@ -194,8 +194,12 @@ export function openHeosSession(
       }
       return sent;
     },
-    publishAdBreak: (inBreak) =>
-      publishHeosState(featureExternalId(externalId, FEATURE.AD_BREAK), inBreak ? 1 : 0),
+    publishAdBreak: (inBreak) => {
+      // Not deduplicated: the user can switch it, Gladys must get it back.
+      const id = featureExternalId(externalId, FEATURE.AD_BREAK);
+      session.forget(id);
+      publishHeosState(id, inBreak ? 1 : 0);
+    },
     publishNowPlaying: (text) => {
       updateState(externalId, {
         [STATE.NOW_PLAYING_TITLE]: text,

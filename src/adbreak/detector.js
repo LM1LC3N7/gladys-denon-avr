@@ -204,6 +204,11 @@ export function createAdBreakDetector({
       return Boolean(station) && isInWindow(new Date(time).getMinutes(), adWindows(time));
     },
 
+    /** The user switched the break off by hand (a station with titles). */
+    end() {
+      endBreak('manual');
+    },
+
     isInBreak() {
       return breakState !== null;
     },

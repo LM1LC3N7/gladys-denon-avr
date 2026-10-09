@@ -9,7 +9,7 @@
 //
 // Learned statistics go to AD_BREAK_STATS_FILE (default ./ad-breaks.json
 // here, /data/ad-breaks.json in the container). Type `m` + Enter to press
-// "it's an ad" (FEATURE.AD_BREAK_MARK).
+// "it's an ad" (the AD_BREAK switch).
 // -----------------------------------------------------------------------------
 
 import readline from 'node:readline';

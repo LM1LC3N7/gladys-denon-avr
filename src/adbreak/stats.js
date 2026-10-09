@@ -9,7 +9,7 @@
 // so the detector (see detector.js) can react within seconds instead of
 // waiting long enough to rule out the host simply talking.
 //
-// Manual "it's an ad" marks (the AD_BREAK_MARK button) feed the same
+// Manual "it's an ad" marks (switching the AD_BREAK state on by hand) feed the same
 // histogram, which is what makes a station with no metadata at all (no song
 // boundaries to learn from) usable too, and — on a station that does have
 // metadata — also teach how long the host typically talks between the last

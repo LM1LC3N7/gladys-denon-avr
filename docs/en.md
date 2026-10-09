@@ -162,11 +162,13 @@ reachable, please report it (with the logs mentioned below) so it can be fixed.
 ## Radio ad breaks
 
 While a radio station plays through HEOS (TuneIn, a favorite, a stream URL), the integration spots
-its ad breaks and turns the device's **Ad break** state on during them. By default it also lowers
+its ad breaks and turns the device's **Radio ad break** switch on during them. By default it also lowers
 the volume by 20 steps, never below 20, then restores it when the music resumes. If you changed the volume by hand
 meanwhile, your setting is kept. Everything is set in the "Radio ad breaks" section of the
 configuration. To act in a scene of your own instead (switch station, mute…), switch off the
-automatic volume drop and trigger your scene on the **Ad break** state.
+automatic volume drop and trigger your scene on **Radio ad break**. You can also switch it yourself: on means "it's an
+ad" (the volume drops right away, and the integration learns), off ends the break and restores
+the volume.
 
 **How it works.** No station says "this is an ad" in its stream. Many do say what song is playing,
 sometimes with its length. When a song ends and no other follows, the station is either airing ads
@@ -194,7 +196,7 @@ voice, becomes the station's jingle. It is only observed at first, and becomes a
 detections followed by a real break. From then on the volume drops **at the jingle** instead of
 after 45 s, and the host is no longer ducked. A break that comes without its jingle is still
 caught by the windows rule. Expect a few hours of listening (3 long breaks), or 3
-presses of **Mark ad break** right after the jingle. A jingle that starts giving false alarms is
+times switching **Radio ad break** on right after the jingle. A jingle that starts giving false alarms is
 forgotten and learned again.
 
 **Where song changes come from:**
@@ -206,19 +208,19 @@ forgotten and learned again.
   also shows in "Now playing", instead of just the station's name. Its ad windows are learned from the ~3
   days of playlist history the site publishes, as soon as the station is first played (also for
   Voltage, Alouette, Hit West and the other stations of the Les Indés Radios platform).
-- **Nothing at all** (some TuneIn stations): press the **Mark ad break** button when the ads start,
-  and again when they end. After a few marked breaks the integration knows the station's schedule
+- **Nothing at all** (some TuneIn stations): switch **Radio ad break** on when the ads start,
+  and off when they end. After a few marked breaks the integration knows the station's schedule
   and lowers the volume at those times on its own. This is less precise than with song changes,
   since it cannot tell when the music actually stops.
-  Press right after the opening jingle, then right after the closing one: the integration learns
+  Switch it on right after the opening jingle, off right after the closing one: the integration learns
   both (they may differ). With no song changes to check them against, a detected jingle only
-  counts when it falls in one of the station's ad windows or you press right after it; the
+  counts when it falls in one of the station's ad windows or you switch it on right after it; the
   closing one, when it falls during a break.
 
-On a station with song changes, **Mark ad break** also fine-tunes the delay: press it at the ad
+On a station with song changes, switching **Radio ad break** on also fine-tunes the delay: do it at the ad
 jingle and the integration learns the jingle itself and how long the host talks before the ads,
 hour by hour. For
-instance, OUI FM mornings have no host and the ads follow the song directly: two presses at those
+instance, OUI FM mornings have no host and the ads follow the song directly: two times at those
 hours are enough for the volume to drop right away then.
 
 **Known limit**: the end of a break is only known when the next song starts. If the host talks

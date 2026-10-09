@@ -463,13 +463,33 @@ export function createAdBreakController({
       }
     },
 
-    /** The user pressed "it's an ad" (AD_BREAK_MARK). */
+    /** The user said "it's an ad" (the AD_BREAK switch turned on). */
     mark() {
       if (!station) {
         logger.warn(`${name}: "it's an ad" pressed but no radio station is playing`);
         return;
       }
       detector.mark();
+    },
+
+    /**
+     * The user switched the "Radio ad break" state: on = "it's an ad" (the
+     * same as mark()), off = the break is over (restores the volume; on a
+     * station without titles, also teaches the break length and its end
+     * jingle). The state is published back either way, so a switch that
+     * could not apply (no radio playing) falls back.
+     */
+    setAdBreak(on) {
+      if (on && !detector.isInBreak()) {
+        this.mark();
+      } else if (!on && detector.isInBreak()) {
+        if (station && !station.hasMetadata) {
+          detector.mark();
+        } else {
+          detector.end();
+        }
+      }
+      publishAdBreak(detector.isInBreak());
     },
 
     /** True while a station feed (not HEOS) supplies the now-playing text. */
