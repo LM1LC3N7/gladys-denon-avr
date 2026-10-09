@@ -447,7 +447,8 @@ notes Dependabot links in the PR body) and merge it like any other PR once CI is
 │                                     # actions, widgets, scene actions and triggers)
 ├─ Dockerfile                        # packages index.js + src/ into the image Gladys runs,
 │                                     # Node 26 Alpine, prod dependencies only
-└─ cover.png                         # catalog cover, 800×534 px, ≤150 KB
+├─ cover.jpg                         # catalog cover: exactly 800×534 px, ≤150 KB (store rule)
+└─ scripts/cover.html                # its source: render it with the command written inside
 ```
 
 ## Run it locally

@@ -11,7 +11,7 @@
   "gladys_version": ">=5.1.0",
   "categories": ["multimedia"],
   "transports": ["local"],
-  "cover_image": "https://raw.githubusercontent.com/lm1lc3n7/gladys-denon-avr/main/cover.png",
+  "cover_image": "https://raw.githubusercontent.com/lm1lc3n7/gladys-denon-avr/main/cover.jpg",
   "network_discovery": [
     {
       "type": "ssdp",
