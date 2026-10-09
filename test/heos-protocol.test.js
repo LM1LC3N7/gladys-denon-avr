@@ -26,6 +26,8 @@ import {
   heosPlayStateToPlaybackState,
   heosMuteStateToBoolean,
   parseNowPlayingMedia,
+  parseNowPlayingArtwork,
+  buildPlayPresetCommand,
 } from '../src/heos/protocol.js';
 
 test('HEOS_PORT is the well-known HEOS CLI port', () => {
@@ -114,6 +116,27 @@ test('parseMessage: an event push, message parsed from its k=v&k=v form', () => 
     result: undefined,
     message: { pid: '12345', state: 'play' },
     payload: undefined,
+  });
+});
+
+test('parseMessage: a malformed %-escape is kept raw instead of throwing', () => {
+  // decodeURIComponent('100%') throws a URIError — inside the socket 'data'
+  // handler that used to crash the whole integration.
+  const line = JSON.stringify({
+    heos: { command: 'browse/play_stream', result: 'fail', message: 'eid=2&text=100% invalid' },
+  });
+  assert.deepEqual(parseMessage(line).message, { eid: '2', text: '100% invalid' });
+});
+
+test('parseMessage: a value carrying "=" is kept whole, escapes still decoded', () => {
+  const line = JSON.stringify({
+    heos: { command: 'event/x', message: 'pid=1&text=a=b&url=http%3A%2F%2Fhost%2Fx&flag' },
+  });
+  assert.deepEqual(parseMessage(line).message, {
+    pid: '1',
+    text: 'a=b',
+    url: 'http://host/x',
+    flag: '',
   });
 });
 
@@ -218,4 +241,23 @@ test("parseNowPlayingMedia: falls back to HEOS's own station field when the rece
     title: '',
     artist: 'Oui FM',
   });
+});
+
+test('parseNowPlayingArtwork: album and an http(s) image_url only', () => {
+  assert.deepEqual(
+    parseNowPlayingArtwork({ album: ' Abbey Road ', image_url: 'https://cdn.example.com/a.jpg' }),
+    { album: 'Abbey Road', imageUrl: 'https://cdn.example.com/a.jpg' },
+  );
+  assert.deepEqual(parseNowPlayingArtwork({ image_url: 'file:///etc/passwd' }), {
+    album: '',
+    imageUrl: '',
+  });
+  assert.deepEqual(parseNowPlayingArtwork({ image_url: 'not a url' }).imageUrl, '');
+  assert.deepEqual(parseNowPlayingArtwork(null), { album: '', imageUrl: '' });
+});
+
+test('buildPlayPresetCommand: 1-based HEOS favorite', () => {
+  assert.equal(buildPlayPresetCommand(12, 3), 'browse/play_preset?pid=12&preset=3');
+  assert.throws(() => buildPlayPresetCommand(12, 0), /does not exist/);
+  assert.throws(() => buildPlayPresetCommand(12, 'x'), /does not exist/);
 });

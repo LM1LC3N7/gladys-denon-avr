@@ -49,6 +49,14 @@ export const DEFAULT_CONFIG = {
   ad_break_volume_drop: 20,
   // ...but never below this level (0-100), so the ads stay audible.
   ad_break_min_volume: 20,
+  // "Speak on a speaker" volume, 0-100 % — 0 keeps the receiver's current
+  // volume. Gladys drops the volume a scene asks for before it reaches an
+  // external integration (see src/devices/announcements.js), hence a
+  // setting of our own.
+  announcement_volume: 0,
+  // Give back the volume, input and power state the receiver had before an
+  // announcement, once it is over (src/devices/announcements.js).
+  announcement_restore: true,
 };
 
 /**
@@ -93,6 +101,10 @@ export function normalizeConfig(raw = {}) {
           DEFAULT_CONFIG.ad_break_volume_drop,
       ),
     ),
+    announcement_volume: Math.round(
+      Math.max(0, Math.min(100, Number(raw.announcement_volume ?? 0) || 0)),
+    ),
+    announcement_restore: raw.announcement_restore !== false,
     sourceOverrides: parseSourceOverrides(
       typeof raw.source_overrides === 'string'
         ? raw.source_overrides
@@ -103,6 +115,25 @@ export function normalizeConfig(raw = {}) {
       Math.max(0, Number(raw.ad_break_min_volume ?? DEFAULT_CONFIG.ad_break_min_volume) || 0),
     ),
   };
+}
+
+/**
+ * Whether a config change affects the AVR sessions already open: each
+ * Telnet/HEOS session captures the zone (line parsing, HEOS player pick), the
+ * port, the reconnect backoff and the source overrides (source_index
+ * publishing) when it opens — see connectDevice() in src/devices/avr.js — so
+ * any of them changing means reopening every session for the change to apply
+ * right away instead of at the next container restart.
+ * @param {ReturnType<typeof normalizeConfig>} previous
+ * @param {ReturnType<typeof normalizeConfig>} next
+ */
+export function sessionConfigChanged(previous, next) {
+  return (
+    previous.zone !== next.zone ||
+    previous.port !== next.port ||
+    previous.reconnect_interval_seconds !== next.reconnect_interval_seconds ||
+    JSON.stringify(previous.sourceOverrides) !== JSON.stringify(next.sourceOverrides)
+  );
 }
 
 /**

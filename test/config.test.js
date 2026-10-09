@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeConfig, DEFAULT_CONFIG } from '../src/config.js';
+import { normalizeConfig, DEFAULT_CONFIG, sessionConfigChanged } from '../src/config.js';
 
 test('normalizeConfig returns the defaults when called with no argument', () => {
   assert.deepEqual(normalizeConfig(), { ...DEFAULT_CONFIG, hosts: [], sourceOverrides: {} });
@@ -76,4 +76,28 @@ test('normalizeConfig: zone defaults to the main zone, unknown values fall back 
   assert.equal(normalizeConfig({ zone: 'zone3' }).zone, 'zone3');
   assert.equal(normalizeConfig({ zone: 'garage' }).zone, 'main');
   assert.equal(normalizeConfig({ zone: null }).zone, 'main');
+});
+
+test('sessionConfigChanged: zone, port, backoff or source overrides changing reopens the sessions', () => {
+  const base = normalizeConfig({ source_overrides: 'GAME=' });
+  assert.equal(sessionConfigChanged(base, normalizeConfig({ source_overrides: 'GAME=' })), false);
+  for (const change of [
+    { zone: 'zone2' },
+    { port: 2323 },
+    { reconnect_interval_seconds: 30 },
+    { source_overrides: 'GAME=, SAT/CBL=Chromecast' },
+  ]) {
+    assert.equal(
+      sessionConfigChanged(base, normalizeConfig({ source_overrides: 'GAME=', ...change })),
+      true,
+      `${JSON.stringify(change)} must reopen the sessions`,
+    );
+  }
+});
+
+test('sessionConfigChanged: a manual host list change alone keeps the sessions (devices carry their own IP)', () => {
+  assert.equal(
+    sessionConfigChanged(normalizeConfig(), normalizeConfig({ host: '192.168.1.60' })),
+    false,
+  );
 });

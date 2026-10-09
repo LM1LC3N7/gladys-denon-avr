@@ -6,12 +6,12 @@
     "en": "Control a Denon or Marantz AV receiver: power, volume, mute, source — auto-discovered, no cloud.",
     "fr": "Contrôlez un ampli Denon ou Marantz : alimentation, volume, muet, source — découverte automatique."
   },
-  "version": "1.0.21",
-  "docker_image": "ghcr.io/lm1lc3n7/gladys-denon-avr:1.0.21",
-  "gladys_version": ">=4.86.1",
+  "version": "1.0.22",
+  "docker_image": "ghcr.io/lm1lc3n7/gladys-denon-avr:1.0.22",
+  "gladys_version": ">=5.1.0",
   "categories": ["multimedia"],
   "transports": ["local"],
-  "cover_image": "https://raw.githubusercontent.com/lm1lc3n7/gladys-denon-avr/master/cover.png",
+  "cover_image": "https://raw.githubusercontent.com/lm1lc3n7/gladys-denon-avr/main/cover.jpg",
   "network_discovery": [
     {
       "type": "ssdp",
@@ -90,6 +90,48 @@
           }
         }
       ]
+    },
+    {
+      "key": "announcements",
+      "type": "section",
+      "label": {
+        "en": "Announcements",
+        "fr": "Annonces"
+      },
+      "description": {
+        "en": "For the \"Speak on a speaker\" scene action (HEOS models). Gladys does not pass the volume chosen in the scene to external integrations, so it is set here.",
+        "fr": "Pour l'action de scène « Parler sur une enceinte » (modèles HEOS). Gladys ne transmet pas aux intégrations externes le volume choisi dans la scène : il se règle ici."
+      }
+    },
+    {
+      "key": "announcement_volume",
+      "type": "number",
+      "label": {
+        "en": "Announcement volume (%)",
+        "fr": "Volume des annonces (%)"
+      },
+      "description": {
+        "en": "Volume set before each announcement, 1-100. 0 keeps the current volume.",
+        "fr": "Volume réglé avant chaque annonce, de 1 à 100. 0 garde le volume actuel."
+      },
+      "required": false,
+      "default": 0,
+      "min": 0,
+      "max": 100
+    },
+    {
+      "key": "announcement_restore",
+      "type": "boolean",
+      "label": {
+        "en": "Restore the receiver after an announcement",
+        "fr": "Rétablir l'ampli après une annonce"
+      },
+      "description": {
+        "en": "Once the announcement is over, give back the volume, the input and the standby state the receiver had before.",
+        "fr": "Une fois l'annonce terminée, remet le volume, l'entrée et la veille que l'ampli avait avant."
+      },
+      "required": false,
+      "default": true
     },
     {
       "key": "port",
@@ -416,6 +458,2756 @@
               }
             }
           ]
+        }
+      ]
+    }
+  ],
+  "widgets": [
+    {
+      "key": "now_playing",
+      "label": {
+        "en": "Now playing",
+        "fr": "En cours de lecture"
+      },
+      "description": {
+        "en": "Cover, title, artist, input and live volume, with playback and mute.",
+        "fr": "Pochette, titre, artiste, entrée et volume en direct, avec lecture et sourdine."
+      },
+      "icon": "music",
+      "settings": [
+        {
+          "key": "avr",
+          "type": "select",
+          "source": "devices",
+          "label": {
+            "en": "Receiver",
+            "fr": "Ampli"
+          },
+          "description": {
+            "en": "Leave empty to show the first receiver.",
+            "fr": "Laissez vide pour afficher le premier ampli."
+          },
+          "required": false
+        }
+      ],
+      "action_timeout_seconds": 20
+    },
+    {
+      "key": "shortcuts",
+      "label": {
+        "en": "Shortcuts",
+        "fr": "Raccourcis"
+      },
+      "description": {
+        "en": "Four one-tap buttons: inputs, Quick Selects or HEOS favorites.",
+        "fr": "Quatre boutons en un appui : entrées, Quick Select ou favoris HEOS."
+      },
+      "icon": "zap",
+      "settings": [
+        {
+          "key": "avr",
+          "type": "select",
+          "source": "devices",
+          "label": {
+            "en": "Receiver",
+            "fr": "Ampli"
+          },
+          "description": {
+            "en": "Leave empty to show the first receiver.",
+            "fr": "Laissez vide pour afficher le premier ampli."
+          },
+          "required": false
+        },
+        {
+          "key": "slot_1",
+          "type": "select",
+          "label": {
+            "en": "Button 1",
+            "fr": "Bouton 1"
+          },
+          "required": false,
+          "default": "quick:1",
+          "options": [
+            {
+              "value": "quick:1",
+              "label": {
+                "en": "Quick Select 1",
+                "fr": "Quick Select 1"
+              }
+            },
+            {
+              "value": "quick:2",
+              "label": {
+                "en": "Quick Select 2",
+                "fr": "Quick Select 2"
+              }
+            },
+            {
+              "value": "quick:3",
+              "label": {
+                "en": "Quick Select 3",
+                "fr": "Quick Select 3"
+              }
+            },
+            {
+              "value": "quick:4",
+              "label": {
+                "en": "Quick Select 4",
+                "fr": "Quick Select 4"
+              }
+            },
+            {
+              "value": "quick:5",
+              "label": {
+                "en": "Quick Select 5",
+                "fr": "Quick Select 5"
+              }
+            },
+            {
+              "value": "source:PHONO",
+              "label": {
+                "en": "Input: Phono",
+                "fr": "Entrée : Phono"
+              }
+            },
+            {
+              "value": "source:CD",
+              "label": {
+                "en": "Input: CD",
+                "fr": "Entrée : CD"
+              }
+            },
+            {
+              "value": "source:TUNER",
+              "label": {
+                "en": "Input: Tuner",
+                "fr": "Entrée : Tuner"
+              }
+            },
+            {
+              "value": "source:DVD",
+              "label": {
+                "en": "Input: DVD",
+                "fr": "Entrée : DVD"
+              }
+            },
+            {
+              "value": "source:BD",
+              "label": {
+                "en": "Input: Blu-ray",
+                "fr": "Entrée : Blu-ray"
+              }
+            },
+            {
+              "value": "source:SAT/CBL",
+              "label": {
+                "en": "Input: Sat/Cable",
+                "fr": "Entrée : Satellite/Câble"
+              }
+            },
+            {
+              "value": "source:MPLAY",
+              "label": {
+                "en": "Input: Media Player",
+                "fr": "Entrée : Lecteur multimédia"
+              }
+            },
+            {
+              "value": "source:GAME",
+              "label": {
+                "en": "Input: Game",
+                "fr": "Entrée : Jeu"
+              }
+            },
+            {
+              "value": "source:TV",
+              "label": {
+                "en": "Input: TV",
+                "fr": "Entrée : TV"
+              }
+            },
+            {
+              "value": "source:HDRADIO",
+              "label": {
+                "en": "Input: HD Radio",
+                "fr": "Entrée : HD Radio"
+              }
+            },
+            {
+              "value": "source:NET",
+              "label": {
+                "en": "Input: Network",
+                "fr": "Entrée : Réseau"
+              }
+            },
+            {
+              "value": "source:IRADIO",
+              "label": {
+                "en": "Input: Internet Radio",
+                "fr": "Entrée : Radio internet"
+              }
+            },
+            {
+              "value": "source:SERVER",
+              "label": {
+                "en": "Input: Media Server",
+                "fr": "Entrée : Serveur média"
+              }
+            },
+            {
+              "value": "source:FAVORITES",
+              "label": {
+                "en": "Input: Favorites",
+                "fr": "Entrée : Favoris"
+              }
+            },
+            {
+              "value": "source:USB/IPOD",
+              "label": {
+                "en": "Input: USB/iPod",
+                "fr": "Entrée : USB/iPod"
+              }
+            },
+            {
+              "value": "source:BT",
+              "label": {
+                "en": "Input: Bluetooth",
+                "fr": "Entrée : Bluetooth"
+              }
+            },
+            {
+              "value": "source:AUX1",
+              "label": {
+                "en": "Input: Aux 1",
+                "fr": "Entrée : Aux 1"
+              }
+            },
+            {
+              "value": "source:AUX2",
+              "label": {
+                "en": "Input: Aux 2",
+                "fr": "Entrée : Aux 2"
+              }
+            },
+            {
+              "value": "source:AUX3",
+              "label": {
+                "en": "Input: Aux 3",
+                "fr": "Entrée : Aux 3"
+              }
+            },
+            {
+              "value": "source:AUX4",
+              "label": {
+                "en": "Input: Aux 4",
+                "fr": "Entrée : Aux 4"
+              }
+            },
+            {
+              "value": "source:AUX5",
+              "label": {
+                "en": "Input: Aux 5",
+                "fr": "Entrée : Aux 5"
+              }
+            },
+            {
+              "value": "source:AUX6",
+              "label": {
+                "en": "Input: Aux 6",
+                "fr": "Entrée : Aux 6"
+              }
+            },
+            {
+              "value": "source:AUX7",
+              "label": {
+                "en": "Input: Aux 7",
+                "fr": "Entrée : Aux 7"
+              }
+            },
+            {
+              "value": "favorite:1",
+              "label": {
+                "en": "HEOS favorite 1",
+                "fr": "Favori HEOS 1"
+              }
+            },
+            {
+              "value": "favorite:2",
+              "label": {
+                "en": "HEOS favorite 2",
+                "fr": "Favori HEOS 2"
+              }
+            },
+            {
+              "value": "favorite:3",
+              "label": {
+                "en": "HEOS favorite 3",
+                "fr": "Favori HEOS 3"
+              }
+            },
+            {
+              "value": "favorite:4",
+              "label": {
+                "en": "HEOS favorite 4",
+                "fr": "Favori HEOS 4"
+              }
+            },
+            {
+              "value": "favorite:5",
+              "label": {
+                "en": "HEOS favorite 5",
+                "fr": "Favori HEOS 5"
+              }
+            },
+            {
+              "value": "favorite:6",
+              "label": {
+                "en": "HEOS favorite 6",
+                "fr": "Favori HEOS 6"
+              }
+            },
+            {
+              "value": "favorite:7",
+              "label": {
+                "en": "HEOS favorite 7",
+                "fr": "Favori HEOS 7"
+              }
+            },
+            {
+              "value": "favorite:8",
+              "label": {
+                "en": "HEOS favorite 8",
+                "fr": "Favori HEOS 8"
+              }
+            }
+          ]
+        },
+        {
+          "key": "slot_2",
+          "type": "select",
+          "label": {
+            "en": "Button 2",
+            "fr": "Bouton 2"
+          },
+          "required": false,
+          "default": "quick:2",
+          "options": [
+            {
+              "value": "quick:1",
+              "label": {
+                "en": "Quick Select 1",
+                "fr": "Quick Select 1"
+              }
+            },
+            {
+              "value": "quick:2",
+              "label": {
+                "en": "Quick Select 2",
+                "fr": "Quick Select 2"
+              }
+            },
+            {
+              "value": "quick:3",
+              "label": {
+                "en": "Quick Select 3",
+                "fr": "Quick Select 3"
+              }
+            },
+            {
+              "value": "quick:4",
+              "label": {
+                "en": "Quick Select 4",
+                "fr": "Quick Select 4"
+              }
+            },
+            {
+              "value": "quick:5",
+              "label": {
+                "en": "Quick Select 5",
+                "fr": "Quick Select 5"
+              }
+            },
+            {
+              "value": "source:PHONO",
+              "label": {
+                "en": "Input: Phono",
+                "fr": "Entrée : Phono"
+              }
+            },
+            {
+              "value": "source:CD",
+              "label": {
+                "en": "Input: CD",
+                "fr": "Entrée : CD"
+              }
+            },
+            {
+              "value": "source:TUNER",
+              "label": {
+                "en": "Input: Tuner",
+                "fr": "Entrée : Tuner"
+              }
+            },
+            {
+              "value": "source:DVD",
+              "label": {
+                "en": "Input: DVD",
+                "fr": "Entrée : DVD"
+              }
+            },
+            {
+              "value": "source:BD",
+              "label": {
+                "en": "Input: Blu-ray",
+                "fr": "Entrée : Blu-ray"
+              }
+            },
+            {
+              "value": "source:SAT/CBL",
+              "label": {
+                "en": "Input: Sat/Cable",
+                "fr": "Entrée : Satellite/Câble"
+              }
+            },
+            {
+              "value": "source:MPLAY",
+              "label": {
+                "en": "Input: Media Player",
+                "fr": "Entrée : Lecteur multimédia"
+              }
+            },
+            {
+              "value": "source:GAME",
+              "label": {
+                "en": "Input: Game",
+                "fr": "Entrée : Jeu"
+              }
+            },
+            {
+              "value": "source:TV",
+              "label": {
+                "en": "Input: TV",
+                "fr": "Entrée : TV"
+              }
+            },
+            {
+              "value": "source:HDRADIO",
+              "label": {
+                "en": "Input: HD Radio",
+                "fr": "Entrée : HD Radio"
+              }
+            },
+            {
+              "value": "source:NET",
+              "label": {
+                "en": "Input: Network",
+                "fr": "Entrée : Réseau"
+              }
+            },
+            {
+              "value": "source:IRADIO",
+              "label": {
+                "en": "Input: Internet Radio",
+                "fr": "Entrée : Radio internet"
+              }
+            },
+            {
+              "value": "source:SERVER",
+              "label": {
+                "en": "Input: Media Server",
+                "fr": "Entrée : Serveur média"
+              }
+            },
+            {
+              "value": "source:FAVORITES",
+              "label": {
+                "en": "Input: Favorites",
+                "fr": "Entrée : Favoris"
+              }
+            },
+            {
+              "value": "source:USB/IPOD",
+              "label": {
+                "en": "Input: USB/iPod",
+                "fr": "Entrée : USB/iPod"
+              }
+            },
+            {
+              "value": "source:BT",
+              "label": {
+                "en": "Input: Bluetooth",
+                "fr": "Entrée : Bluetooth"
+              }
+            },
+            {
+              "value": "source:AUX1",
+              "label": {
+                "en": "Input: Aux 1",
+                "fr": "Entrée : Aux 1"
+              }
+            },
+            {
+              "value": "source:AUX2",
+              "label": {
+                "en": "Input: Aux 2",
+                "fr": "Entrée : Aux 2"
+              }
+            },
+            {
+              "value": "source:AUX3",
+              "label": {
+                "en": "Input: Aux 3",
+                "fr": "Entrée : Aux 3"
+              }
+            },
+            {
+              "value": "source:AUX4",
+              "label": {
+                "en": "Input: Aux 4",
+                "fr": "Entrée : Aux 4"
+              }
+            },
+            {
+              "value": "source:AUX5",
+              "label": {
+                "en": "Input: Aux 5",
+                "fr": "Entrée : Aux 5"
+              }
+            },
+            {
+              "value": "source:AUX6",
+              "label": {
+                "en": "Input: Aux 6",
+                "fr": "Entrée : Aux 6"
+              }
+            },
+            {
+              "value": "source:AUX7",
+              "label": {
+                "en": "Input: Aux 7",
+                "fr": "Entrée : Aux 7"
+              }
+            },
+            {
+              "value": "favorite:1",
+              "label": {
+                "en": "HEOS favorite 1",
+                "fr": "Favori HEOS 1"
+              }
+            },
+            {
+              "value": "favorite:2",
+              "label": {
+                "en": "HEOS favorite 2",
+                "fr": "Favori HEOS 2"
+              }
+            },
+            {
+              "value": "favorite:3",
+              "label": {
+                "en": "HEOS favorite 3",
+                "fr": "Favori HEOS 3"
+              }
+            },
+            {
+              "value": "favorite:4",
+              "label": {
+                "en": "HEOS favorite 4",
+                "fr": "Favori HEOS 4"
+              }
+            },
+            {
+              "value": "favorite:5",
+              "label": {
+                "en": "HEOS favorite 5",
+                "fr": "Favori HEOS 5"
+              }
+            },
+            {
+              "value": "favorite:6",
+              "label": {
+                "en": "HEOS favorite 6",
+                "fr": "Favori HEOS 6"
+              }
+            },
+            {
+              "value": "favorite:7",
+              "label": {
+                "en": "HEOS favorite 7",
+                "fr": "Favori HEOS 7"
+              }
+            },
+            {
+              "value": "favorite:8",
+              "label": {
+                "en": "HEOS favorite 8",
+                "fr": "Favori HEOS 8"
+              }
+            }
+          ]
+        },
+        {
+          "key": "slot_3",
+          "type": "select",
+          "label": {
+            "en": "Button 3",
+            "fr": "Bouton 3"
+          },
+          "required": false,
+          "default": "quick:3",
+          "options": [
+            {
+              "value": "quick:1",
+              "label": {
+                "en": "Quick Select 1",
+                "fr": "Quick Select 1"
+              }
+            },
+            {
+              "value": "quick:2",
+              "label": {
+                "en": "Quick Select 2",
+                "fr": "Quick Select 2"
+              }
+            },
+            {
+              "value": "quick:3",
+              "label": {
+                "en": "Quick Select 3",
+                "fr": "Quick Select 3"
+              }
+            },
+            {
+              "value": "quick:4",
+              "label": {
+                "en": "Quick Select 4",
+                "fr": "Quick Select 4"
+              }
+            },
+            {
+              "value": "quick:5",
+              "label": {
+                "en": "Quick Select 5",
+                "fr": "Quick Select 5"
+              }
+            },
+            {
+              "value": "source:PHONO",
+              "label": {
+                "en": "Input: Phono",
+                "fr": "Entrée : Phono"
+              }
+            },
+            {
+              "value": "source:CD",
+              "label": {
+                "en": "Input: CD",
+                "fr": "Entrée : CD"
+              }
+            },
+            {
+              "value": "source:TUNER",
+              "label": {
+                "en": "Input: Tuner",
+                "fr": "Entrée : Tuner"
+              }
+            },
+            {
+              "value": "source:DVD",
+              "label": {
+                "en": "Input: DVD",
+                "fr": "Entrée : DVD"
+              }
+            },
+            {
+              "value": "source:BD",
+              "label": {
+                "en": "Input: Blu-ray",
+                "fr": "Entrée : Blu-ray"
+              }
+            },
+            {
+              "value": "source:SAT/CBL",
+              "label": {
+                "en": "Input: Sat/Cable",
+                "fr": "Entrée : Satellite/Câble"
+              }
+            },
+            {
+              "value": "source:MPLAY",
+              "label": {
+                "en": "Input: Media Player",
+                "fr": "Entrée : Lecteur multimédia"
+              }
+            },
+            {
+              "value": "source:GAME",
+              "label": {
+                "en": "Input: Game",
+                "fr": "Entrée : Jeu"
+              }
+            },
+            {
+              "value": "source:TV",
+              "label": {
+                "en": "Input: TV",
+                "fr": "Entrée : TV"
+              }
+            },
+            {
+              "value": "source:HDRADIO",
+              "label": {
+                "en": "Input: HD Radio",
+                "fr": "Entrée : HD Radio"
+              }
+            },
+            {
+              "value": "source:NET",
+              "label": {
+                "en": "Input: Network",
+                "fr": "Entrée : Réseau"
+              }
+            },
+            {
+              "value": "source:IRADIO",
+              "label": {
+                "en": "Input: Internet Radio",
+                "fr": "Entrée : Radio internet"
+              }
+            },
+            {
+              "value": "source:SERVER",
+              "label": {
+                "en": "Input: Media Server",
+                "fr": "Entrée : Serveur média"
+              }
+            },
+            {
+              "value": "source:FAVORITES",
+              "label": {
+                "en": "Input: Favorites",
+                "fr": "Entrée : Favoris"
+              }
+            },
+            {
+              "value": "source:USB/IPOD",
+              "label": {
+                "en": "Input: USB/iPod",
+                "fr": "Entrée : USB/iPod"
+              }
+            },
+            {
+              "value": "source:BT",
+              "label": {
+                "en": "Input: Bluetooth",
+                "fr": "Entrée : Bluetooth"
+              }
+            },
+            {
+              "value": "source:AUX1",
+              "label": {
+                "en": "Input: Aux 1",
+                "fr": "Entrée : Aux 1"
+              }
+            },
+            {
+              "value": "source:AUX2",
+              "label": {
+                "en": "Input: Aux 2",
+                "fr": "Entrée : Aux 2"
+              }
+            },
+            {
+              "value": "source:AUX3",
+              "label": {
+                "en": "Input: Aux 3",
+                "fr": "Entrée : Aux 3"
+              }
+            },
+            {
+              "value": "source:AUX4",
+              "label": {
+                "en": "Input: Aux 4",
+                "fr": "Entrée : Aux 4"
+              }
+            },
+            {
+              "value": "source:AUX5",
+              "label": {
+                "en": "Input: Aux 5",
+                "fr": "Entrée : Aux 5"
+              }
+            },
+            {
+              "value": "source:AUX6",
+              "label": {
+                "en": "Input: Aux 6",
+                "fr": "Entrée : Aux 6"
+              }
+            },
+            {
+              "value": "source:AUX7",
+              "label": {
+                "en": "Input: Aux 7",
+                "fr": "Entrée : Aux 7"
+              }
+            },
+            {
+              "value": "favorite:1",
+              "label": {
+                "en": "HEOS favorite 1",
+                "fr": "Favori HEOS 1"
+              }
+            },
+            {
+              "value": "favorite:2",
+              "label": {
+                "en": "HEOS favorite 2",
+                "fr": "Favori HEOS 2"
+              }
+            },
+            {
+              "value": "favorite:3",
+              "label": {
+                "en": "HEOS favorite 3",
+                "fr": "Favori HEOS 3"
+              }
+            },
+            {
+              "value": "favorite:4",
+              "label": {
+                "en": "HEOS favorite 4",
+                "fr": "Favori HEOS 4"
+              }
+            },
+            {
+              "value": "favorite:5",
+              "label": {
+                "en": "HEOS favorite 5",
+                "fr": "Favori HEOS 5"
+              }
+            },
+            {
+              "value": "favorite:6",
+              "label": {
+                "en": "HEOS favorite 6",
+                "fr": "Favori HEOS 6"
+              }
+            },
+            {
+              "value": "favorite:7",
+              "label": {
+                "en": "HEOS favorite 7",
+                "fr": "Favori HEOS 7"
+              }
+            },
+            {
+              "value": "favorite:8",
+              "label": {
+                "en": "HEOS favorite 8",
+                "fr": "Favori HEOS 8"
+              }
+            }
+          ]
+        },
+        {
+          "key": "slot_4",
+          "type": "select",
+          "label": {
+            "en": "Button 4",
+            "fr": "Bouton 4"
+          },
+          "required": false,
+          "default": "quick:4",
+          "options": [
+            {
+              "value": "quick:1",
+              "label": {
+                "en": "Quick Select 1",
+                "fr": "Quick Select 1"
+              }
+            },
+            {
+              "value": "quick:2",
+              "label": {
+                "en": "Quick Select 2",
+                "fr": "Quick Select 2"
+              }
+            },
+            {
+              "value": "quick:3",
+              "label": {
+                "en": "Quick Select 3",
+                "fr": "Quick Select 3"
+              }
+            },
+            {
+              "value": "quick:4",
+              "label": {
+                "en": "Quick Select 4",
+                "fr": "Quick Select 4"
+              }
+            },
+            {
+              "value": "quick:5",
+              "label": {
+                "en": "Quick Select 5",
+                "fr": "Quick Select 5"
+              }
+            },
+            {
+              "value": "source:PHONO",
+              "label": {
+                "en": "Input: Phono",
+                "fr": "Entrée : Phono"
+              }
+            },
+            {
+              "value": "source:CD",
+              "label": {
+                "en": "Input: CD",
+                "fr": "Entrée : CD"
+              }
+            },
+            {
+              "value": "source:TUNER",
+              "label": {
+                "en": "Input: Tuner",
+                "fr": "Entrée : Tuner"
+              }
+            },
+            {
+              "value": "source:DVD",
+              "label": {
+                "en": "Input: DVD",
+                "fr": "Entrée : DVD"
+              }
+            },
+            {
+              "value": "source:BD",
+              "label": {
+                "en": "Input: Blu-ray",
+                "fr": "Entrée : Blu-ray"
+              }
+            },
+            {
+              "value": "source:SAT/CBL",
+              "label": {
+                "en": "Input: Sat/Cable",
+                "fr": "Entrée : Satellite/Câble"
+              }
+            },
+            {
+              "value": "source:MPLAY",
+              "label": {
+                "en": "Input: Media Player",
+                "fr": "Entrée : Lecteur multimédia"
+              }
+            },
+            {
+              "value": "source:GAME",
+              "label": {
+                "en": "Input: Game",
+                "fr": "Entrée : Jeu"
+              }
+            },
+            {
+              "value": "source:TV",
+              "label": {
+                "en": "Input: TV",
+                "fr": "Entrée : TV"
+              }
+            },
+            {
+              "value": "source:HDRADIO",
+              "label": {
+                "en": "Input: HD Radio",
+                "fr": "Entrée : HD Radio"
+              }
+            },
+            {
+              "value": "source:NET",
+              "label": {
+                "en": "Input: Network",
+                "fr": "Entrée : Réseau"
+              }
+            },
+            {
+              "value": "source:IRADIO",
+              "label": {
+                "en": "Input: Internet Radio",
+                "fr": "Entrée : Radio internet"
+              }
+            },
+            {
+              "value": "source:SERVER",
+              "label": {
+                "en": "Input: Media Server",
+                "fr": "Entrée : Serveur média"
+              }
+            },
+            {
+              "value": "source:FAVORITES",
+              "label": {
+                "en": "Input: Favorites",
+                "fr": "Entrée : Favoris"
+              }
+            },
+            {
+              "value": "source:USB/IPOD",
+              "label": {
+                "en": "Input: USB/iPod",
+                "fr": "Entrée : USB/iPod"
+              }
+            },
+            {
+              "value": "source:BT",
+              "label": {
+                "en": "Input: Bluetooth",
+                "fr": "Entrée : Bluetooth"
+              }
+            },
+            {
+              "value": "source:AUX1",
+              "label": {
+                "en": "Input: Aux 1",
+                "fr": "Entrée : Aux 1"
+              }
+            },
+            {
+              "value": "source:AUX2",
+              "label": {
+                "en": "Input: Aux 2",
+                "fr": "Entrée : Aux 2"
+              }
+            },
+            {
+              "value": "source:AUX3",
+              "label": {
+                "en": "Input: Aux 3",
+                "fr": "Entrée : Aux 3"
+              }
+            },
+            {
+              "value": "source:AUX4",
+              "label": {
+                "en": "Input: Aux 4",
+                "fr": "Entrée : Aux 4"
+              }
+            },
+            {
+              "value": "source:AUX5",
+              "label": {
+                "en": "Input: Aux 5",
+                "fr": "Entrée : Aux 5"
+              }
+            },
+            {
+              "value": "source:AUX6",
+              "label": {
+                "en": "Input: Aux 6",
+                "fr": "Entrée : Aux 6"
+              }
+            },
+            {
+              "value": "source:AUX7",
+              "label": {
+                "en": "Input: Aux 7",
+                "fr": "Entrée : Aux 7"
+              }
+            },
+            {
+              "value": "favorite:1",
+              "label": {
+                "en": "HEOS favorite 1",
+                "fr": "Favori HEOS 1"
+              }
+            },
+            {
+              "value": "favorite:2",
+              "label": {
+                "en": "HEOS favorite 2",
+                "fr": "Favori HEOS 2"
+              }
+            },
+            {
+              "value": "favorite:3",
+              "label": {
+                "en": "HEOS favorite 3",
+                "fr": "Favori HEOS 3"
+              }
+            },
+            {
+              "value": "favorite:4",
+              "label": {
+                "en": "HEOS favorite 4",
+                "fr": "Favori HEOS 4"
+              }
+            },
+            {
+              "value": "favorite:5",
+              "label": {
+                "en": "HEOS favorite 5",
+                "fr": "Favori HEOS 5"
+              }
+            },
+            {
+              "value": "favorite:6",
+              "label": {
+                "en": "HEOS favorite 6",
+                "fr": "Favori HEOS 6"
+              }
+            },
+            {
+              "value": "favorite:7",
+              "label": {
+                "en": "HEOS favorite 7",
+                "fr": "Favori HEOS 7"
+              }
+            },
+            {
+              "value": "favorite:8",
+              "label": {
+                "en": "HEOS favorite 8",
+                "fr": "Favori HEOS 8"
+              }
+            }
+          ]
+        },
+        {
+          "key": "label_1",
+          "type": "string",
+          "label": {
+            "en": "Button 1 label",
+            "fr": "Libellé du bouton 1"
+          },
+          "description": {
+            "en": "Optional, 24 characters at most.",
+            "fr": "Facultatif, 24 caractères au plus."
+          },
+          "required": false
+        },
+        {
+          "key": "label_2",
+          "type": "string",
+          "label": {
+            "en": "Button 2 label",
+            "fr": "Libellé du bouton 2"
+          },
+          "description": {
+            "en": "Optional, 24 characters at most.",
+            "fr": "Facultatif, 24 caractères au plus."
+          },
+          "required": false
+        },
+        {
+          "key": "label_3",
+          "type": "string",
+          "label": {
+            "en": "Button 3 label",
+            "fr": "Libellé du bouton 3"
+          },
+          "description": {
+            "en": "Optional, 24 characters at most.",
+            "fr": "Facultatif, 24 caractères au plus."
+          },
+          "required": false
+        },
+        {
+          "key": "label_4",
+          "type": "string",
+          "label": {
+            "en": "Button 4 label",
+            "fr": "Libellé du bouton 4"
+          },
+          "description": {
+            "en": "Optional, 24 characters at most.",
+            "fr": "Facultatif, 24 caractères au plus."
+          },
+          "required": false
+        }
+      ],
+      "action_timeout_seconds": 20
+    },
+    {
+      "key": "amplifier",
+      "label": {
+        "en": "Amplifier",
+        "fr": "Ampli"
+      },
+      "description": {
+        "en": "Power, input, sound mode and live volume, with power, volume and mute.",
+        "fr": "Alimentation, entrée, mode son et volume en direct, avec marche, volume et sourdine."
+      },
+      "icon": "speaker",
+      "settings": [
+        {
+          "key": "avr",
+          "type": "select",
+          "source": "devices",
+          "label": {
+            "en": "Receiver",
+            "fr": "Ampli"
+          },
+          "description": {
+            "en": "Leave empty to show the first receiver.",
+            "fr": "Laissez vide pour afficher le premier ampli."
+          },
+          "required": false
+        }
+      ],
+      "action_timeout_seconds": 20
+    },
+    {
+      "key": "remote",
+      "label": {
+        "en": "Remote",
+        "fr": "Télécommande"
+      },
+      "description": {
+        "en": "Four remote keys of your choice; place several to build a full pad.",
+        "fr": "Quatre touches au choix ; posez-en plusieurs pour un pavé complet."
+      },
+      "icon": "move",
+      "settings": [
+        {
+          "key": "avr",
+          "type": "select",
+          "source": "devices",
+          "label": {
+            "en": "Receiver",
+            "fr": "Ampli"
+          },
+          "description": {
+            "en": "Leave empty to show the first receiver.",
+            "fr": "Laissez vide pour afficher le premier ampli."
+          },
+          "required": false
+        },
+        {
+          "key": "key_1",
+          "type": "select",
+          "label": {
+            "en": "Key 1",
+            "fr": "Touche 1"
+          },
+          "required": false,
+          "default": "up",
+          "options": [
+            {
+              "value": "up",
+              "label": {
+                "en": "Up",
+                "fr": "Haut"
+              }
+            },
+            {
+              "value": "down",
+              "label": {
+                "en": "Down",
+                "fr": "Bas"
+              }
+            },
+            {
+              "value": "left",
+              "label": {
+                "en": "Left",
+                "fr": "Gauche"
+              }
+            },
+            {
+              "value": "right",
+              "label": {
+                "en": "Right",
+                "fr": "Droite"
+              }
+            },
+            {
+              "value": "enter",
+              "label": {
+                "en": "OK",
+                "fr": "OK"
+              }
+            },
+            {
+              "value": "return",
+              "label": {
+                "en": "Back",
+                "fr": "Retour"
+              }
+            },
+            {
+              "value": "menu",
+              "label": {
+                "en": "Menu",
+                "fr": "Menu"
+              }
+            },
+            {
+              "value": "info",
+              "label": {
+                "en": "Info",
+                "fr": "Info"
+              }
+            },
+            {
+              "value": "volume_down",
+              "label": {
+                "en": "Vol −",
+                "fr": "Vol −"
+              }
+            },
+            {
+              "value": "volume_up",
+              "label": {
+                "en": "Vol +",
+                "fr": "Vol +"
+              }
+            },
+            {
+              "value": "mute",
+              "label": {
+                "en": "Mute",
+                "fr": "Sourdine"
+              }
+            },
+            {
+              "value": "power_on",
+              "label": {
+                "en": "Turn on",
+                "fr": "Allumer"
+              }
+            },
+            {
+              "value": "power_off",
+              "label": {
+                "en": "Standby",
+                "fr": "Veille"
+              }
+            }
+          ]
+        },
+        {
+          "key": "key_2",
+          "type": "select",
+          "label": {
+            "en": "Key 2",
+            "fr": "Touche 2"
+          },
+          "required": false,
+          "default": "down",
+          "options": [
+            {
+              "value": "up",
+              "label": {
+                "en": "Up",
+                "fr": "Haut"
+              }
+            },
+            {
+              "value": "down",
+              "label": {
+                "en": "Down",
+                "fr": "Bas"
+              }
+            },
+            {
+              "value": "left",
+              "label": {
+                "en": "Left",
+                "fr": "Gauche"
+              }
+            },
+            {
+              "value": "right",
+              "label": {
+                "en": "Right",
+                "fr": "Droite"
+              }
+            },
+            {
+              "value": "enter",
+              "label": {
+                "en": "OK",
+                "fr": "OK"
+              }
+            },
+            {
+              "value": "return",
+              "label": {
+                "en": "Back",
+                "fr": "Retour"
+              }
+            },
+            {
+              "value": "menu",
+              "label": {
+                "en": "Menu",
+                "fr": "Menu"
+              }
+            },
+            {
+              "value": "info",
+              "label": {
+                "en": "Info",
+                "fr": "Info"
+              }
+            },
+            {
+              "value": "volume_down",
+              "label": {
+                "en": "Vol −",
+                "fr": "Vol −"
+              }
+            },
+            {
+              "value": "volume_up",
+              "label": {
+                "en": "Vol +",
+                "fr": "Vol +"
+              }
+            },
+            {
+              "value": "mute",
+              "label": {
+                "en": "Mute",
+                "fr": "Sourdine"
+              }
+            },
+            {
+              "value": "power_on",
+              "label": {
+                "en": "Turn on",
+                "fr": "Allumer"
+              }
+            },
+            {
+              "value": "power_off",
+              "label": {
+                "en": "Standby",
+                "fr": "Veille"
+              }
+            }
+          ]
+        },
+        {
+          "key": "key_3",
+          "type": "select",
+          "label": {
+            "en": "Key 3",
+            "fr": "Touche 3"
+          },
+          "required": false,
+          "default": "left",
+          "options": [
+            {
+              "value": "up",
+              "label": {
+                "en": "Up",
+                "fr": "Haut"
+              }
+            },
+            {
+              "value": "down",
+              "label": {
+                "en": "Down",
+                "fr": "Bas"
+              }
+            },
+            {
+              "value": "left",
+              "label": {
+                "en": "Left",
+                "fr": "Gauche"
+              }
+            },
+            {
+              "value": "right",
+              "label": {
+                "en": "Right",
+                "fr": "Droite"
+              }
+            },
+            {
+              "value": "enter",
+              "label": {
+                "en": "OK",
+                "fr": "OK"
+              }
+            },
+            {
+              "value": "return",
+              "label": {
+                "en": "Back",
+                "fr": "Retour"
+              }
+            },
+            {
+              "value": "menu",
+              "label": {
+                "en": "Menu",
+                "fr": "Menu"
+              }
+            },
+            {
+              "value": "info",
+              "label": {
+                "en": "Info",
+                "fr": "Info"
+              }
+            },
+            {
+              "value": "volume_down",
+              "label": {
+                "en": "Vol −",
+                "fr": "Vol −"
+              }
+            },
+            {
+              "value": "volume_up",
+              "label": {
+                "en": "Vol +",
+                "fr": "Vol +"
+              }
+            },
+            {
+              "value": "mute",
+              "label": {
+                "en": "Mute",
+                "fr": "Sourdine"
+              }
+            },
+            {
+              "value": "power_on",
+              "label": {
+                "en": "Turn on",
+                "fr": "Allumer"
+              }
+            },
+            {
+              "value": "power_off",
+              "label": {
+                "en": "Standby",
+                "fr": "Veille"
+              }
+            }
+          ]
+        },
+        {
+          "key": "key_4",
+          "type": "select",
+          "label": {
+            "en": "Key 4",
+            "fr": "Touche 4"
+          },
+          "required": false,
+          "default": "right",
+          "options": [
+            {
+              "value": "up",
+              "label": {
+                "en": "Up",
+                "fr": "Haut"
+              }
+            },
+            {
+              "value": "down",
+              "label": {
+                "en": "Down",
+                "fr": "Bas"
+              }
+            },
+            {
+              "value": "left",
+              "label": {
+                "en": "Left",
+                "fr": "Gauche"
+              }
+            },
+            {
+              "value": "right",
+              "label": {
+                "en": "Right",
+                "fr": "Droite"
+              }
+            },
+            {
+              "value": "enter",
+              "label": {
+                "en": "OK",
+                "fr": "OK"
+              }
+            },
+            {
+              "value": "return",
+              "label": {
+                "en": "Back",
+                "fr": "Retour"
+              }
+            },
+            {
+              "value": "menu",
+              "label": {
+                "en": "Menu",
+                "fr": "Menu"
+              }
+            },
+            {
+              "value": "info",
+              "label": {
+                "en": "Info",
+                "fr": "Info"
+              }
+            },
+            {
+              "value": "volume_down",
+              "label": {
+                "en": "Vol −",
+                "fr": "Vol −"
+              }
+            },
+            {
+              "value": "volume_up",
+              "label": {
+                "en": "Vol +",
+                "fr": "Vol +"
+              }
+            },
+            {
+              "value": "mute",
+              "label": {
+                "en": "Mute",
+                "fr": "Sourdine"
+              }
+            },
+            {
+              "value": "power_on",
+              "label": {
+                "en": "Turn on",
+                "fr": "Allumer"
+              }
+            },
+            {
+              "value": "power_off",
+              "label": {
+                "en": "Standby",
+                "fr": "Veille"
+              }
+            }
+          ]
+        }
+      ],
+      "action_timeout_seconds": 20
+    },
+    {
+      "key": "radio",
+      "label": {
+        "en": "Radio (tuner)",
+        "fr": "Radio (tuner)"
+      },
+      "description": {
+        "en": "The FM/AM tuner: frequency, preset, band, with four buttons of your choice.",
+        "fr": "Le tuner FM/AM : fréquence, présélection, bande, avec quatre boutons au choix."
+      },
+      "icon": "radio",
+      "settings": [
+        {
+          "key": "avr",
+          "type": "select",
+          "source": "devices",
+          "label": {
+            "en": "Receiver",
+            "fr": "Ampli"
+          },
+          "description": {
+            "en": "Leave empty to show the first receiver.",
+            "fr": "Laissez vide pour afficher le premier ampli."
+          },
+          "required": false
+        },
+        {
+          "key": "button_1",
+          "type": "select",
+          "label": {
+            "en": "Button 1",
+            "fr": "Bouton 1"
+          },
+          "required": false,
+          "default": "frequency_down",
+          "options": [
+            {
+              "value": "frequency_down",
+              "label": {
+                "en": "Freq −",
+                "fr": "Fréq −"
+              }
+            },
+            {
+              "value": "frequency_up",
+              "label": {
+                "en": "Freq +",
+                "fr": "Fréq +"
+              }
+            },
+            {
+              "value": "preset_down",
+              "label": {
+                "en": "Preset −",
+                "fr": "Présél. −"
+              }
+            },
+            {
+              "value": "preset_up",
+              "label": {
+                "en": "Preset +",
+                "fr": "Présél. +"
+              }
+            },
+            {
+              "value": "band_toggle",
+              "label": {
+                "en": "AM / FM",
+                "fr": "AM / FM"
+              }
+            },
+            {
+              "value": "mode_toggle",
+              "label": {
+                "en": "Auto / Manual",
+                "fr": "Auto / Manuel"
+              }
+            },
+            {
+              "value": "tuner",
+              "label": {
+                "en": "Tuner input",
+                "fr": "Entrée Tuner"
+              }
+            }
+          ]
+        },
+        {
+          "key": "button_2",
+          "type": "select",
+          "label": {
+            "en": "Button 2",
+            "fr": "Bouton 2"
+          },
+          "required": false,
+          "default": "frequency_up",
+          "options": [
+            {
+              "value": "frequency_down",
+              "label": {
+                "en": "Freq −",
+                "fr": "Fréq −"
+              }
+            },
+            {
+              "value": "frequency_up",
+              "label": {
+                "en": "Freq +",
+                "fr": "Fréq +"
+              }
+            },
+            {
+              "value": "preset_down",
+              "label": {
+                "en": "Preset −",
+                "fr": "Présél. −"
+              }
+            },
+            {
+              "value": "preset_up",
+              "label": {
+                "en": "Preset +",
+                "fr": "Présél. +"
+              }
+            },
+            {
+              "value": "band_toggle",
+              "label": {
+                "en": "AM / FM",
+                "fr": "AM / FM"
+              }
+            },
+            {
+              "value": "mode_toggle",
+              "label": {
+                "en": "Auto / Manual",
+                "fr": "Auto / Manuel"
+              }
+            },
+            {
+              "value": "tuner",
+              "label": {
+                "en": "Tuner input",
+                "fr": "Entrée Tuner"
+              }
+            }
+          ]
+        },
+        {
+          "key": "button_3",
+          "type": "select",
+          "label": {
+            "en": "Button 3",
+            "fr": "Bouton 3"
+          },
+          "required": false,
+          "default": "preset_up",
+          "options": [
+            {
+              "value": "frequency_down",
+              "label": {
+                "en": "Freq −",
+                "fr": "Fréq −"
+              }
+            },
+            {
+              "value": "frequency_up",
+              "label": {
+                "en": "Freq +",
+                "fr": "Fréq +"
+              }
+            },
+            {
+              "value": "preset_down",
+              "label": {
+                "en": "Preset −",
+                "fr": "Présél. −"
+              }
+            },
+            {
+              "value": "preset_up",
+              "label": {
+                "en": "Preset +",
+                "fr": "Présél. +"
+              }
+            },
+            {
+              "value": "band_toggle",
+              "label": {
+                "en": "AM / FM",
+                "fr": "AM / FM"
+              }
+            },
+            {
+              "value": "mode_toggle",
+              "label": {
+                "en": "Auto / Manual",
+                "fr": "Auto / Manuel"
+              }
+            },
+            {
+              "value": "tuner",
+              "label": {
+                "en": "Tuner input",
+                "fr": "Entrée Tuner"
+              }
+            }
+          ]
+        },
+        {
+          "key": "button_4",
+          "type": "select",
+          "label": {
+            "en": "Button 4",
+            "fr": "Bouton 4"
+          },
+          "required": false,
+          "default": "band_toggle",
+          "options": [
+            {
+              "value": "frequency_down",
+              "label": {
+                "en": "Freq −",
+                "fr": "Fréq −"
+              }
+            },
+            {
+              "value": "frequency_up",
+              "label": {
+                "en": "Freq +",
+                "fr": "Fréq +"
+              }
+            },
+            {
+              "value": "preset_down",
+              "label": {
+                "en": "Preset −",
+                "fr": "Présél. −"
+              }
+            },
+            {
+              "value": "preset_up",
+              "label": {
+                "en": "Preset +",
+                "fr": "Présél. +"
+              }
+            },
+            {
+              "value": "band_toggle",
+              "label": {
+                "en": "AM / FM",
+                "fr": "AM / FM"
+              }
+            },
+            {
+              "value": "mode_toggle",
+              "label": {
+                "en": "Auto / Manual",
+                "fr": "Auto / Manuel"
+              }
+            },
+            {
+              "value": "tuner",
+              "label": {
+                "en": "Tuner input",
+                "fr": "Entrée Tuner"
+              }
+            }
+          ]
+        }
+      ],
+      "action_timeout_seconds": 20
+    }
+  ],
+  "scene_actions": [
+    {
+      "key": "quick_select",
+      "label": {
+        "en": "AVR: recall a Quick Select",
+        "fr": "Ampli : rappeler un Quick Select"
+      },
+      "description": {
+        "en": "Input, volume and sound mode stored in the receiver (Smart Select on Marantz).",
+        "fr": "Entrée, volume et mode son mémorisés dans l'ampli (Smart Select chez Marantz)."
+      },
+      "timeout_seconds": 15,
+      "fields": [
+        {
+          "key": "avr",
+          "type": "select",
+          "source": "devices",
+          "label": {
+            "en": "Receiver",
+            "fr": "Ampli"
+          },
+          "required": true
+        },
+        {
+          "key": "preset",
+          "type": "select",
+          "label": {
+            "en": "Quick Select",
+            "fr": "Quick Select"
+          },
+          "required": true,
+          "default": "1",
+          "options": [
+            {
+              "value": "1",
+              "label": {
+                "en": "Quick Select 1",
+                "fr": "Quick Select 1"
+              }
+            },
+            {
+              "value": "2",
+              "label": {
+                "en": "Quick Select 2",
+                "fr": "Quick Select 2"
+              }
+            },
+            {
+              "value": "3",
+              "label": {
+                "en": "Quick Select 3",
+                "fr": "Quick Select 3"
+              }
+            },
+            {
+              "value": "4",
+              "label": {
+                "en": "Quick Select 4",
+                "fr": "Quick Select 4"
+              }
+            },
+            {
+              "value": "5",
+              "label": {
+                "en": "Quick Select 5",
+                "fr": "Quick Select 5"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "play_heos_favorite",
+      "label": {
+        "en": "AVR: play a HEOS favorite",
+        "fr": "Ampli : jouer un favori HEOS"
+      },
+      "description": {
+        "en": "The n-th entry of the HEOS app favorites (radio, playlist…).",
+        "fr": "La n-ième entrée des favoris de l'application HEOS (radio, playlist…)."
+      },
+      "timeout_seconds": 20,
+      "fields": [
+        {
+          "key": "avr",
+          "type": "select",
+          "source": "devices",
+          "label": {
+            "en": "Receiver",
+            "fr": "Ampli"
+          },
+          "required": true
+        },
+        {
+          "key": "favorite",
+          "type": "number",
+          "label": {
+            "en": "Favorite number",
+            "fr": "Numéro du favori"
+          },
+          "required": true,
+          "default": 1,
+          "min": 1,
+          "max": 99
+        }
+      ]
+    },
+    {
+      "key": "set_amp",
+      "label": {
+        "en": "AVR: set up the receiver",
+        "fr": "Ampli : régler l'ampli"
+      },
+      "description": {
+        "en": "Power, input, sound mode and volume in one action; leave a field empty to keep it.",
+        "fr": "Alimentation, entrée, mode son et volume en une action ; un champ vide est conservé."
+      },
+      "timeout_seconds": 20,
+      "fields": [
+        {
+          "key": "avr",
+          "type": "select",
+          "source": "devices",
+          "label": {
+            "en": "Receiver",
+            "fr": "Ampli"
+          },
+          "required": true
+        },
+        {
+          "key": "power",
+          "type": "select",
+          "label": {
+            "en": "Power",
+            "fr": "Alimentation"
+          },
+          "required": false,
+          "options": [
+            {
+              "value": "on",
+              "label": {
+                "en": "Turn on",
+                "fr": "Allumer"
+              }
+            },
+            {
+              "value": "off",
+              "label": {
+                "en": "Standby",
+                "fr": "Mettre en veille"
+              }
+            }
+          ]
+        },
+        {
+          "key": "source",
+          "type": "select",
+          "label": {
+            "en": "Input",
+            "fr": "Entrée"
+          },
+          "required": false,
+          "options": [
+            {
+              "value": "PHONO",
+              "label": {
+                "en": "Phono",
+                "fr": "Phono"
+              }
+            },
+            {
+              "value": "CD",
+              "label": {
+                "en": "CD",
+                "fr": "CD"
+              }
+            },
+            {
+              "value": "TUNER",
+              "label": {
+                "en": "Tuner",
+                "fr": "Tuner"
+              }
+            },
+            {
+              "value": "DVD",
+              "label": {
+                "en": "DVD",
+                "fr": "DVD"
+              }
+            },
+            {
+              "value": "BD",
+              "label": {
+                "en": "Blu-ray",
+                "fr": "Blu-ray"
+              }
+            },
+            {
+              "value": "SAT/CBL",
+              "label": {
+                "en": "Sat/Cable",
+                "fr": "Satellite/Câble"
+              }
+            },
+            {
+              "value": "MPLAY",
+              "label": {
+                "en": "Media Player",
+                "fr": "Lecteur multimédia"
+              }
+            },
+            {
+              "value": "GAME",
+              "label": {
+                "en": "Game",
+                "fr": "Jeu"
+              }
+            },
+            {
+              "value": "TV",
+              "label": {
+                "en": "TV",
+                "fr": "TV"
+              }
+            },
+            {
+              "value": "HDRADIO",
+              "label": {
+                "en": "HD Radio",
+                "fr": "HD Radio"
+              }
+            },
+            {
+              "value": "NET",
+              "label": {
+                "en": "Network",
+                "fr": "Réseau"
+              }
+            },
+            {
+              "value": "IRADIO",
+              "label": {
+                "en": "Internet Radio",
+                "fr": "Radio internet"
+              }
+            },
+            {
+              "value": "SERVER",
+              "label": {
+                "en": "Media Server",
+                "fr": "Serveur média"
+              }
+            },
+            {
+              "value": "FAVORITES",
+              "label": {
+                "en": "Favorites",
+                "fr": "Favoris"
+              }
+            },
+            {
+              "value": "USB/IPOD",
+              "label": {
+                "en": "USB/iPod",
+                "fr": "USB/iPod"
+              }
+            },
+            {
+              "value": "BT",
+              "label": {
+                "en": "Bluetooth",
+                "fr": "Bluetooth"
+              }
+            },
+            {
+              "value": "AUX1",
+              "label": {
+                "en": "Aux 1",
+                "fr": "Aux 1"
+              }
+            },
+            {
+              "value": "AUX2",
+              "label": {
+                "en": "Aux 2",
+                "fr": "Aux 2"
+              }
+            },
+            {
+              "value": "AUX3",
+              "label": {
+                "en": "Aux 3",
+                "fr": "Aux 3"
+              }
+            },
+            {
+              "value": "AUX4",
+              "label": {
+                "en": "Aux 4",
+                "fr": "Aux 4"
+              }
+            },
+            {
+              "value": "AUX5",
+              "label": {
+                "en": "Aux 5",
+                "fr": "Aux 5"
+              }
+            },
+            {
+              "value": "AUX6",
+              "label": {
+                "en": "Aux 6",
+                "fr": "Aux 6"
+              }
+            },
+            {
+              "value": "AUX7",
+              "label": {
+                "en": "Aux 7",
+                "fr": "Aux 7"
+              }
+            }
+          ]
+        },
+        {
+          "key": "sound_mode",
+          "type": "select",
+          "label": {
+            "en": "Sound mode",
+            "fr": "Mode son"
+          },
+          "required": false,
+          "options": [
+            {
+              "value": "MOVIE",
+              "label": {
+                "en": "Movie",
+                "fr": "Film"
+              }
+            },
+            {
+              "value": "MUSIC",
+              "label": {
+                "en": "Music",
+                "fr": "Musique"
+              }
+            },
+            {
+              "value": "GAME",
+              "label": {
+                "en": "Game",
+                "fr": "Jeu"
+              }
+            },
+            {
+              "value": "DIRECT",
+              "label": {
+                "en": "Direct",
+                "fr": "Direct"
+              }
+            },
+            {
+              "value": "PURE DIRECT",
+              "label": {
+                "en": "Pure Direct",
+                "fr": "Pure Direct"
+              }
+            },
+            {
+              "value": "STEREO",
+              "label": {
+                "en": "Stereo",
+                "fr": "Stéréo"
+              }
+            },
+            {
+              "value": "STANDARD",
+              "label": {
+                "en": "Standard",
+                "fr": "Standard"
+              }
+            },
+            {
+              "value": "DOLBY DIGITAL",
+              "label": {
+                "en": "Dolby Digital",
+                "fr": "Dolby Digital"
+              }
+            },
+            {
+              "value": "DTS SURROUND",
+              "label": {
+                "en": "DTS Surround",
+                "fr": "DTS Surround"
+              }
+            },
+            {
+              "value": "MCH STEREO",
+              "label": {
+                "en": "Multi-Channel Stereo",
+                "fr": "Stéréo multicanal"
+              }
+            },
+            {
+              "value": "VIRTUAL",
+              "label": {
+                "en": "Virtual",
+                "fr": "Virtuel"
+              }
+            }
+          ]
+        },
+        {
+          "key": "volume",
+          "type": "number",
+          "label": {
+            "en": "Volume (%)",
+            "fr": "Volume (%)"
+          },
+          "required": false,
+          "min": 0,
+          "max": 100
+        }
+      ]
+    },
+    {
+      "key": "get_state",
+      "label": {
+        "en": "AVR: read the receiver state",
+        "fr": "Ampli : lire l'état de l'ampli"
+      },
+      "description": {
+        "en": "For \"Continue only if\": input, sound mode, title… of the receiver.",
+        "fr": "Pour « Continuer seulement si » : entrée, mode son, titre… de l'ampli."
+      },
+      "timeout_seconds": 10,
+      "fields": [
+        {
+          "key": "avr",
+          "type": "select",
+          "source": "devices",
+          "label": {
+            "en": "Receiver",
+            "fr": "Ampli"
+          },
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "key": "reachable",
+          "type": "boolean",
+          "label": {
+            "en": "Reachable",
+            "fr": "Joignable"
+          }
+        },
+        {
+          "key": "power",
+          "type": "boolean",
+          "label": {
+            "en": "Powered on",
+            "fr": "Allumé"
+          }
+        },
+        {
+          "key": "volume",
+          "type": "number",
+          "label": {
+            "en": "Volume (%)",
+            "fr": "Volume (%)"
+          }
+        },
+        {
+          "key": "muted",
+          "type": "boolean",
+          "label": {
+            "en": "Muted",
+            "fr": "En sourdine"
+          }
+        },
+        {
+          "key": "source",
+          "type": "string",
+          "label": {
+            "en": "Input code",
+            "fr": "Code de l'entrée"
+          }
+        },
+        {
+          "key": "source_label",
+          "type": "string",
+          "label": {
+            "en": "Input name",
+            "fr": "Nom de l'entrée"
+          }
+        },
+        {
+          "key": "sound_mode",
+          "type": "string",
+          "label": {
+            "en": "Sound mode code",
+            "fr": "Code du mode son"
+          }
+        },
+        {
+          "key": "quick_select",
+          "type": "number",
+          "label": {
+            "en": "Quick Select",
+            "fr": "Quick Select"
+          }
+        },
+        {
+          "key": "playing",
+          "type": "boolean",
+          "label": {
+            "en": "Playing",
+            "fr": "En lecture"
+          }
+        },
+        {
+          "key": "title",
+          "type": "string",
+          "label": {
+            "en": "Title",
+            "fr": "Titre"
+          }
+        },
+        {
+          "key": "artist",
+          "type": "string",
+          "label": {
+            "en": "Artist or station",
+            "fr": "Artiste ou station"
+          }
+        }
+      ]
+    }
+  ],
+  "scene_triggers": [
+    {
+      "key": "source_changed",
+      "label": {
+        "en": "AVR: input changed",
+        "fr": "Ampli : l'entrée a changé"
+      },
+      "description": {
+        "en": "From Gladys, the remote or the app; filter on the new input.",
+        "fr": "Depuis Gladys, la télécommande ou l'application ; filtrable sur la nouvelle entrée."
+      },
+      "fields": [
+        {
+          "key": "avr",
+          "type": "select",
+          "source": "devices",
+          "label": {
+            "en": "Receiver",
+            "fr": "Ampli"
+          },
+          "description": {
+            "en": "Leave empty for any receiver.",
+            "fr": "Laissez vide pour n'importe quel ampli."
+          },
+          "required": false
+        },
+        {
+          "key": "source",
+          "type": "multi_select",
+          "label": {
+            "en": "New input",
+            "fr": "Nouvelle entrée"
+          },
+          "required": false,
+          "options": [
+            {
+              "value": "PHONO",
+              "label": {
+                "en": "Phono",
+                "fr": "Phono"
+              }
+            },
+            {
+              "value": "CD",
+              "label": {
+                "en": "CD",
+                "fr": "CD"
+              }
+            },
+            {
+              "value": "TUNER",
+              "label": {
+                "en": "Tuner",
+                "fr": "Tuner"
+              }
+            },
+            {
+              "value": "DVD",
+              "label": {
+                "en": "DVD",
+                "fr": "DVD"
+              }
+            },
+            {
+              "value": "BD",
+              "label": {
+                "en": "Blu-ray",
+                "fr": "Blu-ray"
+              }
+            },
+            {
+              "value": "SAT/CBL",
+              "label": {
+                "en": "Sat/Cable",
+                "fr": "Satellite/Câble"
+              }
+            },
+            {
+              "value": "MPLAY",
+              "label": {
+                "en": "Media Player",
+                "fr": "Lecteur multimédia"
+              }
+            },
+            {
+              "value": "GAME",
+              "label": {
+                "en": "Game",
+                "fr": "Jeu"
+              }
+            },
+            {
+              "value": "TV",
+              "label": {
+                "en": "TV",
+                "fr": "TV"
+              }
+            },
+            {
+              "value": "HDRADIO",
+              "label": {
+                "en": "HD Radio",
+                "fr": "HD Radio"
+              }
+            },
+            {
+              "value": "NET",
+              "label": {
+                "en": "Network",
+                "fr": "Réseau"
+              }
+            },
+            {
+              "value": "IRADIO",
+              "label": {
+                "en": "Internet Radio",
+                "fr": "Radio internet"
+              }
+            },
+            {
+              "value": "SERVER",
+              "label": {
+                "en": "Media Server",
+                "fr": "Serveur média"
+              }
+            },
+            {
+              "value": "FAVORITES",
+              "label": {
+                "en": "Favorites",
+                "fr": "Favoris"
+              }
+            },
+            {
+              "value": "USB/IPOD",
+              "label": {
+                "en": "USB/iPod",
+                "fr": "USB/iPod"
+              }
+            },
+            {
+              "value": "BT",
+              "label": {
+                "en": "Bluetooth",
+                "fr": "Bluetooth"
+              }
+            },
+            {
+              "value": "AUX1",
+              "label": {
+                "en": "Aux 1",
+                "fr": "Aux 1"
+              }
+            },
+            {
+              "value": "AUX2",
+              "label": {
+                "en": "Aux 2",
+                "fr": "Aux 2"
+              }
+            },
+            {
+              "value": "AUX3",
+              "label": {
+                "en": "Aux 3",
+                "fr": "Aux 3"
+              }
+            },
+            {
+              "value": "AUX4",
+              "label": {
+                "en": "Aux 4",
+                "fr": "Aux 4"
+              }
+            },
+            {
+              "value": "AUX5",
+              "label": {
+                "en": "Aux 5",
+                "fr": "Aux 5"
+              }
+            },
+            {
+              "value": "AUX6",
+              "label": {
+                "en": "Aux 6",
+                "fr": "Aux 6"
+              }
+            },
+            {
+              "value": "AUX7",
+              "label": {
+                "en": "Aux 7",
+                "fr": "Aux 7"
+              }
+            }
+          ]
+        }
+      ],
+      "variables": [
+        {
+          "key": "source",
+          "type": "string",
+          "label": {
+            "en": "Input code",
+            "fr": "Code de l'entrée"
+          }
+        },
+        {
+          "key": "source_label",
+          "type": "string",
+          "label": {
+            "en": "Input name",
+            "fr": "Nom de l'entrée"
+          }
+        },
+        {
+          "key": "previous_source",
+          "type": "string",
+          "label": {
+            "en": "Previous input code",
+            "fr": "Code de l'entrée précédente"
+          }
+        },
+        {
+          "key": "previous_source_label",
+          "type": "string",
+          "label": {
+            "en": "Previous input name",
+            "fr": "Nom de l'entrée précédente"
+          }
+        }
+      ]
+    },
+    {
+      "key": "track_changed",
+      "label": {
+        "en": "AVR: track changed",
+        "fr": "Ampli : le morceau a changé"
+      },
+      "description": {
+        "en": "A new title on HEOS or the network input, with the track as variables.",
+        "fr": "Un nouveau titre sur HEOS ou l'entrée réseau, avec le morceau en variables."
+      },
+      "fields": [
+        {
+          "key": "avr",
+          "type": "select",
+          "source": "devices",
+          "label": {
+            "en": "Receiver",
+            "fr": "Ampli"
+          },
+          "description": {
+            "en": "Leave empty for any receiver.",
+            "fr": "Laissez vide pour n'importe quel ampli."
+          },
+          "required": false
+        }
+      ],
+      "variables": [
+        {
+          "key": "title",
+          "type": "string",
+          "label": {
+            "en": "Title",
+            "fr": "Titre"
+          }
+        },
+        {
+          "key": "artist",
+          "type": "string",
+          "label": {
+            "en": "Artist or station",
+            "fr": "Artiste ou station"
+          }
+        },
+        {
+          "key": "album",
+          "type": "string",
+          "label": {
+            "en": "Album",
+            "fr": "Album"
+          }
+        },
+        {
+          "key": "source",
+          "type": "string",
+          "label": {
+            "en": "Input code",
+            "fr": "Code de l'entrée"
+          }
         }
       ]
     }

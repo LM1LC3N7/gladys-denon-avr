@@ -1,6 +1,6 @@
 {
   "name": "gladys-denon-avr",
-  "version": "1.0.21",
+  "version": "1.0.22",
   "private": true,
   "description": "Gladys Assistant external integration to control Denon/Marantz AV receivers over the network.",
   "type": "module",
@@ -10,10 +10,11 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "node --test"
+    "test": "node --test",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-include=index.js --test-coverage-lines=95 --test-coverage-branches=90 --test-coverage-functions=95"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
   },
   "dependencies": {
     "@gladysassistant/integration-sdk": "^0.14.0"

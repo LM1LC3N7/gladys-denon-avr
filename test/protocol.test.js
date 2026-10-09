@@ -33,6 +33,11 @@ import {
   ZONE,
   SOURCE_CODES,
   SOUND_MODE_CODES,
+  buildQuickSelectCommand,
+  buildQuickSelectQuery,
+  buildTunerQueries,
+  describeTunerFrequency,
+  TUNER_COMMANDS,
 } from '../src/denon/protocol.js';
 
 test('parseLine: main zone power is ZMON/ZMOFF, PWSTANDBY means off, a bare PWON is ignored', () => {
@@ -265,4 +270,58 @@ test('SOUND_MODE_CODES: every entry has a unique value and a bilingual label', (
     assert.ok(mode.label?.en, `${mode.value} needs an English label`);
     assert.ok(mode.label?.fr, `${mode.value} needs a French label`);
   }
+});
+
+test('parseLine: MSQUICK is the Quick Select, never a sound mode named "QUICK1"', () => {
+  assert.deepEqual(parseLine('MSQUICK1'), { feature: 'quick_select', value: 1 });
+  assert.deepEqual(parseLine('MSQUICK0'), { feature: 'quick_select', value: 0 });
+  assert.equal(parseLine('MSQUICK9'), null);
+  assert.equal(parseLine('MSQUICK1 MEMORY'), null);
+  assert.deepEqual(parseLine('MSMOVIE'), { feature: 'sound_mode', value: 'MOVIE' });
+});
+
+test('parseLine: in Zone 2 mode, Z2QUICK is read and the main zone MSQUICK is ignored', () => {
+  assert.deepEqual(parseLine('Z2QUICK3', ZONE.ZONE2), { feature: 'quick_select', value: 3 });
+  assert.equal(parseLine('MSQUICK1', ZONE.ZONE2), null);
+  assert.equal(parseLine('Z2QUICK3'), null, 'main-zone mode ignores another zone');
+});
+
+test('parseLine: tuner frequency, preset (both forms), band and tuning mode', () => {
+  assert.deepEqual(parseLine('TFAN008750'), { feature: 'tuner_frequency', value: 8750 });
+  assert.deepEqual(parseLine('TFAN105000'), { feature: 'tuner_frequency', value: 105000 });
+  assert.equal(parseLine('TFANNAMEOUIFM'), null, 'the RDS name is not a frequency');
+  assert.deepEqual(parseLine('TPANOFF'), { feature: 'tuner_preset', value: 0 });
+  assert.deepEqual(parseLine('TPAN06'), { feature: 'tuner_preset', value: 6 });
+  assert.deepEqual(parseLine('TPANB2'), { feature: 'tuner_preset', value: 10 });
+  assert.deepEqual(parseLine('TPANG8'), { feature: 'tuner_preset', value: 56 });
+  assert.equal(parseLine('TPAN57'), null);
+  assert.equal(parseLine('TPANMEM'), null, 'a stored-preset notice is not the current preset');
+  assert.deepEqual(parseLine('TMANFM'), { feature: 'tuner_band', value: 'FM' });
+  assert.deepEqual(parseLine('TMANAUTO'), { feature: 'tuner_mode', value: 'AUTO' });
+  assert.equal(parseLine('TMANXYZ'), null);
+  assert.deepEqual(parseLine('TFAN009010', ZONE.ZONE2), {
+    feature: 'tuner_frequency',
+    value: 9010,
+  });
+});
+
+test('describeTunerFrequency: below 050000 FM in MHz, from there AM in kHz', () => {
+  assert.deepEqual(describeTunerFrequency(8750), { band: 'FM', value: 87.5, unit: 'MHz' });
+  assert.deepEqual(describeTunerFrequency(105000), { band: 'AM', value: 1050, unit: 'kHz' });
+  assert.equal(describeTunerFrequency(0), null);
+  assert.equal(describeTunerFrequency('abc'), null);
+});
+
+test('Quick Select and tuner builders', () => {
+  assert.equal(buildQuickSelectCommand(1), 'MSQUICK1');
+  assert.equal(buildQuickSelectCommand(5, ZONE.ZONE3), 'Z3QUICK5');
+  assert.throws(() => buildQuickSelectCommand(0), /does not exist/);
+  assert.equal(buildQuickSelectQuery(), 'MSQUICK ?');
+  assert.equal(buildQuickSelectQuery(ZONE.ZONE2), 'Z2QUICK ?');
+  assert.deepEqual(buildTunerQueries(), ['TFAN?', 'TPAN?', 'TMAN?']);
+  assert.equal(TUNER_COMMANDS.frequency_up, 'TFANUP');
+  assert.equal(TUNER_COMMANDS.band_am, 'TMANAM');
+  assert.throws(() => {
+    TUNER_COMMANDS.frequency_up = 'X';
+  });
 });

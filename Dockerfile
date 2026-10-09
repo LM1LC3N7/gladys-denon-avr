@@ -21,8 +21,11 @@ WORKDIR /app
 # --ignore-scripts: the dependency tree has none (no native addons, checked
 # at review time), so this is free hardening against a compromised package's
 # postinstall running arbitrary code during the image build.
-COPY package.json package-lock.json* ./
-RUN npm ci --omit=dev --ignore-scripts || npm install --omit=dev --ignore-scripts
+# Strict `npm ci` only, no `npm install` fallback: the lockfile is committed,
+# and a fallback would silently ship unpinned versions the day it drifts
+# from package.json instead of failing the build (the CI docker job).
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts
 
 # Then the integration code.
 COPY index.js ./

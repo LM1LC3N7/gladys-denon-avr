@@ -2,14 +2,19 @@
 # Continuous integration: runs on every push and every pull request.
 #
 # Two independent jobs:
-#   1. quality -> Prettier, ESLint, `node --test` (no extra dependency).
+#   1. quality -> Prettier, ESLint, `node --test` with coverage thresholds
+#      on src/ (see `test:coverage` in package.json), and the Gladys store's
+#      own manifest validator (the admission rules the indexer applies).
 #   2. docker  -> `docker build .`, no push. Without this job a Dockerfile
 #      change (base image bump, a COPY typo...) goes green on `quality` alone
 #      and is only ever actually built the day someone cuts a release — this
 #      catches it on every PR instead.
 #
-# Runs on Node 24, the version the Docker image ships with (see the Dockerfile),
-# so the check exercises the exact runtime the integration runs on.
+# Runs on Node 26, the version the Docker image ships with (see the Dockerfile),
+# so the check exercises the exact runtime the integration runs on — keep the
+# two in sync when Dependabot bumps the base image.
+#
+# Read-only token: nothing here writes to the repository or a registry.
 # -----------------------------------------------------------------------------
 name: CI
 
@@ -18,6 +23,9 @@ on:
     branches:
       - main
   pull_request:
+
+permissions:
+  contents: read
 
 jobs:
   quality:
@@ -30,7 +38,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 26
           cache: npm
 
       - name: Install dependencies
@@ -42,8 +50,11 @@ jobs:
       - name: Lint (ESLint)
         run: npm run lint
 
-      - name: Run tests
-        run: npm test
+      - name: Run tests (with coverage thresholds)
+        run: npm run test:coverage
+
+      - name: Validate the manifest (Gladys store rules)
+        run: npx --yes github:GladysAssistant/integration-store .
 
   docker:
     runs-on: ubuntu-latest

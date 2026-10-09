@@ -56,9 +56,12 @@ These show up per receiver:
   AVR from that action's speaker dropdown and it reads your text out loud. Requires HEOS (see
   "HEOS support" below) — there is no legacy-Telnet way to play an arbitrary audio URL, so this
   only appears/works once a HEOS player id has been matched for this receiver. The volume slider
-  in that scene action has no effect here: Gladys does not forward it to this kind of integration
-  (a core limitation, not something this integration can work around) — the announcement plays at
-  the receiver's current volume. This is also one of the features here that works on a standalone
+  in that scene action never reaches this integration: Gladys does not forward it to this kind of
+  integration (a core limitation). Instead, set **Announcement volume** in the Configuration (0 =
+  current volume), and leave **Restore the receiver after an announcement** on: once the
+  announcement is over, the receiver gets back its previous volume, input and standby state (the
+  volume is left alone if someone changed it during the announcement). Whatever HEOS was playing
+  before (a radio, a playlist) does not resume on its own. This is also one of the features here that works on a standalone
   HEOS speaker (Denon Home, HEOS 1/3/5/7, Bar...) added through the manual IP fallback in
   Configuration, not just a real AV receiver — alongside Volume, Mute and Play/Pause/Next/Previous
   (all of which have a real HEOS equivalent, see "HEOS support" below). Power, Source and Sound
@@ -75,27 +78,55 @@ These show up per receiver:
   the ones you don't use the same way you'd hide any other device feature — nothing to configure
   on this integration's side.
 
-## Automating source/sound mode from a scene
+## Dashboard widgets
 
-In a scene, the generic **"Control a device"** action is what sets `Source`/`Sound mode`/
-`Source index` — there's no scene action for a manifest's own custom buttons (**Select input**
-here), on any Gladys version.
+Since Gladys 5.1, this integration adds its own dashboard cards: edit a dashboard, add a card and
+look for "Denon / Marantz AVR". Each card has a **Receiver** setting to pick the device (left
+empty: the first receiver added). Cards show and trigger; the volume slider and the input
+dropdown stay those of Gladys' own "Devices" card.
 
-- **On Gladys 4.86.1 or newer**, "Control a device" already shows a proper labeled dropdown for
-  `Source` and `Sound mode`, exactly like the dashboard — just pick the device, then the feature,
-  then the value. `Source index` still works too if you'd rather set a plain number.
-- **On an older Gladys**, that dropdown either isn't offered or doesn't accept the value — use
-  **Source index** instead: it's a plain number, which "Control a device" has always been able to
-  set, and it maps to the same input as the dropdown (position in the _currently visible_ Source
-  list, 0 = first entry).
-- **If "Control a device" shows nothing at all for this AVR** (no `Source`/`Sound mode` dropdown,
-  no `Source index` either): try a **hard refresh / clear your browser cache** first — confirmed
-  once to be the actual cause, a stale cached front-end bundle showed a completely empty picker
-  for this device while other integrations (MQTT, Zigbee2MQTT) still worked fine, fixed instantly
-  by clearing the cache, no configuration change needed. Still nothing after that? The device was
-  likely added before this integration shipped `Source index`, combined with a Gladys core older
-  than 4.86.1 — open this integration's **Discovery** tab, run a scan, and click **Update** on the
-  device, the same as any other structural change (see Configuration below).
+- **Now playing** — the cover art (or station logo), title, artist or station, album, input and
+  sound mode, the live volume, with Previous, Play/Pause, Next and Mute. This is what Gladys'
+  "Music" card does not show: no title, no artwork, and no volume for an AV receiver. The cover
+  only appears when it is under 300 KB (Gladys' limit) and the integration's container can
+  download it (often from the Internet).
+- **Shortcuts** — four one-tap buttons, each picked among the inputs (with your "Rename/hide
+  sources" names), **Quick Select 1-5** (Smart Select on Marantz: input, volume and sound mode
+  stored in the receiver) and **HEOS favorites 1-8**. The active shortcut is ticked. Each button
+  can get a custom label.
+- **Amplifier** — power, input, sound mode and mute at a glance, the live volume, and Turn
+  on/Standby, Vol −, Vol + and Mute buttons.
+- **Remote** — four keys of your choice (Up, Down, Left, Right, OK, Back, Menu, Info, Vol −,
+  Vol +, Mute, Turn on, Standby; the four arrows by default). Place several side by side for a full
+  pad (for instance an "arrows" card and an "OK / Back / Menu / Info" card).
+- **Radio (tuner)** — the FM/AM tuner: frequency, preset, band and tuning mode, with four buttons
+  of your choice (Freq −/+, Preset −/+, AM/FM, Auto/Manual, Tuner input). The receiver only
+  accepts these commands on the Tuner input: a press switches to it first when needed. Denon
+  documents the AM/FM switch for North American models only.
+
+## Scenes
+
+Since Gladys 5.1, the scene editor offers this integration's own actions and triggers (look for
+"AVR:"):
+
+- **AVR: recall a Quick Select** — Quick Select 1-5 (Smart Select on Marantz).
+- **AVR: play a HEOS favorite** — the n-th entry of the HEOS app favorites (a radio, a
+  playlist…), on the configured zone, switched on and to HEOS when needed.
+- **AVR: set up the receiver** — power, input, sound mode and volume in a single action; a field
+  left empty is not changed. Made for a "Movie" or "Music" scene.
+- **AVR: read the receiver state** — returns power, volume, input (code and name), sound mode,
+  Quick Select, playing, title and artist to the following actions of the scene — for instance a
+  "Continue only if" on the input.
+- Trigger **AVR: input changed** — from Gladys, the remote or the app, filterable on the receiver
+  and on the new input (for instance: TV input → dim the lights). The previous input is available
+  as a variable.
+- Trigger **AVR: track changed** — a new title on HEOS or the network input, with title, artist,
+  album and input as variables.
+
+The generic **"Control a device"** action still works for Source, Sound mode and Source index. If
+it shows nothing at all for this receiver, first try a **hard refresh / clear your browser cache**
+(confirmed once as the cause: a stale cached front-end bundle), then run a **Discovery** scan and
+click **Update** on the device.
 
 ## HEOS support
 
@@ -195,6 +226,7 @@ again after the ads, that stays at the lowered volume until the song.
 
 ## Prerequisites
 
+- **Gladys 5.1.0 or newer** (the integration's own widgets and scene actions/triggers).
 - A Denon or Marantz AV receiver with a network (Ethernet/Wi-Fi) connection.
 - **Network Standby** (sometimes labelled "ECO" standby) enabled in the receiver's setup menu.
   Without it, the receiver drops off the network entirely when powered off and Gladys cannot
@@ -207,7 +239,9 @@ again after the ads, that stays at the lowered volume until the song.
 1. Open the **Discovery** tab of the integration and run a scan. Denon/Marantz receivers answer
    automatically (SSDP/UPnP) — no IP to type, no account. The receiver should appear with its
    real name and model.
-2. Add the discovered device. Gladys keeps a persistent connection to it from then on.
+2. Add the discovered device. Gladys keeps a persistent connection to it from then on. If the
+   receiver later gets a new IP address (DHCP), run a Discovery scan again and click **Update** on
+   the device: the connection moves to the new address right away, no restart needed.
 3. **If nothing is found**: your network likely blocks multicast between segments (VLANs, several
    network interfaces on the Gladys host, some mesh Wi-Fi setups...). Open the integration's
    **Configuration** tab and fill in the receiver's IP address manually, save, then scan again —
@@ -235,8 +269,17 @@ again after the ads, that stays at the lowered volume until the song.
    zone HEOS happened to use last. Pick **Zone 2**/**Zone 3** only to drive that zone instead
    (sound mode and the Setup-menu keys always act on the main zone, the only one with an on-screen
    menu). The change applies immediately, no need to re-add the device.
+7. **Announcements** (Configuration tab): **Announcement volume** (0 = keep the current volume)
+   and **Restore the receiver after an announcement**, for the "Speak on a speaker" action — see
+   "Play notification" above.
 
 ## Troubleshooting
+
+- **The device badge** (device list) tells each receiver's state: _local_ = reachable;
+  _unreachable_ = neither the Telnet control nor HEOS answers (receiver unplugged, network standby
+  off, wrong IP); an **orange dot** flags a degraded mode, with the reason on hover — HEOS lists
+  no player at the receiver's IP ("Speak on a speaker" will not work), or only HEOS answers (a
+  standalone HEOS speaker, or a receiver whose port 23 is closed).
 
 - **Nothing found by the scan**: check that Gladys and the receiver are on the same network
   segment and that multicast/UPnP is not filtered by your router or switches, then use the
