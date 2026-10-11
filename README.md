@@ -233,7 +233,9 @@ TuneIn...) — see "Playback controls" below.
   volume −/+ and mute. **Remote** — four keys of the user's choice (arrows by default): several
   instances side by side make a full pad. **Radio** — the analog tuner (`TFAN`/`TPAN`/`TMAN`):
   frequency, preset, band, tuning mode and four configurable buttons; the input is switched to
-  the tuner first, since the receiver ignores tuner commands on another input. Widgets are
+  the tuner first, since the receiver ignores tuner commands on another input. Its `show`
+  setting switches it to the radio ad-break view (`src/widgets/ad-breaks.js`) — one widget for
+  both, the store admitting five widgets per integration. Widgets are
   read-and-tap only by design (no slider, no dropdown: those stay the core widgets rendering the
   device features), at most 8 components and 4 buttons each — every content is checked against
   the SDK's own `validateWidgetContent()` in `test/widgets.test.js`. The current choice is marked
@@ -265,7 +267,11 @@ TuneIn...) — see "Playback controls" below.
   looked up or decoded. The volume always comes back: a 10-minute cap, a restore on `stop()`
   _before_ the HEOS socket closes, a retried restore while HEOS is down, and announcements end
   a break before snapshotting the volume (`interruptForAnnouncement()`). Learned data lives in
-  `/data/ad-breaks.json` and `/data/ad-jingles/`.
+  `/data/ad-breaks.json` and `/data/ad-jingles/`. What was learned is shown by the **Radio**
+  widget set to `show: ad_breaks` (windows and hours with ads per day type, next window, recent
+  breaks, jingle states) and the **Ad-break report** Configuration action, both built from
+  `src/adbreak/insights.js`. Hours are local to the `timezone` setting (`applyTimezone()` sets
+  the process `TZ`): Gladys runs integration containers in UTC.
 
 A scene's generic **"Control a device"** action (`ACTIONS.DEVICE.SET_VALUE` in Gladys core) can
 also set `Source`/`Sound mode` — and since Gladys 5.1.0, **AVR: set up the receiver** above does
@@ -429,6 +435,7 @@ notes Dependabot links in the PR body) and merge it like any other PR once CI is
 │  │  ├─ content.js                  # PURE: one content builder per widget
 │  │  ├─ common.js                   # widget keys, texts, setting options
 │  │  ├─ actions.js                  # what each widget button does
+│  │  ├─ ad-breaks.js                # the Radio widget's ad-break view
 │  │  ├─ artwork.js / refresh.js     # cover download + cache, coalesced refresh nudges
 │  │  └─ index.js                    # SDK handlers + state-change nudges
 │  ├─ scenes/
@@ -448,6 +455,7 @@ notes Dependabot links in the PR body) and merge it like any other PR once CI is
 │  │  ├─ sources.js                  # station identity, song feeds, playlist history, Deezer
 │  │  ├─ jingles.js                  # stream decoding (ffmpeg), jingle learning + recognition
 │  │  ├─ jingle-worker.js            # the jingle search, off the main thread
+│  │  ├─ insights.js                 # PURE: what was learned, for the widget and the report
 │  │  └─ bands.js                    # PURE: PCM -> band-energy frames, correlation
 │  └─ config.js                      # config defaults + normalization
 ├─ test/                             # *.test.js per src/ module, node --test, no library

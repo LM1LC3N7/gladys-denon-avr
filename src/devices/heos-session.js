@@ -206,6 +206,8 @@ export function openHeosSession(
     publishAdBreak: (inBreak) => {
       // Not deduplicated: the user can switch it, Gladys must get it back.
       const id = featureExternalId(externalId, FEATURE.AD_BREAK);
+      // Kept for the "Radio ad breaks" widget, which follows it.
+      updateState(externalId, { [FEATURE.AD_BREAK]: inBreak ? 1 : 0 });
       // A device created before this feature existed has to be updated
       // from Discovery first: Gladys would only reject the state.
       const features = (getSession(externalId)?.device ?? device).features;
@@ -363,6 +365,14 @@ export function openHeosSession(
   }, timing.heosPollIntervalMs);
 
   return session;
+}
+
+/**
+ * What the ad-break detection of one receiver knows (src/adbreak/
+ * insights.js), or null without a HEOS session.
+ */
+export async function adBreakInsights(externalId) {
+  return (await getHeos(externalId)?.adBreak?.insights()) ?? null;
 }
 
 /**

@@ -264,6 +264,20 @@
       "default": 20,
       "min": 0,
       "max": 100
+    },
+    {
+      "key": "timezone",
+      "type": "string",
+      "label": {
+        "en": "Time zone",
+        "fr": "Fuseau horaire"
+      },
+      "description": {
+        "en": "Of the ad-break hours learned and shown, as an IANA name (Europe/Paris, Europe/Brussels, America/Montreal...). Integrations run in UTC otherwise.",
+        "fr": "Des heures de pub apprises et affichées, au format IANA (Europe/Paris, Europe/Brussels, America/Montreal…). Sinon, les intégrations tournent en UTC."
+      },
+      "required": false,
+      "default": "Europe/Paris"
     }
   ],
   "actions": [
@@ -478,6 +492,15 @@
           ]
         }
       ]
+    },
+    {
+      "key": "ad_break_report",
+      "label": {
+        "en": "Ad-break report",
+        "fr": "Bilan des coupures pub"
+      },
+      "timeout_seconds": 15,
+      "fields": []
     }
   ],
   "widgets": [
@@ -2120,12 +2143,12 @@
     {
       "key": "radio",
       "label": {
-        "en": "Radio (tuner)",
-        "fr": "Radio (tuner)"
+        "en": "Radio",
+        "fr": "Radio"
       },
       "description": {
-        "en": "The FM/AM tuner: frequency, preset, band, with four buttons of your choice.",
-        "fr": "Le tuner FM/AM : fréquence, présélection, bande, avec quatre boutons au choix."
+        "en": "FM/AM tuner (frequency, preset, buttons), or the ad breaks learned on web radios.",
+        "fr": "Tuner FM/AM (fréquence, présélection, boutons) ou les pubs apprises des radios web."
       },
       "icon": "radio",
       "settings": [
@@ -2142,6 +2165,36 @@
             "fr": "Laissez vide pour afficher le premier ampli."
           },
           "required": false
+        },
+        {
+          "key": "show",
+          "type": "select",
+          "label": {
+            "en": "Show",
+            "fr": "Afficher"
+          },
+          "description": {
+            "en": "The FM/AM tuner, or the radio ad breaks (needs the detection on, see Configuration).",
+            "fr": "Le tuner FM/AM, ou les coupures pub des radios (détection à activer dans la Configuration)."
+          },
+          "required": false,
+          "default": "tuner",
+          "options": [
+            {
+              "value": "tuner",
+              "label": {
+                "en": "FM/AM tuner",
+                "fr": "Tuner FM/AM"
+              }
+            },
+            {
+              "value": "ad_breaks",
+              "label": {
+                "en": "Radio ad breaks",
+                "fr": "Coupures pub des radios"
+              }
+            }
+          ]
         },
         {
           "key": "button_1",

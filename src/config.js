@@ -53,6 +53,10 @@ export const DEFAULT_CONFIG = {
   ad_break_volume_drop: 20,
   // ...but never below this level (0-100), so the ads stay audible.
   ad_break_min_volume: 20,
+  // The time zone of the hours learned and shown (ad windows, hours with
+  // ads, weekdays vs weekends): Gladys runs integration containers in UTC.
+  // An IANA name, see applyTimezone().
+  timezone: 'Europe/Paris',
   // "Speak on a speaker" volume, 0-100 % — 0 keeps the receiver's current
   // volume. Gladys drops the volume a scene asks for before it reaches an
   // external integration (see src/devices/announcements.js), hence a
@@ -110,6 +114,10 @@ export function normalizeConfig(raw = {}) {
       DEFAULT_CONFIG.ad_break_volume_drop,
     ),
     ad_break_min_volume: clampLevel(raw.ad_break_min_volume, 0, DEFAULT_CONFIG.ad_break_min_volume),
+    timezone:
+      typeof raw.timezone === 'string' && raw.timezone.trim()
+        ? raw.timezone.trim()
+        : DEFAULT_CONFIG.timezone,
     announcement_volume: Math.round(
       Math.max(0, Math.min(100, Number(raw.announcement_volume ?? 0) || 0)),
     ),
@@ -120,6 +128,23 @@ export function normalizeConfig(raw = {}) {
         : DEFAULT_CONFIG.source_overrides,
     ),
   };
+}
+
+/**
+ * Make `timezone` (an IANA name like "Europe/Paris") the process's local
+ * time zone: every local-time computation of the integration (the minute,
+ * hour and day of an ad break, their display) then follows the user's
+ * clock instead of the container's UTC. Node applies a new `TZ` at once.
+ * @returns {boolean} false (and nothing changed) for an unknown time zone
+ */
+export function applyTimezone(timezone) {
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: timezone });
+  } catch {
+    return false;
+  }
+  process.env.TZ = timezone;
+  return true;
 }
 
 /**

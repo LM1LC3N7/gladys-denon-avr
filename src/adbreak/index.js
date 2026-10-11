@@ -15,7 +15,8 @@
 
 import { createLogger } from '@gladysassistant/integration-sdk';
 import { createAdBreakDetector } from './detector.js';
-import { createJingleListener } from './jingles.js';
+import { createJingleListener, readJingleState } from './jingles.js';
+import { describeStation } from './insights.js';
 import {
   identifyStation,
   discoverFeed,
@@ -64,6 +65,24 @@ function persist(store) {
   return saving;
 }
 
+/**
+ * What was learned of every station (see insights.js), the most listened
+ * first — the "Ad-break report" action of the Configuration screen.
+ */
+export async function adBreakReport(now = Date.now()) {
+  const store = await getStore();
+  const stations = await Promise.all(
+    Object.entries(store)
+      .filter(([, stats]) => Array.isArray(stats?.breaks))
+      .map(async ([key, stats]) =>
+        describeStation({ key, stats, jingles: await readJingleState(key), now }),
+      ),
+  );
+  return stations
+    .filter((s) => s.breaksLearned > 0 || s.jingles.start.state !== 'none')
+    .sort((a, b) => b.breaksLearned - a.breaksLearned);
+}
+
 /** Test hook: forget the cached store (and optionally point at another file). */
 export function __resetStoreForTesting() {
   storePromise = null;
@@ -104,6 +123,7 @@ export function createAdBreakController({
 }) {
   let stopped = false;
   let station = null; // result of identifyStation(), plus feed and hasMetadata
+  let lastStation = null; // the last one played, shown once it stops
   let playing = false;
   let feed = null; // live song feed of feedFor (also what shows its titles)
   let feedFor = null;
@@ -321,9 +341,9 @@ export function createAdBreakController({
     if (!detecting()) {
       return;
     }
-    const key = station.key;
+    const { key, name } = station;
     const store = await getStore();
-    store[key] = fn(store[key] ?? emptyStats());
+    store[key] = { ...fn(store[key] ?? emptyStats()), name };
     await persist(store);
     await refreshDetectorStation();
   }
@@ -409,6 +429,7 @@ export function createAdBreakController({
     stopFeed();
     lastHeosTitle = null;
     station = next ? { ...next, feed: null, hasMetadata: false, feedLookup: false } : null;
+    lastStation = station ?? lastStation;
     logger.info(
       `${name}: now playing ${station ? `${station.name} (${station.key})` : 'no radio station'}`,
     );
@@ -438,7 +459,11 @@ export function createAdBreakController({
     if (!info || (info.none && Date.now() - info.checkedAt > RECHECK_MS)) {
       const found = await discoverFeed(current.tuneinId);
       info = found ? { ...found, checkedAt: Date.now() } : { none: true, checkedAt: Date.now() };
-      store[current.key] = { ...(store[current.key] ?? emptyStats()), feed: info };
+      store[current.key] = {
+        ...(store[current.key] ?? emptyStats()),
+        name: current.name,
+        feed: info,
+      };
       await persist(store);
     }
     if (station !== current || info.none) {
@@ -511,7 +536,7 @@ export function createAdBreakController({
     const oldest = songs.length ? Math.min(...songs.map((s) => s.startedAt)) : readAt;
     const continuous = stats.historyFrom != null && oldest <= readUntil;
     const historyFrom = continuous ? stats.historyFrom : oldest;
-    store[current.key] = { ...stats, historyReadUntil: readAt, historyFrom };
+    store[current.key] = { ...stats, name: current.name, historyReadUntil: readAt, historyFrom };
     await persist(store);
     logger.info(
       `${name}: ${current.name}: ${added} new ad breaks from ${songs.length} songs of the last ${hours} h of playlist history`,
@@ -639,6 +664,42 @@ export function createAdBreakController({
       const saved = duck?.saved ?? pendingRestore?.saved ?? null;
       detector.end('announcement');
       return saved;
+    },
+
+    /**
+     * What is known of the ad breaks of the station playing, else of the
+     * last one played (see insights.js), plus the live state: detection
+     * on, playing, in a break since when, the volume lowered.
+     */
+    async insights(now = Date.now()) {
+      const config = getConfig();
+      const live = {
+        detection: config.ad_break_detection === true,
+        jinglesEnabled: config.ad_break_jingles !== false,
+        autoDuck: config.ad_break_auto_duck !== false,
+        playing: Boolean(station) && playing,
+        inBreak: detector.isInBreak(),
+        breakSince: detector.breakStartedAt(),
+        ducked: duck ? { ...duck } : null,
+      };
+      const target = station ?? lastStation;
+      if (!target) {
+        return { ...live, station: null };
+      }
+      const store = await getStore();
+      const jingleState =
+        jingles?.station?.key === target.key ? jingles.state() : await readJingleState(target.key);
+      return {
+        ...live,
+        songSource: target.feed ? 'feed' : target.hasMetadata ? 'heos' : 'none',
+        station: describeStation({
+          key: target.key,
+          name: target.name,
+          stats: store[target.key] ?? emptyStats(),
+          jingles: jingleState,
+          now,
+        }),
+      };
     },
 
     /** True while a station feed (not HEOS) supplies the now-playing text. */

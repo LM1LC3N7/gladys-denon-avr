@@ -123,6 +123,16 @@ export function sameSound(a, b) {
   return false;
 }
 
+/** The learned jingle state of a station, as saved (null if none yet). */
+export async function readJingleState(stationKey, dir = STORE_DIR) {
+  try {
+    const parsed = JSON.parse(await fs.readFile(stationFile(dir, stationKey), 'utf8'));
+    return parsed?.version === STORE_VERSION ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 /** findSharedJingle() in a worker thread (see jingle-worker.js). */
 export function findSharedJingleInWorker(encodedSamples) {
   return new Promise((resolve, reject) => {
@@ -690,6 +700,11 @@ export function createJingleListener({
       stopped = true;
       clearTimeout(restartTimer);
       child?.kill('SIGTERM');
+    },
+
+    /** The learned state, live (what readJingleState() reads once saved). */
+    state() {
+      return state;
     },
 
     /** Resolves once the learning and saving in progress are done (tests). */

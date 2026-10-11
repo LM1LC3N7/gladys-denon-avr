@@ -8,8 +8,10 @@ import path from 'node:path';
 // Before the import: the module reads where to keep its statistics.
 const DIR = await fs.mkdtemp(path.join(os.tmpdir(), 'adbreak-controller-'));
 process.env.AD_BREAK_STATS_FILE = path.join(DIR, 'ad-breaks.json');
+process.env.AD_BREAK_JINGLES_DIR = path.join(DIR, 'ad-jingles');
 delete process.env.AD_BREAK_JINGLES;
-const { createAdBreakController, __resetStoreForTesting } = await import('../src/adbreak/index.js');
+const { createAdBreakController, adBreakReport, __resetStoreForTesting } =
+  await import('../src/adbreak/index.js');
 
 const wait = (ms = 30) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -35,6 +37,11 @@ function fakeJingles() {
       tick() {},
       onSongStarted() {},
       hasActive: () => false,
+      state: () => ({
+        version: 2,
+        samples: { start: [{}], end: [] },
+        jingles: { start: null, end: null },
+      }),
       learnFromBreak: async () => {},
       learnFromMark: async (at, side) => {
         listener.marks.push(side);
@@ -391,4 +398,45 @@ test('a long gap between two HEOS songs is learned as a break; a break switched 
   controller.setAdBreak(false);
   assert.deepEqual(receiver.sets, [30, 50]);
   assert.deepEqual(jingles.made[0].marks, ['start'], 'with titles, only the start is taught');
+});
+
+test('insights: the station playing, else the last one, and every station in the report', async (t) => {
+  const { controller, receiver } = setUp(t);
+  assert.deepEqual(await controller.insights(), {
+    detection: true,
+    jinglesEnabled: true,
+    autoDuck: true,
+    playing: false,
+    inBreak: false,
+    breakSince: null,
+    ducked: null,
+    station: null,
+  });
+  controller.onNowPlayingMedia(STREAM);
+  controller.onPlayState(true);
+  await wait();
+  controller.setAdBreak(true);
+  const during = await controller.insights();
+  assert.equal(during.inBreak, true);
+  assert.ok(during.breakSince <= Date.now());
+  assert.deepEqual(during.ducked, { saved: 50, ducked: 30 });
+  assert.equal(during.songSource, 'none');
+  assert.equal(during.station.name, 'Radio X');
+  assert.equal(during.station.jingles.start.samples, 1, 'the live listener state');
+  controller.setAdBreak(false);
+  await wait(100);
+
+  controller.onNowPlayingMedia({ type: 'station', mid: 'http://other.example/x' });
+  controller.onNowPlayingMedia({ type: 'song', mid: 'local' }); // no radio any more
+  const after = await controller.insights();
+  assert.equal(after.playing, false);
+  assert.equal(after.station.key, 'url:http://other.example/x', 'the last station played');
+  assert.equal(after.station.jingles.start.state, 'none', 'read from the (missing) file');
+  assert.equal(receiver.volume, 50);
+
+  const report = await adBreakReport();
+  assert.deepEqual(
+    report.map((s) => [s.key, s.name, s.breaksLearned]),
+    [['url:http://radio.example/live', 'Radio X', 1]],
+  );
 });

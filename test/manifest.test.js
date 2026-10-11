@@ -13,6 +13,8 @@ import { DEFAULT_CONFIG } from '../src/config.js';
 import { SOURCE_CODES, SOUND_MODE_CODES } from '../src/denon/protocol.js';
 import {
   WIDGET,
+  RADIO_VIEWS,
+  RADIO_VIEW_DEFAULT,
   SHORTCUT_TARGETS,
   SHORTCUT_DEFAULTS,
   REMOTE_BUTTONS,
@@ -29,7 +31,7 @@ const manifest = JSON.parse(
 
 // Registered directly in index.js (there is a single device type, so no
 // per-blueprint action registry like the template's demo devices had).
-const HANDLED_ACTIONS = ['test_connection', 'select_source'];
+const HANDLED_ACTIONS = ['test_connection', 'select_source', 'ad_break_report'];
 
 test('every manifest action has a registered handler', () => {
   for (const action of manifest.actions ?? []) {
@@ -141,6 +143,13 @@ test('widgets: button settings offer exactly the code options, with the code def
       assert.equal(slot.default, defaults[index], `${key}.${slot.key} default`);
     });
   }
+});
+
+test('widgets: the Radio widget shows the tuner or the ad breaks, the tuner by default', () => {
+  const radio = manifest.widgets.find((w) => w.key === WIDGET.RADIO);
+  const show = radio.settings.find((s) => s.key === 'show');
+  assert.deepEqual(show.options, optionsOf(RADIO_VIEWS));
+  assert.equal(show.default, RADIO_VIEW_DEFAULT);
 });
 
 test('scene actions and triggers: declared keys match the handlers, options match the protocol', () => {

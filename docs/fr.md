@@ -114,10 +114,12 @@ et déclenchent ; le curseur de volume et le menu déroulant des entrées resten
   Vol −, Vol +, Sourdine, Allumer, Veille ; les quatre flèches par défaut). Posez-en plusieurs côte
   à côte pour un pavé complet (par exemple une carte « flèches » et une carte « OK / Retour /
   Menu / Info »).
-- **Radio (tuner)** — le tuner FM/AM : fréquence, présélection, bande et mode d'accord, avec
+- **Radio** — le tuner FM/AM : fréquence, présélection, bande et mode d'accord, avec
   quatre boutons au choix (Fréq −/+, Présélection −/+, AM/FM, Auto/Manuel, Entrée Tuner). L'ampli
   n'accepte ces commandes que sur l'entrée Tuner : un appui bascule d'abord dessus si besoin. La
-  bascule AM/FM n'est documentée par Denon que pour les modèles nord-américains.
+  bascule AM/FM n'est documentée par Denon que pour les modèles nord-américains. Réglez son
+  paramètre **Afficher** sur **Coupures pub des radios** pour voir à la place ce qui a été appris
+  des pubs de la radio web (voir « Coupures pub des radios » plus bas).
 
 ## Scènes
 
@@ -259,6 +261,25 @@ remis en partant. Si la connexion à l'ampli tombe, il est remis dès que HEOS r
 une enceinte » pendant une coupure la termine d'abord : l'annonce passe à votre volume normal, qui
 revient ensuite.
 
+**Ce qui a été appris.** Ajoutez au tableau de bord un widget **Radio** réglé sur **Afficher :
+Coupures pub des radios**. Il montre la station en cours (sinon la dernière écoutée) :
+
+- si une pub est en cours, ou l'heure de la prochaine fenêtre de pub (`Prochaine pub 14:34–14:47`) ;
+- les pubs entendues sur les 14 derniers jours, leur durée type, celles du jour ;
+- chaque jingle : _actif_ (avec ses détections confirmées), _en observation_, ou pas encore appris ;
+- d'où viennent les changements de titre, combien de temps l'animateur parle en général avant la
+  pub, le volume baissé en ce moment ;
+- une carte par type de jour (semaine, samedi, dimanche) : les heures avec pub et leurs fenêtres
+  (`6h–21h · :09–:14, :34–:47`) ; ouvrez-la pour le détail heure par heure, avec les pubs
+  entendues à chaque heure ;
+- les dernières pubs (date, heure, durée, comment elles ont été repérées) et le détail de chaque
+  jingle (où il se place, quand il a été appris) ;
+- un bouton **C'est la pub !** / **Fin de la pub**, équivalent à l'interrupteur **Radio ad break**.
+
+Le bouton **Bilan des coupures pub** de l'écran Configuration résume de la même façon, en texte,
+toutes les stations apprises. Les heures sont affichées, et apprises, dans le **Fuseau horaire**
+de la configuration (Europe/Paris par défaut) : Gladys fait tourner les intégrations en UTC.
+
 **Ce que ça consomme**, uniquement pendant qu'une radio joue avec la détection activée :
 
 - des requêtes internet vers TuneIn (une fois par station), Deezer (durée des titres) et, pour les
@@ -328,7 +349,8 @@ dossier de données de l'intégration (`/data/ad-breaks.json`, `/data/ad-jingles
    « Diffuser une notification » plus haut.
 8. **Coupures pub des radios** (onglet Configuration) : désactivé par défaut, voir « Coupures pub
    des radios » plus haut — puis **Mettre à jour** l'appareil depuis la Découverte pour obtenir son
-   interrupteur **Radio ad break**.
+   interrupteur **Radio ad break**. **Fuseau horaire** : celui des heures de pub (nom IANA,
+   Europe/Paris par défaut). **Bilan des coupures pub** : ce qui a été appris de chaque station.
 
 ## Dépannage
 

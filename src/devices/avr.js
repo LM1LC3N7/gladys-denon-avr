@@ -47,8 +47,12 @@ export {
 } from './registry.js';
 export { connectDevice, refreshDevice, disconnectDevice, disconnectAllDevices } from './session.js';
 export { onSetValue, runFeatureCommand } from './commands.js';
-export { applyConfig } from './heos-session.js';
-export { runTestConnectionAction, runSelectSourceAction } from './actions.js';
+export { adBreakInsights, applyConfig } from './heos-session.js';
+export {
+  runTestConnectionAction,
+  runSelectSourceAction,
+  runAdBreakReportAction,
+} from './actions.js';
 export {
   setPower,
   setSource,

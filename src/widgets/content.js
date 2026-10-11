@@ -14,7 +14,9 @@
 //                  power, vol −/+ and mute;
 //   D remote       4 remote keys of the user's choice (arrows by default) —
 //                  several instances side by side make a full pad;
-//   E radio        the analog tuner: frequency, preset, band, tuning mode.
+//   E radio        the analog tuner: frequency, preset, band, tuning mode —
+//                  or, with its `show` setting on `ad_breaks`, what the
+//                  radio ad-break detection learned (./ad-breaks.js).
 // -----------------------------------------------------------------------------
 
 import { WIDGET_COLORS } from '@gladysassistant/integration-sdk';

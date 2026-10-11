@@ -1,6 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeConfig, DEFAULT_CONFIG, sessionConfigChanged } from '../src/config.js';
+import {
+  normalizeConfig,
+  DEFAULT_CONFIG,
+  sessionConfigChanged,
+  applyTimezone,
+} from '../src/config.js';
 
 test('normalizeConfig returns the defaults when called with no argument', () => {
   assert.deepEqual(normalizeConfig(), { ...DEFAULT_CONFIG, hosts: [], sourceOverrides: {} });
@@ -100,4 +105,33 @@ test('sessionConfigChanged: a manual host list change alone keeps the sessions (
     sessionConfigChanged(normalizeConfig(), normalizeConfig({ host: '192.168.1.60' })),
     false,
   );
+});
+
+test('the time zone: trimmed, defaulted, and applied only when known', () => {
+  assert.equal(normalizeConfig({}).timezone, 'Europe/Paris');
+  assert.equal(normalizeConfig({ timezone: '  America/Montreal ' }).timezone, 'America/Montreal');
+  assert.equal(normalizeConfig({ timezone: '   ' }).timezone, 'Europe/Paris');
+  const before = process.env.TZ;
+  try {
+    assert.equal(applyTimezone('America/Montreal'), true);
+    assert.equal(process.env.TZ, 'America/Montreal');
+    assert.equal(new Date(Date.UTC(2026, 0, 1, 12)).getHours(), 7, 'local time follows');
+    assert.equal(applyTimezone('Mars/Olympus'), false);
+    assert.equal(process.env.TZ, 'America/Montreal', 'unchanged');
+  } finally {
+    if (before === undefined) {
+      delete process.env.TZ;
+    } else {
+      process.env.TZ = before;
+    }
+  }
+});
+
+test('ad-break levels: whole numbers within range, empty means default', () => {
+  const config = normalizeConfig({ ad_break_volume_drop: '12.6', ad_break_min_volume: '' });
+  assert.equal(config.ad_break_volume_drop, 13);
+  assert.equal(config.ad_break_min_volume, 20);
+  assert.equal(normalizeConfig({ ad_break_volume_drop: 0 }).ad_break_volume_drop, 1);
+  assert.equal(normalizeConfig({ ad_break_min_volume: 'x' }).ad_break_min_volume, 20);
+  assert.equal(normalizeConfig({ ad_break_detection: 'true' }).ad_break_detection, false);
 });

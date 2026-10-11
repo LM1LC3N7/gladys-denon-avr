@@ -217,5 +217,10 @@ export function createAdBreakDetector({
     isInBreak() {
       return breakState !== null;
     },
+
+    /** When the break in progress started (epoch ms), or null. */
+    breakStartedAt() {
+      return breakState?.startedAt ?? null;
+    },
   };
 }

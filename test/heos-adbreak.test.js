@@ -9,8 +9,12 @@ import path from 'node:path';
 const DIR = await fs.mkdtemp(path.join(os.tmpdir(), 'heos-adbreak-'));
 process.env.AD_BREAK_STATS_FILE = path.join(DIR, 'ad-breaks.json');
 process.env.AD_BREAK_JINGLES = 'off';
+process.env.AD_BREAK_JINGLES_DIR = path.join(DIR, 'ad-jingles');
 const { openHeosSession, applyConfig } = await import('../src/devices/heos-session.js');
 const { onSetValue } = await import('../src/devices/commands.js');
+const { runAdBreakReportAction } = await import('../src/devices/actions.js');
+const { buildWidgetContent } = await import('../src/widgets/index.js');
+const { WIDGET } = await import('../src/widgets/common.js');
 const { playAnnouncement, cancelAnnouncement } = await import('../src/devices/announcements.js');
 const { __clearConnectionsForTesting, __setHeosConnectionForTesting } =
   await import('../src/devices/registry.js');
@@ -173,5 +177,47 @@ test('a lost HEOS connection forgets the volume; the switch on an unknown device
     );
   } finally {
     session.stop();
+  }
+});
+
+test('the Radio widget set to the ad breaks, and the report action, read the live detection', async () => {
+  const { heos, gladys, device, session, settings } = await playingRadio({
+    features: [{ external_id: AD_BREAK }],
+  });
+  try {
+    await onSetValue(gladys, {
+      device,
+      feature: { external_id: AD_BREAK },
+      value: 1,
+      config: settings,
+    });
+    const artwork = { prepare: async () => null };
+    const content = await buildWidgetContent(
+      WIDGET.RADIO,
+      { avr: ID, show: 'ad_breaks' },
+      settings,
+      { artwork },
+    );
+    assert.equal(content.components[0].text, 'Radio X');
+    assert.match(content.components[1].text.en, /^Ad break since/);
+    const tuner = await buildWidgetContent(WIDGET.RADIO, { avr: ID }, settings, { artwork });
+    assert.ok(
+      tuner.components.some((c) => c.label?.en === 'Frequency'),
+      'the tuner view by default',
+    );
+
+    await onSetValue(gladys, {
+      device,
+      feature: { external_id: AD_BREAK },
+      value: 0,
+      config: settings,
+    });
+    await tick(100);
+    const report = await runAdBreakReportAction();
+    assert.match(report.en, /^Radio X — 1 break in 14 days/);
+    assert.match(report.fr, /^Radio X — 1 pub sur 14 jours/);
+  } finally {
+    session.stop();
+    heos.close();
   }
 });

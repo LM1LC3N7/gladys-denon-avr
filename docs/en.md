@@ -100,10 +100,12 @@ dropdown stay those of Gladys' own "Devices" card.
 - **Remote** — four keys of your choice (Up, Down, Left, Right, OK, Back, Menu, Info, Vol −,
   Vol +, Mute, Turn on, Standby; the four arrows by default). Place several side by side for a full
   pad (for instance an "arrows" card and an "OK / Back / Menu / Info" card).
-- **Radio (tuner)** — the FM/AM tuner: frequency, preset, band and tuning mode, with four buttons
+- **Radio** — the FM/AM tuner: frequency, preset, band and tuning mode, with four buttons
   of your choice (Freq −/+, Preset −/+, AM/FM, Auto/Manual, Tuner input). The receiver only
   accepts these commands on the Tuner input: a press switches to it first when needed. Denon
-  documents the AM/FM switch for North American models only.
+  documents the AM/FM switch for North American models only. Set its **Show** setting to
+  **Radio ad breaks** to see instead what was learned of the web radio's ads (see "Radio ad
+  breaks" below).
 
 ## Scenes
 
@@ -238,6 +240,25 @@ way out. If the connection to the receiver drops, it is restored as soon as HEOS
 announcement during a break ends it first: the announcement plays at your normal volume, which
 comes back afterwards.
 
+**What was learned.** Add a **Radio** widget with **Show: Radio ad breaks** to the dashboard.
+It shows the station playing (else the last one played):
+
+- whether a break is on right now, or when the next ad window is (`Next ad window 14:34–14:47`);
+- the breaks heard over the last 14 days, their typical length, today's breaks;
+- each jingle: _active_ (with its confirmed detections), _observing_, or not learned yet;
+- where the song changes come from, how long the host usually talks before the ads, the volume
+  lowered right now;
+- one card per day type (weekdays, Saturday, Sunday): the hours with ads and their minute
+  windows (`6h–21h · :09–:14, :34–:47`); open it for the detail hour by hour, with the breaks
+  heard in each hour;
+- the recent breaks (date, time, length, how they were found) and the details of each jingle
+  (where it sits, when it was learned);
+- an **It's an ad!** / **Ads are over** button, the same as the **Radio ad break** switch.
+
+The **Ad-break report** button of the Configuration screen sums up every station learned the same
+way, as text. Times are shown, and learned, in the **Time zone** of the configuration (Europe/Paris
+by default): Gladys runs integrations in UTC.
+
 **What it costs**, only while a station plays with the detection on:
 
 - internet requests to TuneIn (once per station), Deezer (song lengths) and, for stations like
@@ -300,7 +321,9 @@ integration's data folder (`/data/ad-breaks.json`, `/data/ad-jingles/`).
    and **Restore the receiver after an announcement**, for the "Speak on a speaker" action — see
    "Play notification" above.
 8. **Radio ad breaks** (Configuration tab): off by default, see "Radio ad breaks" above — then
-   **Update** the device from Discovery to get its **Radio ad break** switch.
+   **Update** the device from Discovery to get its **Radio ad break** switch. **Time zone**: of
+   the ad-break hours (an IANA name, Europe/Paris by default). **Ad-break report**: what was
+   learned of every station.
 
 ## Troubleshooting
 

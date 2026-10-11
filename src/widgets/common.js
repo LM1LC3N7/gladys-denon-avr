@@ -43,6 +43,17 @@ export const CURRENT_ICON = 'check-circle';
 
 // --- Setting options (also declared in the manifest, test/manifest.test.js) --
 
+/**
+ * What a "Radio" widget shows (its `show` setting): the FM/AM tuner, or the
+ * radio ad breaks learned on HEOS (src/adbreak/). One widget for both: the
+ * store admits five widgets per integration.
+ */
+export const RADIO_VIEWS = Object.freeze([
+  { value: 'tuner', label: { en: 'FM/AM tuner', fr: 'Tuner FM/AM' } },
+  { value: 'ad_breaks', label: { en: 'Radio ad breaks', fr: 'Coupures pub des radios' } },
+]);
+export const RADIO_VIEW_DEFAULT = 'tuner';
+
 /** Shortcut targets: every input, the 5 Quick Selects, 8 HEOS favorites. */
 export const SHORTCUT_TARGETS = Object.freeze([
   ...[1, 2, 3, 4, 5].map((n) => ({
