@@ -7,7 +7,8 @@ lineup — not tied to a specific model.
 ## Overview
 
 The integration talks directly to your receiver over the local network (Telnet, TCP port 23) —
-no cloud account, no internet dependency. The receiver itself pushes every state change
+no cloud account, no internet access needed (only the optional radio ad-break detection, and the
+song titles of a few stations like OUI FM, reach the internet: see "Radio ad breaks"). The receiver itself pushes every state change
 (power, volume, mute, source) as soon as it happens, whether triggered from Gladys, the
 physical remote, or the Denon/HEOS app, so the dashboard stays in sync in real time.
 
@@ -99,10 +100,12 @@ dropdown stay those of Gladys' own "Devices" card.
 - **Remote** — four keys of your choice (Up, Down, Left, Right, OK, Back, Menu, Info, Vol −,
   Vol +, Mute, Turn on, Standby; the four arrows by default). Place several side by side for a full
   pad (for instance an "arrows" card and an "OK / Back / Menu / Info" card).
-- **Radio (tuner)** — the FM/AM tuner: frequency, preset, band and tuning mode, with four buttons
+- **Radio** — the FM/AM tuner: frequency, preset, band and tuning mode, with four buttons
   of your choice (Freq −/+, Preset −/+, AM/FM, Auto/Manual, Tuner input). The receiver only
   accepts these commands on the Tuner input: a press switches to it first when needed. Denon
-  documents the AM/FM switch for North American models only.
+  documents the AM/FM switch for North American models only. Set its **Show** setting to
+  **Radio ad breaks** to see instead what was learned of the web radio's ads (see "Radio ad
+  breaks" below).
 
 ## Scenes
 
@@ -159,6 +162,136 @@ by the developer against a live HEOS streaming session, since that requires an a
 streaming account. If the buttons don't do anything on your setup even though the receiver is
 reachable, please report it (with the logs mentioned below) so it can be fixed.
 
+## Radio ad breaks
+
+**Off by default.** To use it, switch on **Detect radio ad breaks** in the configuration, then run a
+Discovery scan and click **Update** on the device to get its **Radio ad break** switch.
+
+While a radio station plays through HEOS (TuneIn, a favorite, a stream URL), the integration spots
+its ad breaks and turns the device's **Radio ad break** switch on during them. By default it also lowers
+the volume by 20 steps, never below 20, then restores it when the music resumes. If you changed the volume by hand
+meanwhile, your setting is kept. Everything is set in the "Radio ad breaks" section of the
+configuration. To act in a scene of your own instead (switch station, mute…), switch off the
+automatic volume drop and trigger your scene on **Radio ad break**. You can also switch it yourself: on means "it's an
+ad" (the volume drops right away, and the integration learns), off ends the break and restores
+the volume.
+
+**How it works.** No station says "this is an ad" in its stream. Many do say what song is playing,
+sometimes with its length. When a song ends and no other follows, the station is either airing ads
+or the host is talking, and the time of the hour tells the two apart. For each station, the
+integration learns the minutes of the hour its breaks (usually 4 to 8 minutes long; anything from
+3 min 20 s to 15 min counts) start at, e.g.
+:09–:14 and :34–:47 on OUI FM:
+
+- **inside one of these windows**, a song ending with ~45 s of no music afterwards counts as a
+  break. That delay lets the host talk before the ad jingle;
+- **outside them**, the volume never drops on a mere lack of music: a feature, the news or an
+  interview are not ads. Only the station's ad jingle, once learned, can open a break there;
+- the break ends when the next song starts, with a 10-minute safety limit.
+
+The windows depend on the day and the hour: weekdays, Saturdays and Sundays each have their own,
+and an hour in which the station usually airs no ads (evenings, nights) has none. The learning is
+continuous: while the station is followed, its playlist history is read again every hour, and
+everything comes from the last 2 weeks (every day of the week seen twice). A schedule change is
+picked up within days. The hours without ads are only learned on stations that publish their
+playlist history; elsewhere, every hour keeps the windows.
+
+**The ad jingle.** Each station opens its breaks with the same jingle (on OUI FM, "stay with us
+during the ads"). While a station plays, the integration decodes its stream (ffmpeg) and compares
+the sound of its breaks with each other. The sound found in most of them, even under the host's
+voice, becomes the station's jingle. It is only observed at first, and becomes active after 2
+detections followed by a real break. From then on the volume drops **at the jingle** instead of
+after 45 s, and the host is no longer ducked. A break that comes without its jingle is still
+caught by the windows rule. Expect a few hours of listening (3 long breaks), or 3
+times switching **Radio ad break** on right after the jingle. A jingle that starts giving false alarms is
+forgotten and learned again.
+
+**Where song changes come from:**
+
+- **HEOS metadata**: for any station that provides it (e.g. Radio Paradise through TuneIn). Song
+  lengths are looked up on Deezer.
+- **A dedicated feed**: for stations whose stream carries none. That is the case of **OUI FM**,
+  followed through the live feed of its own website (title, artist, exact length). The title then
+  also shows in "Now playing", instead of just the station's name. Its ad windows are learned from the ~3
+  days of playlist history the site publishes, as soon as the station is first played (also for
+  Voltage, Alouette, Hit West and the other stations of the Les Indés Radios platform).
+- **Nothing at all** (some TuneIn stations): switch **Radio ad break** on when the ads start,
+  and off when they end. After a few marked breaks the integration knows the station's schedule
+  and lowers the volume at those times on its own. This is less precise than with song changes,
+  since it cannot tell when the music actually stops.
+  Switch it on right after the opening jingle, off right after the closing one: the integration learns
+  both (they may differ). With no song changes to check them against, a detected jingle only
+  counts when it falls in one of the station's ad windows or you switch it on right after it; the
+  closing one, when it falls during a break.
+
+On a station with song changes, switching **Radio ad break** on also fine-tunes the delay: do it at the ad
+jingle and the integration learns the jingle itself and how long the host talks before the ads,
+hour by hour. For
+instance, OUI FM mornings have no host and the ads follow the song directly: two times at those
+hours are enough for the volume to drop right away then.
+
+**Known limit**: the end of a break is only known when the next song starts. If the host talks
+again after the ads, that stays at the lowered volume until the song.
+
+**Turning the radio on during the ads:**
+
+- **with a station feed** (OUI FM…): caught within seconds — the feed gives the last song and its
+  start, so the integration knows it ended without a next one, inside an ad window;
+- **with no titles at all**: inside one of the station's ad windows, the break starts right away,
+  for what is left of its usual length (counted from the window opening), unless less than
+  30 s is left. Pausing then resuming during it does the same; once switched off by hand, that
+  window stays off;
+- **with HEOS titles**: not caught — the first title seen has no known start, so its end is
+  unknown, and lowering the volume on a guess would also do it on music. The integration is back
+  on track at the next song; switch **Radio ad break** on meanwhile if you like.
+
+**Your volume always comes back.** A break never lasts more than 10 minutes. If the integration
+stops or restarts during a break (update, configuration change), the volume is restored on the
+way out. If the connection to the receiver drops, it is restored as soon as HEOS answers again
+(given up after an hour, or if the volume was changed meanwhile). A "Speak on a speaker"
+announcement during a break ends it first: the announcement plays at your normal volume, which
+comes back afterwards.
+
+**What was learned.** Add a **Radio** widget with **Show: Radio ad breaks** to the dashboard.
+It shows the station playing (else the last one played):
+
+- whether a break is on right now, or when the next ad window is (`Next ad window 14:34–14:47`);
+- the breaks heard over the last 14 days, their typical length, today's breaks;
+- each jingle: _active_ (with its confirmed detections), _observing_, or not learned yet;
+- where the song changes come from, how long the host usually talks before the ads, the volume
+  lowered right now;
+- one card per day type (weekdays, Saturday, Sunday): the hours with ads and their minute
+  windows (`6h–21h · :09–:14, :34–:47`); open it for the detail hour by hour, with the breaks
+  heard in each hour;
+- the recent breaks (date, time, length, how they were found) and the details of each jingle
+  (where it sits, when it was learned);
+- an **It's an ad!** / **Ads are over** button, the same as the **Radio ad break** switch.
+
+**The usual schedule in a chart.** The device also has a **Radio ad window** feature: 1 while the
+station (playing, else the last one played) is inside one of its usual ad windows, 0 outside —
+the learned schedule, minute by minute. Add Gladys' own **Chart** widget, type **Binary**, with
+**Radio ad window** and **Radio ad break** (the real breaks): over 24 hours or a week, the bands
+show when the ads usually come and when they actually came. The chart draws the past only; the
+next window is in the Radio widget. Like the switch, it needs the device updated from Discovery,
+and the detection on.
+
+The **Ad-break report** button of the Configuration screen sums up every station learned the same
+way, as text. Times are shown, and learned, in the **Time zone** of the configuration (Europe/Paris
+by default): Gladys runs integrations in UTC.
+
+**What it costs**, only while a station plays with the detection on:
+
+- internet requests to TuneIn (once per station), Deezer (song lengths) and, for stations like
+  OUI FM, their website (live song feed, hourly playlist history);
+- with **Recognize the ad jingles** on: the radio stream is downloaded a second time and decoded
+  (about 30 to 90 MB per hour, depending on the station's quality), and after each break a few
+  seconds of processing, kept off the integration's main thread. Switch it off to save the
+  bandwidth: breaks are then only caught by the windows rule.
+
+Switched off, the detection costs nothing; only the song title of stations whose stream carries
+none (OUI FM...) is still read from their website while they play. What is learned is kept in the
+integration's data folder (`/data/ad-breaks.json`, `/data/ad-jingles/`).
+
 ## Prerequisites
 
 - **Gladys 5.1.0 or newer** (the integration's own widgets and scene actions/triggers).
@@ -207,6 +340,10 @@ reachable, please report it (with the logs mentioned below) so it can be fixed.
 7. **Announcements** (Configuration tab): **Announcement volume** (0 = keep the current volume)
    and **Restore the receiver after an announcement**, for the "Speak on a speaker" action — see
    "Play notification" above.
+8. **Radio ad breaks** (Configuration tab): off by default, see "Radio ad breaks" above — then
+   **Update** the device from Discovery to get its **Radio ad break** switch. **Time zone**: of
+   the ad-break hours (an IANA name, Europe/Paris by default). **Ad-break report**: what was
+   learned of every station.
 
 ## Troubleshooting
 

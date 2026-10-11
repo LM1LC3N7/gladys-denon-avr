@@ -16,16 +16,18 @@
 // -----------------------------------------------------------------------------
 
 import { GladysIntegration, logger } from '@gladysassistant/integration-sdk';
-import { normalizeConfig, sessionConfigChanged } from './src/config.js';
+import { applyTimezone, normalizeConfig, sessionConfigChanged } from './src/config.js';
 import { buildDiscoveredDevices } from './src/devices/index.js';
 import {
   connectDevice,
   refreshDevice,
   disconnectDevice,
   disconnectAllDevices,
+  applyConfig,
   onSetValue as dispatchSetValue,
   runTestConnectionAction,
   runSelectSourceAction,
+  runAdBreakReportAction,
 } from './src/devices/avr.js';
 import { registerWidgets } from './src/widgets/index.js';
 import { registerSceneActions } from './src/scenes/actions.js';
@@ -71,6 +73,7 @@ gladys.onSetValue(async (device, feature, value) => {
 // --- Manifest actions: buttons in the Configuration screen -------------------
 gladys.onAction('test_connection', (fields) => runTestConnectionAction(gladys, { fields, config }));
 gladys.onAction('select_source', (fields) => runSelectSourceAction(gladys, { fields, config }));
+gladys.onAction('ad_break_report', () => runAdBreakReportAction());
 
 // --- Dashboard widgets and scene cards (Gladys >= 5.1.0) ---------------------
 // Five widgets (src/widgets/), scene actions and scene triggers
@@ -98,11 +101,21 @@ gladys.onDeviceDeleted(async (device) => {
   disconnectDevice(device.external_id);
 });
 
+// The user's time zone for every local time (ad-break hours and days): the
+// container itself runs in UTC.
+function useTimezone({ timezone }) {
+  if (!applyTimezone(timezone)) {
+    logger.warn(`Unknown time zone "${timezone}", keeping ${process.env.TZ || 'UTC'}`);
+  }
+}
+
 // --- Configuration updated by the user ---------------------------------------
 gladys.onConfigUpdated(async (newConfig) => {
   logger.info('onConfigUpdated -> new configuration received');
   const previousConfig = config;
   config = normalizeConfig(newConfig);
+  useTimezone(config);
+  applyConfig(config);
   // Each Telnet/HEOS session captures the zone, port, reconnect backoff and
   // source overrides when it opens (see connectDevice()) — reopen them all so
   // a change applies right away instead of at the next restart.
@@ -129,6 +142,7 @@ gladys.onConfigUpdated(async (newConfig) => {
 gladys.on('connected', async () => {
   try {
     config = normalizeConfig(await gladys.getConfig());
+    useTimezone(config);
     const devices = await gladys.getDevices();
     for (const device of devices) {
       connectDevice(gladys, device, config);

@@ -233,7 +233,9 @@ TuneIn...) — see "Playback controls" below.
   volume −/+ and mute. **Remote** — four keys of the user's choice (arrows by default): several
   instances side by side make a full pad. **Radio** — the analog tuner (`TFAN`/`TPAN`/`TMAN`):
   frequency, preset, band, tuning mode and four configurable buttons; the input is switched to
-  the tuner first, since the receiver ignores tuner commands on another input. Widgets are
+  the tuner first, since the receiver ignores tuner commands on another input. Its `show`
+  setting switches it to the radio ad-break view (`src/widgets/ad-breaks.js`) — one widget for
+  both, the store admitting five widgets per integration. Widgets are
   read-and-tap only by design (no slider, no dropdown: those stay the core widgets rendering the
   device features), at most 8 components and 4 buttons each — every content is checked against
   the SDK's own `validateWidgetContent()` in `test/widgets.test.js`. The current choice is marked
@@ -254,6 +256,23 @@ TuneIn...) — see "Playback controls" below.
   answers (Telnet down: a HEOS-only speaker). It replaces the integration-wide
   `setConnectionStatus(false, "Cannot reach…")` every Telnet session used to send, which flapped
   between receivers and never said which one failed.
+- **Radio ad breaks** (opt-in, `src/adbreak/`, user docs: "Radio ad breaks" in `docs/`): while a
+  station plays through HEOS, a per-receiver controller learns when that station airs its ads
+  (song gaps from HEOS metadata + Deezer durations, or the Les Indés Radios live feed and its
+  playlist history for stations like OUI FM; per-station minute windows by day type and hour,
+  `stats.js`), recognizes its ad jingle in the decoded stream (`jingles.js`: ffmpeg to band-energy
+  frames, the shared-sound search in a worker thread), publishes the **Radio ad break** switch
+  (`SWITCH.BINARY`, also a "it's an ad" control) and lowers the HEOS volume meanwhile
+  (`ad_break_auto_duck`). Off by default (`ad_break_detection`): disabled, nothing is learned,
+  looked up or decoded. The volume always comes back: a 10-minute cap, a restore on `stop()`
+  _before_ the HEOS socket closes, a retried restore while HEOS is down, and announcements end
+  a break before snapshotting the volume (`interruptForAnnouncement()`). Learned data lives in
+  `/data/ad-breaks.json` and `/data/ad-jingles/`. What was learned is shown by the **Radio**
+  widget set to `show: ad_breaks` (windows and hours with ads per day type, next window, recent
+  breaks, jingle states) and the **Ad-break report** Configuration action, both built from
+  `src/adbreak/insights.js`, and by the read-only **Radio ad window** binary feature (1 inside a
+  learned window, published at each change) for Gladys' own Binary chart. Hours are local to the `timezone` setting (`applyTimezone()` sets
+  the process `TZ`): Gladys runs integration containers in UTC.
 
 A scene's generic **"Control a device"** action (`ACTIONS.DEVICE.SET_VALUE` in Gladys core) can
 also set `Source`/`Sound mode` — and since Gladys 5.1.0, **AVR: set up the receiver** above does
@@ -366,7 +385,9 @@ things that can break or need updating): `node:net` for the Telnet socket
 UPnP description ([`src/denon/discovery.js`](./src/denon/discovery.js)) and the cover art of the
 "Now playing" widget ([`src/widgets/artwork.js`](./src/widgets/artwork.js), with `node:crypto`
 for its image key). No image library: a cover above Gladys' 300 KB bound is left out, not
-resized.
+resized. The radio ad-break detection uses `node:child_process` to run **ffmpeg** (installed in
+the image by the `Dockerfile`, `apk add ffmpeg`; without it, only the jingle recognition is off)
+and `node:worker_threads` for its CPU-heavy jingle search.
 
 Dev-only dependencies (never shipped in the Docker image, see the `Dockerfile`'s
 `npm ci --omit=dev`):
@@ -415,6 +436,7 @@ notes Dependabot links in the PR body) and merge it like any other PR once CI is
 │  │  ├─ content.js                  # PURE: one content builder per widget
 │  │  ├─ common.js                   # widget keys, texts, setting options
 │  │  ├─ actions.js                  # what each widget button does
+│  │  ├─ ad-breaks.js                # the Radio widget's ad-break view
 │  │  ├─ artwork.js / refresh.js     # cover download + cache, coalesced refresh nudges
 │  │  └─ index.js                    # SDK handlers + state-change nudges
 │  ├─ scenes/
@@ -427,17 +449,29 @@ notes Dependabot links in the PR body) and merge it like any other PR once CI is
 │  ├─ heos/
 │  │  ├─ protocol.js                 # PURE: parse HEOS CLI JSON lines, build heos:// commands
 │  │  └─ client.js                   # thin wrapper of denon/telnet.js for the HEOS CLI socket
+│  ├─ adbreak/                       # radio ad-break detection (opt-in)
+│  │  ├─ index.js                    # per-receiver controller: station, feed, volume ducking
+│  │  ├─ detector.js                 # PURE state machine: song gaps, windows, jingles -> breaks
+│  │  ├─ stats.js                    # learned per-station windows/schedule + their JSON store
+│  │  ├─ sources.js                  # station identity, song feeds, playlist history, Deezer
+│  │  ├─ jingles.js                  # stream decoding (ffmpeg), jingle learning + recognition
+│  │  ├─ jingle-worker.js            # the jingle search, off the main thread
+│  │  ├─ insights.js                 # PURE: what was learned, for the widget and the report
+│  │  └─ bands.js                    # PURE: PCM -> band-energy frames, correlation
 │  └─ config.js                      # config defaults + normalization
 ├─ test/                             # *.test.js per src/ module, node --test, no library
 ├─ test-fixtures/
 │  ├─ fakeGladys.js                  # minimal in-memory stand-in for the SDK client, used by tests
+│  ├─ audio.js                       # synthetic radio audio + jingles for the ad-break tests
 │  └─ fakeClients.js                 # fake Telnet/HEOS sessions injected through registry.js
 │                                     # — deliberately OUTSIDE test/: `node --test` treats every
 │                                     # .js file under test/ as a test file to run, fixtures included
 ├─ scripts/
 │  ├─ debug-telnet.js                # talk to a real receiver's Telnet session directly, without
 │  │                                  # running Gladys at all — `node scripts/debug-telnet.js <host>`
-│  └─ debug-heos.js                  # same, for the HEOS CLI service — `node scripts/debug-heos.js <host>`
+│  ├─ debug-heos.js                  # same, for the HEOS CLI service — `node scripts/debug-heos.js <host>`
+│  └─ debug-adbreak.js               # the ad-break controller alone against a real receiver,
+│                                     # to tune it by ear — `node scripts/debug-adbreak.js <host>`
 ├─ docs/
 │  └─ en.md / fr.md                  # END-USER documentation, re-hosted by Gladys itself in its
 │                                     # UI (not this README) — what someone installing the
@@ -625,6 +659,11 @@ Honest status, so it's clear what "it works" actually rests on:
     as North America only) — but none of it has run against a real receiver and a real Gladys
     5.1 yet. The cover art in particular depends on the container reaching the HEOS `image_url`
     host (usually an Internet CDN) and on the cover fitting 300 KB.
+  - **Radio ad breaks**: the detection rules, the OUI FM feed and the jingle recognition were
+    tuned by ear with [`scripts/debug-adbreak.js`](./scripts/debug-adbreak.js) against a real
+    receiver, outside Gladys. Their run inside the integration (the switch, opt-in setting,
+    volume restore on stop / HEOS loss / announcement, the worker-thread jingle search) is
+    unit-tested only so far.
 
   Use [`scripts/debug-telnet.js`](./scripts/debug-telnet.js) against your own receiver to check
   any of the above — in particular, send `MS?` and start streaming on a NET/USB source to see

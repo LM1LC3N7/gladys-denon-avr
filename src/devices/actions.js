@@ -1,8 +1,10 @@
 // -----------------------------------------------------------------------------
-// The manifest `actions` of the Configuration screen: "Test connection" and
-// "Select input" (gladys.onAction in index.js).
+// The manifest `actions` of the Configuration screen: "Test connection",
+// "Select input" and "Ad-break report" (gladys.onAction in index.js).
 // -----------------------------------------------------------------------------
 
+import { adBreakReport } from '../adbreak/index.js';
+import { reportText } from '../adbreak/insights.js';
 import { buildSourceCommand, normalizeZone } from '../denon/protocol.js';
 import { visibleSourceCodes } from './features.js';
 import { getHeos, getState, getTelnet } from './registry.js';
@@ -83,4 +85,13 @@ export async function runSelectSourceAction(gladys, { fields, config }) {
     en: `Source command sent: ${fields.source}.`,
     fr: `Commande source envoyée : ${fields.source}.`,
   };
+}
+
+/**
+ * "Ad-break report" manifest action: what the radio ad-break detection
+ * learned of every station (src/adbreak/insights.js), as text.
+ */
+export async function runAdBreakReportAction() {
+  const stations = await adBreakReport();
+  return { en: reportText(stations, 'en'), fr: reportText(stations, 'fr') };
 }

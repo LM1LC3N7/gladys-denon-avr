@@ -26,10 +26,19 @@ import {
   heosMuteStateToBoolean,
   parseNowPlayingMedia,
   parseNowPlayingArtwork,
+  buildSetVolumeCommand,
   HEOS_EVENT,
 } from '../heos/protocol.js';
+import { createAdBreakController } from '../adbreak/index.js';
 import { FEATURE, STATE, featureExternalId } from './features.js';
-import { notifyStateChange, timing, updateState } from './registry.js';
+import {
+  getHeos,
+  getSession,
+  notifyStateChange,
+  sessionIds,
+  timing,
+  updateState,
+} from './registry.js';
 
 const logger = createLogger({ name: 'avr' });
 
@@ -72,6 +81,13 @@ export function openHeosSession(
     pid: null,
     match: HEOS_MATCH.NONE,
     pollTimer: null,
+    // Last HEOS volume level heard (whatever the transport): the ad-break
+    // ducking reads and writes the HEOS level.
+    volume: null,
+    // Radio ad-break detection, see src/adbreak/. `config` is kept here so
+    // applyConfig() can hand it a hot-reloaded config without reconnecting.
+    adBreak: null,
+    config,
     // feature external_id -> last value Gladys acknowledged from the HEOS
     // side. The poll re-fetches every HEOS value whether or not it moved,
     // and Gladys core keeps NO dedup of its own: every numeric publishState
@@ -90,6 +106,9 @@ export function openHeosSession(
     },
     stop() {
       clearInterval(session.pollTimer);
+      // First, while HEOS is still connected: a break in progress gives
+      // its volume back through it.
+      session.adBreak?.stop();
       session.client?.stop();
     },
   };
@@ -113,6 +132,10 @@ export function openHeosSession(
   }
 
   function publishNowPlayingMedia(parsedPayload) {
+    session.adBreak.onNowPlayingMedia(parsedPayload);
+    if (session.adBreak.providesNowPlaying()) {
+      return; // The station's own song feed publishes the real title instead.
+    }
     const media = parseNowPlayingMedia(parsedPayload);
     const artwork = parseNowPlayingArtwork(parsedPayload);
     updateState(externalId, {
@@ -133,6 +156,9 @@ export function openHeosSession(
   // HEOS-only speaker that has no "AVR Control" service at all (port 23
   // actively refused) — see the volume/mute routing in ./commands.js.
   function publishVolume(level) {
+    if (level !== undefined) {
+      session.volume = Math.round(Number(level));
+    }
     if (isTelnetConnected() || level === undefined) {
       return;
     }
@@ -150,6 +176,7 @@ export function openHeosSession(
   }
 
   function publishPlaybackState(state) {
+    session.adBreak.onPlayState(state === 'play');
     const value = heosPlayStateToPlaybackState(state);
     updateState(externalId, { [FEATURE.PLAYBACK_STATE]: value });
     publishHeosState(featureExternalId(externalId, FEATURE.PLAYBACK_STATE), value);
@@ -161,6 +188,51 @@ export function openHeosSession(
     session.client.sendCommand(buildGetVolumeCommand(pid));
     session.client.sendCommand(buildGetMuteCommand(pid));
   }
+
+  session.adBreak = createAdBreakController({
+    name: externalId,
+    getConfig: () => session.config,
+    getVolume: () => session.volume,
+    setVolume: (level) => {
+      if (session.pid == null) {
+        return false;
+      }
+      const sent = session.client.sendCommand(buildSetVolumeCommand(session.pid, level));
+      if (sent) {
+        session.volume = level;
+      }
+      return sent;
+    },
+    publishAdBreak: (inBreak) => {
+      // Not deduplicated: the user can switch it, Gladys must get it back.
+      const id = featureExternalId(externalId, FEATURE.AD_BREAK);
+      // Kept for the "Radio ad breaks" widget, which follows it.
+      updateState(externalId, { [FEATURE.AD_BREAK]: inBreak ? 1 : 0 });
+      // A device created before this feature existed has to be updated
+      // from Discovery first: Gladys would only reject the state.
+      const features = (getSession(externalId)?.device ?? device).features;
+      if (Array.isArray(features) && !features.some((f) => f.external_id === id)) {
+        return;
+      }
+      session.forget(id);
+      publishHeosState(id, inBreak ? 1 : 0);
+    },
+    publishAdWindow: (inWindow) => {
+      const id = featureExternalId(externalId, FEATURE.AD_WINDOW);
+      const features = (getSession(externalId)?.device ?? device).features;
+      if (Array.isArray(features) && !features.some((f) => f.external_id === id)) {
+        return; // Not updated from Discovery since the feature exists.
+      }
+      publishHeosState(id, inWindow ? 1 : 0);
+    },
+    publishNowPlaying: (text) => {
+      updateState(externalId, {
+        [STATE.NOW_PLAYING_TITLE]: text,
+        [STATE.NOW_PLAYING_ARTIST]: '',
+      });
+      publishHeosState(featureExternalId(externalId, FEATURE.NOW_PLAYING), { text });
+    },
+  });
 
   session.client = createHeosClient({
     host,
@@ -281,6 +353,9 @@ export function openHeosSession(
       // ./commands.js (and the legacy NSE0/NSE1/NSE2 precedence in
       // ./session.js) until (if ever) HEOS reconnects and re-matches.
       session.pid = null;
+      // Unknown until HEOS answers again: a pending ad-break volume restore
+      // waits for the real level instead of trusting a stale one.
+      session.volume = null;
       session.lastPublished.clear();
       setMatch(HEOS_MATCH.NONE);
     },
@@ -298,4 +373,26 @@ export function openHeosSession(
   }, timing.heosPollIntervalMs);
 
   return session;
+}
+
+/**
+ * What the ad-break detection of one receiver knows (src/adbreak/
+ * insights.js), or null without a HEOS session.
+ */
+export async function adBreakInsights(externalId) {
+  return (await getHeos(externalId)?.adBreak?.insights()) ?? null;
+}
+
+/**
+ * Hot-apply a configuration change that needs no reconnect (the ad-break
+ * settings): index.js calls this from onConfigUpdated.
+ */
+export function applyConfig(config) {
+  for (const externalId of sessionIds()) {
+    const heos = getHeos(externalId);
+    if (heos?.adBreak) {
+      heos.config = config;
+      heos.adBreak.onConfigUpdated();
+    }
+  }
 }

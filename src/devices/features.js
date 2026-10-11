@@ -52,6 +52,11 @@ export const FEATURE = {
   PLAYBACK_STATE: 'playback_state',
   NOW_PLAYING: 'now_playing',
   PLAY_NOTIFICATION: 'play_notification',
+  AD_BREAK: 'ad_break',
+  AD_WINDOW: 'ad_window',
+  // The former "Mark ad break" push button (dev builds only), still
+  // honored until the device is updated: the AD_BREAK switch replaces it.
+  AD_BREAK_MARK: 'ad_break_mark',
 };
 
 // Own state keys (never published directly, only combined into
@@ -459,6 +464,47 @@ export function buildFeatures(deviceExternalId, sourceOverrides = {}) {
       read_only: false,
       has_feedback: false,
       keep_history: false,
+    },
+    {
+      // Radio ad-break detection, see src/adbreak/. On while the station
+      // currently playing is (very likely) airing ads — learned per
+      // station, see src/adbreak/stats.js — so a scene can react to it;
+      // the integration itself lowers the volume meanwhile unless
+      // ad_break_auto_duck is switched off in the configuration.
+      //
+      // Also a control: switching it on says "it's an ad" (teaches the ad
+      // schedule of a station with no song metadata at all, the host talk
+      // before the ads, and the jingles), switching it off ends the break.
+      // A switch rather than a separate push button: Gladys names a feature
+      // by its own name only when the device has another of the same type
+      // (Power is binary too), a lone button showed as the bare "Push
+      // button".
+      name: 'Radio ad break',
+      external_id: featureExternalId(deviceExternalId, FEATURE.AD_BREAK),
+      category: DEVICE_FEATURE_CATEGORIES.SWITCH,
+      type: DEVICE_FEATURE_TYPES.SWITCH.BINARY,
+      min: 0,
+      max: 1,
+      read_only: false,
+      has_feedback: true,
+    },
+    {
+      // The usual ad schedule of the station playing (else the last one
+      // played), learned per day type and hour (src/adbreak/stats.js), as
+      // a binary signal: 1 inside one of its ad windows, 0 outside. Meant
+      // for Gladys' own Binary chart, next to Radio ad break (the real
+      // breaks) — the planning with no widget of its own. Published at
+      // each change only (~60 a day on OUI FM), and only with the
+      // detection on.
+      name: 'Radio ad window',
+      external_id: featureExternalId(deviceExternalId, FEATURE.AD_WINDOW),
+      category: DEVICE_FEATURE_CATEGORIES.SWITCH,
+      type: DEVICE_FEATURE_TYPES.SWITCH.BINARY,
+      min: 0,
+      max: 1,
+      read_only: true,
+      has_feedback: false,
+      keep_history: true,
     },
   ];
 }

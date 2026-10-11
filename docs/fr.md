@@ -7,7 +7,9 @@ amplis réseau Denon/Marantz — pas limité à un modèle précis.
 ## Vue d'ensemble
 
 L'intégration parle directement à votre ampli sur le réseau local (Telnet, port TCP 23) — pas
-de compte cloud, pas de dépendance internet. L'ampli pousse lui-même chaque changement d'état
+de compte cloud, pas besoin d'internet (seules la détection optionnelle des coupures pub des radios,
+et les titres de quelques stations comme OUI FM, passent par internet : voir « Coupures pub des
+radios »). L'ampli pousse lui-même chaque changement d'état
 (alimentation, volume, muet, source) dès qu'il se produit, que ce soit depuis Gladys, la
 télécommande physique ou l'application Denon/HEOS, si bien que le tableau de bord reste
 synchronisé en temps réel.
@@ -112,10 +114,12 @@ et déclenchent ; le curseur de volume et le menu déroulant des entrées resten
   Vol −, Vol +, Sourdine, Allumer, Veille ; les quatre flèches par défaut). Posez-en plusieurs côte
   à côte pour un pavé complet (par exemple une carte « flèches » et une carte « OK / Retour /
   Menu / Info »).
-- **Radio (tuner)** — le tuner FM/AM : fréquence, présélection, bande et mode d'accord, avec
+- **Radio** — le tuner FM/AM : fréquence, présélection, bande et mode d'accord, avec
   quatre boutons au choix (Fréq −/+, Présélection −/+, AM/FM, Auto/Manuel, Entrée Tuner). L'ampli
   n'accepte ces commandes que sur l'entrée Tuner : un appui bascule d'abord dessus si besoin. La
-  bascule AM/FM n'est documentée par Denon que pour les modèles nord-américains.
+  bascule AM/FM n'est documentée par Denon que pour les modèles nord-américains. Réglez son
+  paramètre **Afficher** sur **Coupures pub des radios** pour voir à la place ce qui a été appris
+  des pubs de la radio web (voir « Coupures pub des radios » plus bas).
 
 ## Scènes
 
@@ -178,6 +182,139 @@ nécessite un compte de streaming payant réel. Si les boutons ne font rien chez
 l'ampli est joignable, merci de le signaler (avec les logs mentionnés plus bas) pour
 que ce soit corrigé.
 
+## Coupures pub des radios
+
+**Désactivé par défaut.** Pour l'utiliser, activez **Détecter les coupures pub des radios** dans la
+configuration, puis relancez une Découverte et cliquez sur **Mettre à jour** sur l'appareil pour
+obtenir son interrupteur **Radio ad break**.
+
+Quand une radio joue via HEOS (TuneIn, favori, URL de flux), l'intégration repère ses coupures pub
+et allume l'interrupteur **Radio ad break** de l'appareil pendant celles-ci. Par défaut, elle baisse aussi le
+volume de 20 crans, sans descendre sous 20, puis le remet quand la musique reprend. Si vous avez touché au volume entre-temps,
+c'est votre réglage qui est gardé. Le tout se règle dans la section « Coupures pub des radios » de
+la configuration. Pour agir vous-même dans une scène (changer de station, couper le son…), désactivez
+la baisse automatique et déclenchez votre scène sur **Radio ad break**. Vous pouvez aussi l'actionner vous-même :
+l'allumer veut dire « c'est la pub » (le volume baisse tout de suite, et l'intégration apprend),
+l'éteindre termine la coupure et remet le volume.
+
+**Comment ça marche.** Aucune radio n'annonce « c'est la pub » dans son flux. En revanche, beaucoup
+indiquent le titre en cours, et parfois sa durée. Quand une chanson se termine sans qu'une autre
+suive, la station passe soit de la pub, soit l'animateur qui parle. Les deux se distinguent par
+l'heure. Pour chaque station, l'intégration apprend les minutes de l'heure où tombent ses coupures
+(longues de 4 à 8 minutes en général ; de 3 min 20 s à 15 min sont acceptées), par exemple :09–:14 et :34–:47 sur OUI FM :
+
+- **dans une de ces fenêtres**, une fin de chanson suivie de ~45 s sans musique est traitée comme une
+  coupure. Ce délai laisse passer l'animateur avant le jingle pub ;
+- **en dehors**, le volume ne baisse jamais sur un simple silence musical : une chronique, les infos
+  ou une interview ne sont pas des pubs. Seul le jingle pub de la station, une fois appris, peut y
+  ouvrir une coupure ;
+- la coupure se termine quand le titre suivant démarre, avec 10 minutes maximum par sécurité.
+
+Les fenêtres dépendent du jour et de l'heure : la semaine, le samedi et le dimanche ont chacun les
+leurs, et une heure où la station ne passe habituellement pas de pub (le soir, la nuit) n'en a
+aucune. L'apprentissage est continu : tant que la station est suivie, son historique de diffusion
+est relu toutes les heures, et le tout est calculé sur les 2 dernières semaines (chaque jour de la
+semaine vu deux fois). Un changement de grille est donc pris en compte en quelques jours. Les
+heures sans pub ne s'apprennent que sur les stations qui publient leur historique ; ailleurs,
+toutes les heures gardent les fenêtres.
+
+**Le jingle pub.** Chaque station ouvre ses coupures par le même jingle (sur OUI FM, « restez avec
+nous pendant la pub »). Pendant l'écoute, l'intégration décode le flux de la station (ffmpeg) et
+compare le son des coupures entre elles. Le son qui revient dans la plupart d'entre elles, même
+couvert par la voix de l'animateur, devient le jingle de la station. Il reste d'abord en
+observation, puis devient actif après 2 détections suivies d'une vraie coupure. Dès lors, le
+volume baisse **au jingle**, au lieu d'attendre 45 s, et l'animateur n'est plus coupé. Si une
+coupure arrive sans jingle, la règle des fenêtres prend le relais. Il faut
+compter quelques heures d'écoute (3 longues coupures), ou allumer 3 fois **Radio ad break** juste
+après le jingle. Un jingle qui se met à donner de fausses alertes est oublié et réappris.
+
+**D'où viennent les titres :**
+
+- **Métadonnées HEOS** : pour toute station qui en fournit (ex. Radio Paradise via TuneIn). La durée
+  des titres est retrouvée sur Deezer.
+- **Flux dédié** : pour les stations dont le flux n'en contient aucune. C'est le cas d'**OUI FM**,
+  suivie via le flux temps réel de son propre site (titre, artiste et durée exacte). Le titre
+  s'affiche alors aussi dans « Now playing », au lieu du simple nom de la station. Les fenêtres pub sont
+  apprises dès la première écoute à partir des ~3 jours d'historique publiés par le site (de même
+  pour Voltage, Alouette, Hit West et les autres stations de la plateforme Les Indés Radios).
+- **Rien du tout** (ex. certaines stations TuneIn) : allumez **Radio ad break** quand
+  la pub commence, éteignez-le quand elle se termine. Après quelques coupures signalées,
+  l'intégration connaît l'horaire de la station et baisse le volume toute seule à ces moments-là.
+  C'est moins précis qu'avec des titres, faute de savoir quand la musique s'arrête vraiment.
+  Allumez-le juste après le jingle de début, éteignez-le juste après celui de fin : l'intégration apprend
+  les deux (ils peuvent être différents). Faute de titres pour les vérifier, un jingle repéré
+  n'est validé que s'il tombe dans une fenêtre pub de la station, ou si vous allumez l'interrupteur juste après ;
+  pour celui de fin, s'il tombe pendant une coupure.
+
+Sur une station avec titres, allumer **Radio ad break** sert aussi à affiner le délai : faites-le au moment du
+jingle pub, et l'intégration apprend le jingle lui-même et combien de temps l'animateur parle avant
+les pubs, heure par heure. Exemple : le matin sur OUI FM, il n'y a pas d'animateur et la pub suit directement
+la chanson. Deux fois à ces heures-là suffisent pour que la baisse y soit immédiate.
+
+**Limite connue** : la fin de coupure n'est connue qu'au démarrage du titre suivant. Si l'animateur
+reprend la parole après les pubs, il reste à volume réduit jusqu'à la chanson.
+
+**Allumer la radio pendant la pub :**
+
+- **avec flux de la station** (OUI FM…) : repéré en quelques secondes — le flux donne le dernier
+  titre et son début, l'intégration sait donc qu'il s'est terminé sans titre suivant, dans une
+  fenêtre de pub ;
+- **sans aucun titre** : dans une des fenêtres de pub de la station, la coupure démarre tout de
+  suite, pour ce qu'il reste de sa durée habituelle (comptée depuis l'ouverture de la fenêtre),
+  sauf s'il reste moins de 30 s. Pareil après une pause reprise pendant la coupure ; une fois
+  arrêtée à la main, cette fenêtre-là n'est plus reprise ;
+- **avec titres HEOS** : pas repéré — le début du premier titre vu est inconnu, donc sa fin aussi,
+  et baisser le volume au hasard le ferait aussi sur de la musique. L'intégration se recale au
+  titre suivant ; allumez **Radio ad break** entre-temps si besoin.
+
+**Votre volume revient toujours.** Une coupure ne dure jamais plus de 10 minutes. Si l'intégration
+s'arrête ou redémarre pendant une coupure (mise à jour, changement de configuration), le volume est
+remis en partant. Si la connexion à l'ampli tombe, il est remis dès que HEOS répond à nouveau
+(abandon au bout d'une heure, ou si le volume a été changé entre-temps). Une annonce « Parler sur
+une enceinte » pendant une coupure la termine d'abord : l'annonce passe à votre volume normal, qui
+revient ensuite.
+
+**Ce qui a été appris.** Ajoutez au tableau de bord un widget **Radio** réglé sur **Afficher :
+Coupures pub des radios**. Il montre la station en cours (sinon la dernière écoutée) :
+
+- si une pub est en cours, ou l'heure de la prochaine fenêtre de pub (`Prochaine pub 14:34–14:47`) ;
+- les pubs entendues sur les 14 derniers jours, leur durée type, celles du jour ;
+- chaque jingle : _actif_ (avec ses détections confirmées), _en observation_, ou pas encore appris ;
+- d'où viennent les changements de titre, combien de temps l'animateur parle en général avant la
+  pub, le volume baissé en ce moment ;
+- une carte par type de jour (semaine, samedi, dimanche) : les heures avec pub et leurs fenêtres
+  (`6h–21h · :09–:14, :34–:47`) ; ouvrez-la pour le détail heure par heure, avec les pubs
+  entendues à chaque heure ;
+- les dernières pubs (date, heure, durée, comment elles ont été repérées) et le détail de chaque
+  jingle (où il se place, quand il a été appris) ;
+- un bouton **C'est la pub !** / **Fin de la pub**, équivalent à l'interrupteur **Radio ad break**.
+
+**Le planning habituel en graphique.** L'appareil a aussi une fonctionnalité **Radio ad window** :
+1 tant que la station (en cours, sinon la dernière écoutée) est dans une de ses fenêtres de pub
+habituelles, 0 en dehors — le planning appris, à la minute près. Ajoutez le widget **Graphique**
+de Gladys, type **Binaire**, avec **Radio ad window** et **Radio ad break** (les vraies coupures) :
+sur 24 heures ou une semaine, les bandes montrent quand la pub passe d'habitude et quand elle est
+vraiment passée. Le graphique ne dessine que le passé ; la prochaine fenêtre est dans le widget
+Radio. Comme l'interrupteur, il faut avoir mis à jour l'appareil depuis la Découverte, et la
+détection activée.
+
+Le bouton **Bilan des coupures pub** de l'écran Configuration résume de la même façon, en texte,
+toutes les stations apprises. Les heures sont affichées, et apprises, dans le **Fuseau horaire**
+de la configuration (Europe/Paris par défaut) : Gladys fait tourner les intégrations en UTC.
+
+**Ce que ça consomme**, uniquement pendant qu'une radio joue avec la détection activée :
+
+- des requêtes internet vers TuneIn (une fois par station), Deezer (durée des titres) et, pour les
+  stations comme OUI FM, leur site (flux des titres en direct, historique relu chaque heure) ;
+- avec **Reconnaître les jingles pub** : le flux radio est téléchargé une seconde fois et décodé
+  (environ 30 à 90 Mo par heure selon la qualité de la station), et après chaque coupure quelques
+  secondes de calcul, hors du fil principal de l'intégration. Désactivez-le pour économiser la
+  bande passante : les coupures ne sont alors repérées que par la règle des fenêtres.
+
+Désactivée, la détection ne consomme rien ; seul le titre des stations dont le flux n'en contient
+aucun (OUI FM…) reste lu sur leur site pendant l'écoute. Ce qui est appris est gardé dans le
+dossier de données de l'intégration (`/data/ad-breaks.json`, `/data/ad-jingles/`).
+
 ## Prérequis
 
 - **Gladys 5.1.0 ou plus récent** (widgets et actions/déclencheurs de scène propres à
@@ -232,6 +369,10 @@ que ce soit corrigé.
 7. **Annonces** (onglet Configuration) : **Volume des annonces** (0 = garder le volume actuel) et
    **Rétablir l'ampli après une annonce** pour l'action « Parler sur une enceinte » — voir
    « Diffuser une notification » plus haut.
+8. **Coupures pub des radios** (onglet Configuration) : désactivé par défaut, voir « Coupures pub
+   des radios » plus haut — puis **Mettre à jour** l'appareil depuis la Découverte pour obtenir son
+   interrupteur **Radio ad break**. **Fuseau horaire** : celui des heures de pub (nom IANA,
+   Europe/Paris par défaut). **Bilan des coupures pub** : ce qui a été appris de chaque station.
 
 ## Dépannage
 

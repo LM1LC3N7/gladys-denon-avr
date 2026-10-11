@@ -40,6 +40,23 @@ export const DEFAULT_CONFIG = {
   // or 'zone3'. See ZONE in src/denon/protocol.js. Anything unknown falls
   // back to 'main'.
   zone: 'main',
+  // Radio ad-break detection (src/adbreak/), opt-in: on, it reaches the
+  // internet (TuneIn, Deezer, the station's website) and, for the jingles,
+  // downloads the radio stream a second time. Publishes the AD_BREAK state...
+  ad_break_detection: false,
+  // ...and lowers the volume during breaks (off: the state alone is
+  // published, for a user-made scene to act on it).
+  ad_break_auto_duck: true,
+  // Recognize the station's ad jingles by decoding its stream (ffmpeg).
+  ad_break_jingles: true,
+  // How much lower (HEOS volume levels, 0-100 scale) during a break.
+  ad_break_volume_drop: 20,
+  // ...but never below this level (0-100), so the ads stay audible.
+  ad_break_min_volume: 20,
+  // The time zone of the hours learned and shown (ad windows, hours with
+  // ads, weekdays vs weekends): Gladys runs integration containers in UTC.
+  // An IANA name, see applyTimezone().
+  timezone: 'Europe/Paris',
   // "Speak on a speaker" volume, 0-100 % — 0 keeps the receiver's current
   // volume. Gladys drops the volume a scene asks for before it reaches an
   // external integration (see src/devices/announcements.js), hence a
@@ -49,6 +66,12 @@ export const DEFAULT_CONFIG = {
   // announcement, once it is over (src/devices/announcements.js).
   announcement_restore: true,
 };
+
+/** A whole volume level within [min, 100]; `fallback` when not a number. */
+function clampLevel(raw, min, fallback) {
+  const value = raw === '' || raw == null ? fallback : Number(raw);
+  return Math.round(Math.min(100, Math.max(min, Number.isFinite(value) ? value : fallback)));
+}
 
 /**
  * Merge the user config with the defaults.
@@ -82,6 +105,19 @@ export function normalizeConfig(raw = {}) {
       Number(raw.reconnect_interval_seconds ?? DEFAULT_CONFIG.reconnect_interval_seconds) ||
       DEFAULT_CONFIG.reconnect_interval_seconds,
     zone: normalizeZone(raw.zone),
+    ad_break_detection: raw.ad_break_detection === true,
+    ad_break_auto_duck: raw.ad_break_auto_duck !== false,
+    ad_break_jingles: raw.ad_break_jingles !== false,
+    ad_break_volume_drop: clampLevel(
+      raw.ad_break_volume_drop,
+      1,
+      DEFAULT_CONFIG.ad_break_volume_drop,
+    ),
+    ad_break_min_volume: clampLevel(raw.ad_break_min_volume, 0, DEFAULT_CONFIG.ad_break_min_volume),
+    timezone:
+      typeof raw.timezone === 'string' && raw.timezone.trim()
+        ? raw.timezone.trim()
+        : DEFAULT_CONFIG.timezone,
     announcement_volume: Math.round(
       Math.max(0, Math.min(100, Number(raw.announcement_volume ?? 0) || 0)),
     ),
@@ -92,6 +128,23 @@ export function normalizeConfig(raw = {}) {
         : DEFAULT_CONFIG.source_overrides,
     ),
   };
+}
+
+/**
+ * Make `timezone` (an IANA name like "Europe/Paris") the process's local
+ * time zone: every local-time computation of the integration (the minute,
+ * hour and day of an ad break, their display) then follows the user's
+ * clock instead of the container's UTC. Node applies a new `TZ` at once.
+ * @returns {boolean} false (and nothing changed) for an unknown time zone
+ */
+export function applyTimezone(timezone) {
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: timezone });
+  } catch {
+    return false;
+  }
+  process.env.TZ = timezone;
+  return true;
 }
 
 /**

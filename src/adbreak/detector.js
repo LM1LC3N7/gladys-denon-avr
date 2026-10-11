@@ -1,0 +1,277 @@
+// -----------------------------------------------------------------------------
+// Ad-break detector: a small clock-driven state machine, one per receiver.
+//
+// Inputs (all times in epoch ms, already shifted to what the receiver is
+// actually playing — see the lag handling in index.js of this folder):
+//   - setStation(): what is playing changed (or stopped);
+//   - onTrack(): a new song started, with its duration when known;
+//   - mark(): the user pressed "it's an ad";
+//   - tick(): called every second.
+// Outputs: onBreakStart / onBreakEnd callbacks, plus onGap / onMark so the
+// caller can feed the per-station statistics (stats.js).
+//
+// The rule, validated by ear on OUI FM: radio metadata never says "ad", only
+// "song X started, lasts N s". Once a song is over with no next song, the
+// station is either in an ad break or the host is talking. Two clues must
+// agree: the song ended inside one of the station's learned ad windows
+// (where its breaks statistically happen, see stats.js), and the host has
+// been talking longer than usual before the ads (learned, ~45 s by default).
+// Outside the windows a long talk (news, a feature, an interview) is never
+// taken for a break; only the station's ad jingle, once learned, can start
+// one there. The next song ends the break.
+// -----------------------------------------------------------------------------
+
+import { isInWindow, windowsAt, DEFAULT_PRE_BREAK_TALK_SECONDS } from './stats.js';
+
+export const JINGLE_FALLBACK_GRACE_SECONDS = 90;
+// Safety net: never keep the volume down longer than this, whatever happens
+// (stream switched to a talk show, metadata feed stalled...). Longest break
+// measured on OUI FM: 495 s.
+export const MAX_BREAK_SECONDS = 600;
+// A window already "used" by a break is not trusted again for this long:
+// stations air one break per window, so a second long silence in the same
+// window is more likely the host than a second ad break. A "break" ended by
+// a song within SHORT_BREAK_SECONDS was the host after all: it does not use
+// the window up.
+const WINDOW_REUSE_MS = 20 * 60 * 1000;
+const SHORT_BREAK_SECONDS = 120;
+// Without metadata (manual marks only), a predicted break lasts this long
+// unless the station's measured typical length says otherwise.
+export const DEFAULT_BREAK_SECONDS = 240;
+// Joining a station without metadata inside one of its ad windows starts
+// the break for what is left of it — unless less than this is left.
+const JOIN_MIN_LEFT_MS = 30_000;
+
+/**
+ * @param {object} opts
+ * @param {() => number} [opts.now]
+ * @param {(info: {reason: string, songEndedAt: number|null}) => void} opts.onBreakStart
+ * @param {(info: {reason: string}) => void} opts.onBreakEnd
+ * @param {(info: {songEndedAt: number, gapSeconds: number}) => void} [opts.onGap]
+ *   every measured gap between the end of a song and the start of the next one
+ * @param {(info: {at: number, offsetSeconds: number|null, durationSeconds: number|null}) => void} [opts.onMark]
+ */
+export function createAdBreakDetector({
+  now = () => Date.now(),
+  onBreakStart,
+  onBreakEnd,
+  onGap,
+  onMark,
+}) {
+  let station = null;
+  let track = null; // { startedAt, durationSeconds }
+  let breakState = null; // { startedAt, songEndedAt, reason }
+  let lastBreakAt = 0;
+  let previousBreakAt = 0; // lastBreakAt before the current break
+  let endedByHandAt = 0; // last break the user switched off
+
+  // The station's ad windows at `time`: by day type and hour when its
+  // schedule is learned (see learnedSchedule), else the same every hour.
+  function adWindows(time) {
+    return station.schedule ? windowsAt(station.schedule, time) : station.windows;
+  }
+
+  function songEnd() {
+    return track?.durationSeconds > 0 ? track.startedAt + track.durationSeconds * 1000 : null;
+  }
+
+  function startBreak(reason, songEndedAt, startedAt = now()) {
+    if (track) {
+      // One break per song end at most: once it ends (timeout, manual...),
+      // the same silence must not start another one.
+      track.breakHandled = true;
+    }
+    breakState = { startedAt, songEndedAt, reason };
+    previousBreakAt = lastBreakAt;
+    lastBreakAt = now();
+    onBreakStart({ reason, songEndedAt });
+  }
+
+  function endBreak(reason) {
+    if (!breakState) {
+      return;
+    }
+    if (reason === 'next_song' && now() - breakState.startedAt < SHORT_BREAK_SECONDS * 1000) {
+      lastBreakAt = previousBreakAt;
+    }
+    if (reason === 'manual') {
+      endedByHandAt = now();
+    }
+    breakState = null;
+    onBreakEnd({ reason });
+  }
+
+  // When the ad window `t` falls in opened (epoch ms, its first minute), or
+  // null outside the windows.
+  function windowOpenedAt(t) {
+    const minute = new Date(t).getMinutes();
+    const window = adWindows(t).find((w) => isInWindow(minute, [w]));
+    if (!window) {
+      return null;
+    }
+    const opened = new Date(t);
+    opened.setMinutes(window[0] % 60, 0, 0);
+    // A window wrapping past the hour (e.g. :58–:03) seen at :01 opened
+    // in the previous hour.
+    return opened.getTime() > t ? opened.getTime() - 3_600_000 : opened.getTime();
+  }
+
+  // Playback starting (or resuming) on a station without metadata in the
+  // middle of one of its ad windows: nothing will ever announce that break
+  // (its window opening has passed), so it starts now, for what is left of
+  // its typical length counted from the window opening. A station with
+  // metadata needs no guess: its last song's end tells (see tick()).
+  function joinMidWindow() {
+    if (!station?.joinable || station.hasMetadata || breakState) {
+      return;
+    }
+    const t = now();
+    const openedAt = windowOpenedAt(t);
+    if (openedAt === null || endedByHandAt >= openedAt) {
+      return; // Outside the windows, or this break was already switched off.
+    }
+    const length = Math.min(
+      MAX_BREAK_SECONDS,
+      station.typicalBreakSeconds || DEFAULT_BREAK_SECONDS,
+    );
+    if (openedAt + length * 1000 - t > JOIN_MIN_LEFT_MS) {
+      startBreak('joined_in_window', null, openedAt);
+    }
+  }
+
+  return {
+    /**
+     * @param {null | {key: string, hasMetadata: boolean, windows: Array<[number, number]>,
+     *   schedule?: {windows: object, hours: object|null},
+     *   preBreakTalkSeconds?: number, preBreakTalkByHour?: number[], hasStartJingle?: boolean,
+     *   typicalBreakSeconds?: number|null, joinable?: boolean}} next
+     */
+    setStation(next) {
+      const changed = next?.key !== station?.key;
+      const wasJoinable = !changed && Boolean(station?.joinable);
+      station = next;
+      if (changed) {
+        track = null;
+        endBreak('station_changed');
+      }
+      // Once known to have no metadata at all (`joinable`, see index.js):
+      // right away, or as soon as its feed lookup found none.
+      if (next?.joinable && !wasJoinable) {
+        joinMidWindow();
+      }
+    },
+
+    onTrack({ startedAt, durationSeconds }) {
+      const previousEnd = songEnd();
+      if (previousEnd !== null) {
+        const gapSeconds = (startedAt - previousEnd) / 1000;
+        onGap?.({ songEndedAt: previousEnd, gapSeconds });
+      }
+      track = { startedAt, durationSeconds: Number(durationSeconds) || null };
+      endBreak('next_song');
+    },
+
+    /** The station's learned "ads start" jingle was just heard. */
+    jingleStart() {
+      if (!breakState) {
+        startBreak('start_jingle', songEnd());
+      }
+    },
+
+    /** The station's learned "ads end" jingle was just heard. */
+    jingleEnd() {
+      endBreak('end_jingle');
+    },
+
+    /** Manual "it's an ad" — toggles the break on a station without metadata. */
+    mark() {
+      if (!station) {
+        return; // Nothing playing to learn about, nor any safety timeout.
+      }
+      const at = now();
+      if (breakState && station && !station.hasMetadata) {
+        const durationSeconds = Math.round((at - breakState.startedAt) / 1000);
+        onMark?.({ at: breakState.startedAt, offsetSeconds: null, durationSeconds, endedAt: at });
+        endBreak('manual');
+        return;
+      }
+      const end = songEnd();
+      onMark?.({
+        at,
+        offsetSeconds: end !== null && at >= end ? Math.round((at - end) / 1000) : null,
+        durationSeconds: null,
+      });
+      if (!breakState) {
+        startBreak('manual', end);
+      }
+    },
+
+    tick() {
+      const t = now();
+      if (breakState) {
+        // Checked even without a station: the volume never stays down.
+        const limit =
+          !station || station.hasMetadata
+            ? MAX_BREAK_SECONDS
+            : Math.min(MAX_BREAK_SECONDS, station.typicalBreakSeconds || DEFAULT_BREAK_SECONDS);
+        if (t - breakState.startedAt > limit * 1000) {
+          endBreak('timeout');
+        }
+        return;
+      }
+      if (!station) {
+        return;
+      }
+      const windowFresh = t - lastBreakAt > WINDOW_REUSE_MS;
+      if (station.hasMetadata) {
+        const end = songEnd();
+        if (end === null || t < end || track.breakHandled) {
+          return;
+        }
+        const inWindow = windowFresh && isInWindow(new Date(end).getMinutes(), adWindows(end));
+        if (!inWindow) {
+          return; // Outside the ad windows: only the jingle starts a break.
+        }
+        const learnedTalk =
+          station.preBreakTalkByHour?.[new Date(end).getHours()] ??
+          station.preBreakTalkSeconds ??
+          DEFAULT_PRE_BREAK_TALK_SECONDS;
+        // With a learned start jingle, the jingle starts the break: this is
+        // only the fallback for a missed jingle, so give the host more room.
+        const graceSeconds = station.hasStartJingle
+          ? Math.max(learnedTalk, JINGLE_FALLBACK_GRACE_SECONDS)
+          : learnedTalk;
+        if (t >= end + graceSeconds * 1000) {
+          startBreak('song_ended_in_window', end);
+        }
+        return;
+      }
+      // No metadata: only the learned schedule (from manual marks) is known.
+      // Start at the opening minute of a window, once per window.
+      const date = new Date(t);
+      const opensNow = adWindows(t).some(([from]) => from % 60 === date.getMinutes());
+      if (windowFresh && opensNow) {
+        startBreak('schedule', null);
+      }
+    },
+
+    /** Is `time` inside one of the station's ad windows (that day, that hour)? */
+    isAdTime(time) {
+      return Boolean(station) && isInWindow(new Date(time).getMinutes(), adWindows(time));
+    },
+
+    /** End a break from outside: switched off by hand (a station with titles), announcement... */
+    end(reason = 'manual') {
+      endBreak(reason);
+    },
+
+    isInBreak() {
+      return breakState !== null;
+    },
+
+    /** When the break in progress started (epoch ms), or null. */
+    breakStartedAt() {
+      return breakState?.startedAt ?? null;
+    },
+  };
+}

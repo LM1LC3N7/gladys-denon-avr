@@ -178,6 +178,106 @@
       },
       "required": false,
       "default": ""
+    },
+    {
+      "key": "ad_break_intro",
+      "type": "section",
+      "label": {
+        "en": "Radio ad breaks",
+        "fr": "Coupures pub des radios"
+      },
+      "description": {
+        "en": "While a radio station plays through HEOS, the integration learns when that station airs its ad breaks (from song changes: the station's metadata, or a dedicated feed for stations like OUI FM that publish none in their stream) and turns the device's \"Radio ad break\" switch on during them. You can switch it yourself too: on when ads start (it learns from it), off when they end.",
+        "fr": "Pendant qu'une radio joue via HEOS, l'intégration apprend à quels moments cette station diffuse ses coupures pub (à partir des changements de titre : métadonnées de la station, ou flux dédié pour les radios comme OUI FM qui n'en mettent aucune dans leur flux) et allume l'interrupteur « Radio ad break » de l'appareil pendant celles-ci. Vous pouvez aussi l'actionner vous-même : allumé quand la pub commence (elle apprend de vos signalements), éteint quand elle se termine."
+      }
+    },
+    {
+      "key": "ad_break_detection",
+      "type": "boolean",
+      "label": {
+        "en": "Detect radio ad breaks",
+        "fr": "Détecter les coupures pub des radios"
+      },
+      "description": {
+        "en": "Off by default. On, the integration reaches the internet while a radio station plays: TuneIn, Deezer (song durations), the station's website. Update the device from Discovery to get its \"Radio ad break\" switch. Off, only the song title of stations with no metadata in their stream (OUI FM...) is read from their website.",
+        "fr": "Désactivé par défaut. Activé, l'intégration contacte internet pendant qu'une radio joue : TuneIn, Deezer (durée des titres), le site de la station. Mettez à jour l'appareil depuis la Découverte pour obtenir son interrupteur « Radio ad break ». Désactivé, seul le titre des stations sans métadonnées dans leur flux (OUI FM…) est lu sur leur site."
+      },
+      "required": false,
+      "default": false
+    },
+    {
+      "key": "ad_break_auto_duck",
+      "type": "boolean",
+      "label": {
+        "en": "Lower the volume during ad breaks",
+        "fr": "Baisser le volume pendant les pubs"
+      },
+      "description": {
+        "en": "Switch off to only get the \"Radio ad break\" switch, and act on it in a scene of your own.",
+        "fr": "Désactivez pour n'avoir que l'interrupteur « Radio ad break », et agir dessus dans votre propre scène."
+      },
+      "required": false,
+      "default": true
+    },
+    {
+      "key": "ad_break_jingles",
+      "type": "boolean",
+      "label": {
+        "en": "Recognize the ad jingles",
+        "fr": "Reconnaître les jingles pub"
+      },
+      "description": {
+        "en": "Learns each station's ad jingle to lower the volume right on it. Downloads the radio stream a second time while it plays (about 30 to 90 MB per hour).",
+        "fr": "Apprend le jingle pub de chaque station pour baisser le volume pile dessus. Télécharge le flux radio une seconde fois pendant l'écoute (environ 30 à 90 Mo par heure)."
+      },
+      "required": false,
+      "default": true
+    },
+    {
+      "key": "ad_break_volume_drop",
+      "type": "number",
+      "label": {
+        "en": "Volume drop during ad breaks",
+        "fr": "Baisse de volume pendant les pubs"
+      },
+      "description": {
+        "en": "How many volume steps (0-100 scale) lower. The volume comes back when the music resumes, unless you changed it by hand meanwhile.",
+        "fr": "De combien de crans (échelle 0-100) baisser. Le volume revient quand la musique reprend, sauf si vous l'avez modifié à la main entre-temps."
+      },
+      "required": false,
+      "default": 20,
+      "min": 1,
+      "max": 100
+    },
+    {
+      "key": "ad_break_min_volume",
+      "type": "number",
+      "label": {
+        "en": "Minimum volume during ad breaks",
+        "fr": "Volume minimum pendant les pubs"
+      },
+      "description": {
+        "en": "The volume is never lowered below this level (0-100 scale), so the ads stay audible.",
+        "fr": "Le volume n'est jamais baissé sous ce niveau (échelle 0-100), pour que les pubs restent audibles."
+      },
+      "required": false,
+      "default": 20,
+      "min": 0,
+      "max": 100
+    },
+    {
+      "key": "timezone",
+      "type": "string",
+      "label": {
+        "en": "Time zone",
+        "fr": "Fuseau horaire"
+      },
+      "description": {
+        "en": "Of the ad-break hours learned and shown, as an IANA name (Europe/Paris, Europe/Brussels, America/Montreal...). Integrations run in UTC otherwise.",
+        "fr": "Des heures de pub apprises et affichées, au format IANA (Europe/Paris, Europe/Brussels, America/Montreal…). Sinon, les intégrations tournent en UTC."
+      },
+      "required": false,
+      "default": "Europe/Paris"
     }
   ],
   "actions": [
@@ -392,6 +492,15 @@
           ]
         }
       ]
+    },
+    {
+      "key": "ad_break_report",
+      "label": {
+        "en": "Ad-break report",
+        "fr": "Bilan des coupures pub"
+      },
+      "timeout_seconds": 15,
+      "fields": []
     }
   ],
   "widgets": [
@@ -2034,12 +2143,12 @@
     {
       "key": "radio",
       "label": {
-        "en": "Radio (tuner)",
-        "fr": "Radio (tuner)"
+        "en": "Radio",
+        "fr": "Radio"
       },
       "description": {
-        "en": "The FM/AM tuner: frequency, preset, band, with four buttons of your choice.",
-        "fr": "Le tuner FM/AM : fréquence, présélection, bande, avec quatre boutons au choix."
+        "en": "FM/AM tuner (frequency, preset, buttons), or the ad breaks learned on web radios.",
+        "fr": "Tuner FM/AM (fréquence, présélection, boutons) ou les pubs apprises des radios web."
       },
       "icon": "radio",
       "settings": [
@@ -2056,6 +2165,36 @@
             "fr": "Laissez vide pour afficher le premier ampli."
           },
           "required": false
+        },
+        {
+          "key": "show",
+          "type": "select",
+          "label": {
+            "en": "Show",
+            "fr": "Afficher"
+          },
+          "description": {
+            "en": "The FM/AM tuner, or the radio ad breaks (needs the detection on, see Configuration).",
+            "fr": "Le tuner FM/AM, ou les coupures pub des radios (détection à activer dans la Configuration)."
+          },
+          "required": false,
+          "default": "tuner",
+          "options": [
+            {
+              "value": "tuner",
+              "label": {
+                "en": "FM/AM tuner",
+                "fr": "Tuner FM/AM"
+              }
+            },
+            {
+              "value": "ad_breaks",
+              "label": {
+                "en": "Radio ad breaks",
+                "fr": "Coupures pub des radios"
+              }
+            }
+          ]
         },
         {
           "key": "button_1",

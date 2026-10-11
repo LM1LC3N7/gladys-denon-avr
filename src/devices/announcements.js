@@ -159,6 +159,9 @@ export async function playAnnouncement(externalId, url, config = normalizeConfig
   const volume = Number(config.announcement_volume);
   const wantsVolume = Number.isFinite(volume) && volume > 0;
 
+  // A radio ad break in progress ends first (src/adbreak/): its lowered
+  // volume must not be what the announcement snapshots and gives back.
+  const adBreakVolume = heos.adBreak?.interruptForAnnouncement(url) ?? null;
   // A second announcement while the first is still playing keeps the FIRST
   // one's snapshot: the state to give back is the one before both.
   let entry = pending.get(externalId);
@@ -166,7 +169,9 @@ export async function playAnnouncement(externalId, url, config = normalizeConfig
     stopTimers(entry);
   } else {
     const state = getState(externalId);
-    entry = { snapshot: { power: state.power, source: state.source, volume: state.volume } };
+    entry = {
+      snapshot: { power: state.power, source: state.source, volume: adBreakVolume ?? state.volume },
+    };
   }
   Object.assign(entry, { zone, tracking: false, sawPlaying: false });
   if (config.announcement_restore) {

@@ -15,6 +15,7 @@ import { createLogger } from '@gladysassistant/integration-sdk';
 import {
   FEATURE,
   STATE,
+  adBreakInsights,
   getDeviceSnapshot,
   onDeviceStateChange,
   sessionIds,
@@ -27,6 +28,7 @@ import {
   remoteContent,
   shortcutsContent,
 } from './content.js';
+import { adBreaksContent } from './ad-breaks.js';
 import { runWidgetAction } from './actions.js';
 import { createArtworkCache } from './artwork.js';
 import { createRefresher } from './refresh.js';
@@ -67,6 +69,8 @@ const WATCHED_KEYS = {
     'connection',
   ],
 };
+// A "Radio" widget showing the ad breaks also follows these.
+WATCHED_KEYS[WIDGET.RADIO].push(FEATURE.AD_BREAK, FEATURE.PLAYBACK_STATE, STATE.NOW_PLAYING_TITLE);
 
 export const WIDGETS_BY_STATE_KEY = Object.entries(WATCHED_KEYS).reduce((byKey, [widget, keys]) => {
   for (const key of keys) {
@@ -124,7 +128,9 @@ export async function buildWidgetContent(key, settings, config, { artwork }) {
     case WIDGET.REMOTE:
       return remoteContent(view, settings);
     case WIDGET.RADIO:
-      return radioContent(view, settings);
+      return settings?.show === 'ad_breaks'
+        ? adBreaksContent(view, await adBreakInsights(view.externalId))
+        : radioContent(view, settings);
     default:
       throw new Error(`Unknown widget "${key}"`);
   }

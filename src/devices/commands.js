@@ -58,6 +58,16 @@ export async function onSetValue(gladys, { device, feature, value, config }) {
   // indiscriminately. Every other feature below is still Telnet-based (or,
   // for the transport buttons, HEOS-with-a-Telnet-fallback) and keeps the
   // gate right where it was.
+  // Pure integration-side logic, no receiver command: no transport gate.
+  if (key === FEATURE.AD_BREAK || key === FEATURE.AD_BREAK_MARK) {
+    const adBreak = getHeos(device.external_id)?.adBreak;
+    if (!adBreak) {
+      throw new Error(`${device.external_id} is not connected`);
+    }
+    adBreak.setAdBreak(key === FEATURE.AD_BREAK_MARK || Number(value) === 1);
+    return;
+  }
+
   if (key === FEATURE.PLAY_NOTIFICATION) {
     // `value` is the TTS audio file URL Gladys core already rendered — see
     // the feature comment in buildFeatures() and ./announcements.js for the
