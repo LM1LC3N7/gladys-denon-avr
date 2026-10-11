@@ -53,6 +53,7 @@ export const FEATURE = {
   NOW_PLAYING: 'now_playing',
   PLAY_NOTIFICATION: 'play_notification',
   AD_BREAK: 'ad_break',
+  AD_WINDOW: 'ad_window',
   // The former "Mark ad break" push button (dev builds only), still
   // honored until the device is updated: the AD_BREAK switch replaces it.
   AD_BREAK_MARK: 'ad_break_mark',
@@ -486,6 +487,24 @@ export function buildFeatures(deviceExternalId, sourceOverrides = {}) {
       max: 1,
       read_only: false,
       has_feedback: true,
+    },
+    {
+      // The usual ad schedule of the station playing (else the last one
+      // played), learned per day type and hour (src/adbreak/stats.js), as
+      // a binary signal: 1 inside one of its ad windows, 0 outside. Meant
+      // for Gladys' own Binary chart, next to Radio ad break (the real
+      // breaks) — the planning with no widget of its own. Published at
+      // each change only (~60 a day on OUI FM), and only with the
+      // detection on.
+      name: 'Radio ad window',
+      external_id: featureExternalId(deviceExternalId, FEATURE.AD_WINDOW),
+      category: DEVICE_FEATURE_CATEGORIES.SWITCH,
+      type: DEVICE_FEATURE_TYPES.SWITCH.BINARY,
+      min: 0,
+      max: 1,
+      read_only: true,
+      has_feedback: false,
+      keep_history: true,
     },
   ];
 }

@@ -30,6 +30,8 @@ import {
   BREAK_MIN_SECONDS,
   BREAK_MAX_SECONDS,
   emptyStats,
+  isInWindow,
+  windowsAt,
   recordBreak,
   recordMarkOffset,
   learnedWindows,
@@ -110,6 +112,7 @@ const IGNORED_URLS = 10;
  * @param {(level: number) => boolean} opts.setVolume
  * @param {(inBreak: boolean) => void} opts.publishAdBreak
  * @param {(text: string) => void} opts.publishNowPlaying
+ * @param {(inWindow: boolean) => void} [opts.publishAdWindow] the usual schedule, at each change
  * @param {typeof createJingleListener} [opts.createJingles] (tests)
  */
 export function createAdBreakController({
@@ -119,6 +122,7 @@ export function createAdBreakController({
   setVolume,
   publishAdBreak,
   publishNowPlaying,
+  publishAdWindow = () => {},
   createJingles = createJingleListener,
 }) {
   let stopped = false;
@@ -136,6 +140,8 @@ export function createAdBreakController({
   let lastPlayed = null; // last feed song applied: { station, startedAt, durationSeconds }
   const pendingTracks = new Set(); // feed song changes waiting for the stream lag
   const ignoredUrls = []; // streams the announcements played, newest last
+  let adWindow = null; // last usual-schedule value published (true/false)
+  let adWindowMinute = null; // the minute it was last computed for
 
   // Detection runs (learning, Deezer, the jingles, the volume) only while a
   // station plays with ad_break_detection on: off, it costs nothing.
@@ -253,10 +259,36 @@ export function createAdBreakController({
     },
   });
 
+  // The usual schedule as a binary signal (the "Radio ad window" feature):
+  // inside one of the learned ad windows of the station playing, else of
+  // the last one played, right now? Only with the detection on; switched
+  // off, a window still open is closed (a binary chart needs its 0).
+  async function refreshAdWindow(now = Date.now()) {
+    const target = station ?? lastStation;
+    let value = false;
+    if (getConfig().ad_break_detection === true && target) {
+      const store = await getStore();
+      const stats = store[target.key] ?? emptyStats();
+      const schedule = learnedSchedule(stats, { coveredFrom: stats.historyFrom ?? null, now });
+      value = isInWindow(new Date(now).getMinutes(), windowsAt(schedule, now));
+    } else if (adWindow === null) {
+      return; // Never published: nothing to close.
+    }
+    if (!stopped && value !== adWindow) {
+      adWindow = value;
+      publishAdWindow(value);
+    }
+  }
+
   const ticker = setInterval(() => {
     detector.tick();
     jingles?.tick();
     retryRestore();
+    const minute = Math.floor(Date.now() / 60_000);
+    if (minute !== adWindowMinute) {
+      adWindowMinute = minute;
+      background(refreshAdWindow(), 'ad window');
+    }
   }, TICK_MS);
   ticker.unref?.();
 
@@ -551,6 +583,7 @@ export function createAdBreakController({
     lookUpFeed();
     syncFeed();
     background(refreshDetectorStation(), 'detector refresh');
+    background(refreshAdWindow(), 'ad window');
   }
 
   return {

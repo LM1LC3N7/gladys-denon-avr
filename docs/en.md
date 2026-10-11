@@ -255,6 +255,14 @@ It shows the station playing (else the last one played):
   (where it sits, when it was learned);
 - an **It's an ad!** / **Ads are over** button, the same as the **Radio ad break** switch.
 
+**The usual schedule in a chart.** The device also has a **Radio ad window** feature: 1 while the
+station (playing, else the last one played) is inside one of its usual ad windows, 0 outside —
+the learned schedule, minute by minute. Add Gladys' own **Chart** widget, type **Binary**, with
+**Radio ad window** and **Radio ad break** (the real breaks): over 24 hours or a week, the bands
+show when the ads usually come and when they actually came. The chart draws the past only; the
+next window is in the Radio widget. Like the switch, it needs the device updated from Discovery,
+and the detection on.
+
 The **Ad-break report** button of the Configuration screen sums up every station learned the same
 way, as text. Times are shown, and learned, in the **Time zone** of the configuration (Europe/Paris
 by default): Gladys runs integrations in UTC.

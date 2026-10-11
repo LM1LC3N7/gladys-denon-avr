@@ -270,7 +270,8 @@ TuneIn...) — see "Playback controls" below.
   `/data/ad-breaks.json` and `/data/ad-jingles/`. What was learned is shown by the **Radio**
   widget set to `show: ad_breaks` (windows and hours with ads per day type, next window, recent
   breaks, jingle states) and the **Ad-break report** Configuration action, both built from
-  `src/adbreak/insights.js`. Hours are local to the `timezone` setting (`applyTimezone()` sets
+  `src/adbreak/insights.js`, and by the read-only **Radio ad window** binary feature (1 inside a
+  learned window, published at each change) for Gladys' own Binary chart. Hours are local to the `timezone` setting (`applyTimezone()` sets
   the process `TZ`): Gladys runs integration containers in UTC.
 
 A scene's generic **"Control a device"** action (`ACTIONS.DEVICE.SET_VALUE` in Gladys core) can

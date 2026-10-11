@@ -276,6 +276,15 @@ Coupures pub des radios**. Il montre la station en cours (sinon la dernière éc
   jingle (où il se place, quand il a été appris) ;
 - un bouton **C'est la pub !** / **Fin de la pub**, équivalent à l'interrupteur **Radio ad break**.
 
+**Le planning habituel en graphique.** L'appareil a aussi une fonctionnalité **Radio ad window** :
+1 tant que la station (en cours, sinon la dernière écoutée) est dans une de ses fenêtres de pub
+habituelles, 0 en dehors — le planning appris, à la minute près. Ajoutez le widget **Graphique**
+de Gladys, type **Binaire**, avec **Radio ad window** et **Radio ad break** (les vraies coupures) :
+sur 24 heures ou une semaine, les bandes montrent quand la pub passe d'habitude et quand elle est
+vraiment passée. Le graphique ne dessine que le passé ; la prochaine fenêtre est dans le widget
+Radio. Comme l'interrupteur, il faut avoir mis à jour l'appareil depuis la Découverte, et la
+détection activée.
+
 Le bouton **Bilan des coupures pub** de l'écran Configuration résume de la même façon, en texte,
 toutes les stations apprises. Les heures sont affichées, et apprises, dans le **Fuseau horaire**
 de la configuration (Europe/Paris par défaut) : Gladys fait tourner les intégrations en UTC.

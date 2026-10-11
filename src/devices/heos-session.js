@@ -217,6 +217,14 @@ export function openHeosSession(
       session.forget(id);
       publishHeosState(id, inBreak ? 1 : 0);
     },
+    publishAdWindow: (inWindow) => {
+      const id = featureExternalId(externalId, FEATURE.AD_WINDOW);
+      const features = (getSession(externalId)?.device ?? device).features;
+      if (Array.isArray(features) && !features.some((f) => f.external_id === id)) {
+        return; // Not updated from Discovery since the feature exists.
+      }
+      publishHeosState(id, inWindow ? 1 : 0);
+    },
     publishNowPlaying: (text) => {
       updateState(externalId, {
         [STATE.NOW_PLAYING_TITLE]: text,

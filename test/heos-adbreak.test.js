@@ -11,6 +11,7 @@ process.env.AD_BREAK_STATS_FILE = path.join(DIR, 'ad-breaks.json');
 process.env.AD_BREAK_JINGLES = 'off';
 process.env.AD_BREAK_JINGLES_DIR = path.join(DIR, 'ad-jingles');
 const { openHeosSession, applyConfig } = await import('../src/devices/heos-session.js');
+const { __resetStoreForTesting } = await import('../src/adbreak/index.js');
 const { onSetValue } = await import('../src/devices/commands.js');
 const { runAdBreakReportAction } = await import('../src/devices/actions.js');
 const { buildWidgetContent } = await import('../src/widgets/index.js');
@@ -219,5 +220,38 @@ test('the Radio widget set to the ad breaks, and the report action, read the liv
   } finally {
     session.stop();
     heos.close();
+  }
+});
+
+test('the usual ad schedule reaches the "Radio ad window" feature of an updated device', async () => {
+  // Learned: breaks at this minute and the next, every hour of the last week.
+  const now = Date.now();
+  const minute = new Date(now).getMinutes();
+  const breaks = [];
+  for (let h = 1; h <= 7 * 24; h++) {
+    for (const m of [minute, (minute + 1) % 60]) {
+      breaks.push({ at: now - h * 3_600_000, minute: m, durationSeconds: 300, source: 'history' });
+    }
+  }
+  await fs.writeFile(
+    process.env.AD_BREAK_STATS_FILE,
+    JSON.stringify({ 'url:http://radio.example/live': { breaks, markOffsets: [] } }),
+  );
+  __resetStoreForTesting();
+  const AD_WINDOW = `${ID}:ad_window`;
+  const updated = await playingRadio({
+    features: [{ external_id: AD_BREAK }, { external_id: AD_WINDOW }],
+  });
+  const old = await playingRadio({ features: [{ external_id: AD_BREAK }] });
+  try {
+    const windowStates = (gladys) =>
+      gladys.published.filter((p) => p.featureExternalId === AD_WINDOW).map((p) => p.state);
+    assert.deepEqual(windowStates(updated.gladys), [1]);
+    assert.deepEqual(windowStates(old.gladys), [], 'not updated from Discovery: nothing sent');
+  } finally {
+    for (const { session, heos } of [updated, old]) {
+      session.stop();
+      heos.close();
+    }
   }
 });

@@ -460,3 +460,52 @@ test('insights: the station playing, else the last one, and every station in the
     [['url:http://radio.example/live', 'Radio X', 1]],
   );
 });
+
+test('the usual schedule is published as a binary signal at each change, detection on only', async (t) => {
+  const base = new Date(2026, 9, 7, 14, 10, 30).getTime(); // a Wednesday, 14:10:30
+  t.mock.timers.enable({ apis: ['setInterval', 'Date'], now: base });
+  const windows = [];
+  const { controller, settings } = setUp(t, { ad_break_jingles: false });
+  // Learned: a break at :10 every hour of the last two days.
+  const breaks = Array.from({ length: 48 }, (_, h) => {
+    const at = base - 30_000 - (h + 1) * 3_600_000;
+    return { at, minute: 10, durationSeconds: 300, source: 'history' };
+  });
+  await fs.writeFile(
+    process.env.AD_BREAK_STATS_FILE,
+    JSON.stringify({ 'url:http://radio.example/live': { breaks, markOffsets: [] } }),
+  );
+  // Not built with the controller of setUp(): it must see this callback.
+  controller.stop();
+  const controller2 = createAdBreakController({
+    name: 'schedule',
+    getConfig: () => settings,
+    getVolume: () => 50,
+    setVolume: () => true,
+    publishAdBreak: () => {},
+    publishNowPlaying: () => {},
+    publishAdWindow: (value) => windows.push(value),
+  });
+  t.after(() => controller2.stop());
+  controller2.onNowPlayingMedia(STREAM);
+  await until(() => windows.length === 1);
+  assert.deepEqual(windows, [true], ':10 is in the learned window');
+
+  t.mock.timers.tick(5 * 60_000); // 14:15:30
+  await until(() => windows.length === 2);
+  assert.deepEqual(windows, [true, false]);
+  t.mock.timers.tick(60_000);
+  await wait();
+  assert.deepEqual(windows, [true, false], 'published at changes only');
+
+  // Back in the window, then the detection switched off: the window closes.
+  t.mock.timers.tick(54 * 60_000); // 15:09:30
+  await until(() => windows.length === 3);
+  settings.ad_break_detection = false;
+  controller2.onConfigUpdated();
+  await until(() => windows.length === 4);
+  assert.deepEqual(windows, [true, false, true, false]);
+  t.mock.timers.tick(60_000);
+  await wait();
+  assert.equal(windows.length, 4, 'nothing more while off');
+});
