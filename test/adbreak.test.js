@@ -640,7 +640,6 @@ test('band frames: streaming equals batch, storage round-trips', () => {
 
 test('fetchPlaylistHistory pages back from the oldest song of each page', async () => {
   const HOUR = 3_600_000;
-  const now = Date.now();
   const dates = [];
   // Each page: 3 songs, 20 min apart, before the requested date.
   const fetchImpl = async (url) => {
@@ -656,7 +655,9 @@ test('fetchPlaylistHistory pages back from the oldest song of each page', async 
   const songs = await fetchPlaylistHistory({ site: 'https://x', mdsId: '1', hours: 3, fetchImpl });
   assert.equal(dates.length, 3);
   assert.equal(dates[1], dates[0] - HOUR);
-  assert.ok(songs[0].startedAt <= now - 3 * HOUR);
+  // From the first page's date (its own "now", a millisecond or more
+  // after the test's): 3 hours back.
+  assert.ok(songs[0].startedAt <= dates[0] - 3 * HOUR);
   assert.ok(songs.every((s, i) => i === 0 || s.startedAt > songs[i - 1].startedAt));
 });
 
