@@ -40,11 +40,15 @@ export const DEFAULT_CONFIG = {
   // or 'zone3'. See ZONE in src/denon/protocol.js. Anything unknown falls
   // back to 'main'.
   zone: 'main',
-  // Radio ad-break detection (src/adbreak/): publish the AD_BREAK state...
-  ad_break_detection: true,
-  // ...and lower the volume during breaks (off: the state alone is
+  // Radio ad-break detection (src/adbreak/), opt-in: on, it reaches the
+  // internet (TuneIn, Deezer, the station's website) and, for the jingles,
+  // downloads the radio stream a second time. Publishes the AD_BREAK state...
+  ad_break_detection: false,
+  // ...and lowers the volume during breaks (off: the state alone is
   // published, for a user-made scene to act on it).
   ad_break_auto_duck: true,
+  // Recognize the station's ad jingles by decoding its stream (ffmpeg).
+  ad_break_jingles: true,
   // How much lower (HEOS volume levels, 0-100 scale) during a break.
   ad_break_volume_drop: 20,
   // ...but never below this level (0-100), so the ads stay audible.
@@ -58,6 +62,12 @@ export const DEFAULT_CONFIG = {
   // announcement, once it is over (src/devices/announcements.js).
   announcement_restore: true,
 };
+
+/** A whole volume level within [min, 100]; `fallback` when not a number. */
+function clampLevel(raw, min, fallback) {
+  const value = raw === '' || raw == null ? fallback : Number(raw);
+  return Math.round(Math.min(100, Math.max(min, Number.isFinite(value) ? value : fallback)));
+}
 
 /**
  * Merge the user config with the defaults.
@@ -91,16 +101,15 @@ export function normalizeConfig(raw = {}) {
       Number(raw.reconnect_interval_seconds ?? DEFAULT_CONFIG.reconnect_interval_seconds) ||
       DEFAULT_CONFIG.reconnect_interval_seconds,
     zone: normalizeZone(raw.zone),
-    ad_break_detection: raw.ad_break_detection ?? DEFAULT_CONFIG.ad_break_detection,
-    ad_break_auto_duck: raw.ad_break_auto_duck ?? DEFAULT_CONFIG.ad_break_auto_duck,
-    ad_break_volume_drop: Math.min(
-      100,
-      Math.max(
-        1,
-        Number(raw.ad_break_volume_drop ?? DEFAULT_CONFIG.ad_break_volume_drop) ||
-          DEFAULT_CONFIG.ad_break_volume_drop,
-      ),
+    ad_break_detection: raw.ad_break_detection === true,
+    ad_break_auto_duck: raw.ad_break_auto_duck !== false,
+    ad_break_jingles: raw.ad_break_jingles !== false,
+    ad_break_volume_drop: clampLevel(
+      raw.ad_break_volume_drop,
+      1,
+      DEFAULT_CONFIG.ad_break_volume_drop,
     ),
+    ad_break_min_volume: clampLevel(raw.ad_break_min_volume, 0, DEFAULT_CONFIG.ad_break_min_volume),
     announcement_volume: Math.round(
       Math.max(0, Math.min(100, Number(raw.announcement_volume ?? 0) || 0)),
     ),
@@ -109,10 +118,6 @@ export function normalizeConfig(raw = {}) {
       typeof raw.source_overrides === 'string'
         ? raw.source_overrides
         : DEFAULT_CONFIG.source_overrides,
-    ),
-    ad_break_min_volume: Math.min(
-      100,
-      Math.max(0, Number(raw.ad_break_min_volume ?? DEFAULT_CONFIG.ad_break_min_volume) || 0),
     ),
   };
 }

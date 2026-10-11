@@ -8,7 +8,8 @@
 // Usage: node scripts/debug-adbreak.js <host> [--no-duck] [--drop=<levels>]
 //
 // Learned statistics go to AD_BREAK_STATS_FILE (default ./ad-breaks.json
-// here, /data/ad-breaks.json in the container). Type `m` + Enter to press
+// here, /data/ad-breaks.json in the container), learned jingles to
+// AD_BREAK_JINGLES_DIR (default ./ad-jingles here, /data/ad-jingles there). Type `m` + Enter to press
 // "it's an ad" (the AD_BREAK switch).
 // -----------------------------------------------------------------------------
 
@@ -25,6 +26,7 @@ import {
 } from '../src/heos/protocol.js';
 
 process.env.AD_BREAK_STATS_FILE ??= './ad-breaks.json';
+process.env.AD_BREAK_JINGLES_DIR ??= './ad-jingles';
 const { createAdBreakController } = await import('../src/adbreak/index.js');
 const { normalizeConfig } = await import('../src/config.js');
 
@@ -35,6 +37,7 @@ if (!host) {
 }
 const drop = flags.find((f) => f.startsWith('--drop='))?.split('=')[1];
 const config = normalizeConfig({
+  ad_break_detection: true,
   ad_break_auto_duck: !flags.includes('--no-duck'),
   ...(drop ? { ad_break_volume_drop: Number(drop) } : {}),
 });

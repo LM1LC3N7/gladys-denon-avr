@@ -246,22 +246,37 @@ export function typicalBreakSeconds(stats) {
 }
 
 /**
- * Load every station's statistics from `file` (missing/corrupt file = no
- * statistics yet, never an error: the integration must start regardless).
+ * Load every station's statistics from `file` (missing file = no statistics
+ * yet, never an error: the integration must start regardless). A corrupt
+ * file is kept aside as `<file>.corrupt` rather than overwritten by the next
+ * save: what was learned may still be recovered by hand.
  */
 export async function loadStatsStore(file) {
+  let text;
   try {
-    const parsed = JSON.parse(await fs.readFile(file, 'utf8'));
-    return parsed && typeof parsed === 'object' ? parsed : {};
+    text = await fs.readFile(file, 'utf8');
   } catch {
     return {};
   }
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed;
+    }
+  } catch {
+    // Kept aside below.
+  }
+  await fs.rename(file, `${file}.corrupt`).catch(() => {});
+  return {};
 }
+
+let tmpCounter = 0;
 
 /** Persist every station's statistics (atomic: write then rename). */
 export async function saveStatsStore(file, store) {
   await fs.mkdir(path.dirname(file), { recursive: true });
-  const tmp = `${file}.tmp`;
+  tmpCounter += 1;
+  const tmp = `${file}.${process.pid}.${tmpCounter}.tmp`;
   await fs.writeFile(tmp, JSON.stringify(store));
   await fs.rename(tmp, file);
 }

@@ -31,7 +31,14 @@ import {
 } from '../heos/protocol.js';
 import { createAdBreakController } from '../adbreak/index.js';
 import { FEATURE, STATE, featureExternalId } from './features.js';
-import { getHeos, notifyStateChange, sessionIds, timing, updateState } from './registry.js';
+import {
+  getHeos,
+  getSession,
+  notifyStateChange,
+  sessionIds,
+  timing,
+  updateState,
+} from './registry.js';
 
 const logger = createLogger({ name: 'avr' });
 
@@ -99,8 +106,10 @@ export function openHeosSession(
     },
     stop() {
       clearInterval(session.pollTimer);
-      session.client?.stop();
+      // First, while HEOS is still connected: a break in progress gives
+      // its volume back through it.
       session.adBreak?.stop();
+      session.client?.stop();
     },
   };
 
@@ -197,6 +206,12 @@ export function openHeosSession(
     publishAdBreak: (inBreak) => {
       // Not deduplicated: the user can switch it, Gladys must get it back.
       const id = featureExternalId(externalId, FEATURE.AD_BREAK);
+      // A device created before this feature existed has to be updated
+      // from Discovery first: Gladys would only reject the state.
+      const features = (getSession(externalId)?.device ?? device).features;
+      if (Array.isArray(features) && !features.some((f) => f.external_id === id)) {
+        return;
+      }
       session.forget(id);
       publishHeosState(id, inBreak ? 1 : 0);
     },
@@ -328,6 +343,9 @@ export function openHeosSession(
       // ./commands.js (and the legacy NSE0/NSE1/NSE2 precedence in
       // ./session.js) until (if ever) HEOS reconnects and re-matches.
       session.pid = null;
+      // Unknown until HEOS answers again: a pending ad-break volume restore
+      // waits for the real level instead of trusting a stale one.
+      session.volume = null;
       session.lastPublished.clear();
       setMatch(HEOS_MATCH.NONE);
     },

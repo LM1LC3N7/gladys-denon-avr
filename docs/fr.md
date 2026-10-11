@@ -7,7 +7,9 @@ amplis réseau Denon/Marantz — pas limité à un modèle précis.
 ## Vue d'ensemble
 
 L'intégration parle directement à votre ampli sur le réseau local (Telnet, port TCP 23) — pas
-de compte cloud, pas de dépendance internet. L'ampli pousse lui-même chaque changement d'état
+de compte cloud, pas besoin d'internet (seules la détection optionnelle des coupures pub des radios,
+et les titres de quelques stations comme OUI FM, passent par internet : voir « Coupures pub des
+radios »). L'ampli pousse lui-même chaque changement d'état
 (alimentation, volume, muet, source) dès qu'il se produit, que ce soit depuis Gladys, la
 télécommande physique ou l'application Denon/HEOS, si bien que le tableau de bord reste
 synchronisé en temps réel.
@@ -180,6 +182,10 @@ que ce soit corrigé.
 
 ## Coupures pub des radios
 
+**Désactivé par défaut.** Pour l'utiliser, activez **Détecter les coupures pub des radios** dans la
+configuration, puis relancez une Découverte et cliquez sur **Mettre à jour** sur l'appareil pour
+obtenir son interrupteur **Radio ad break**.
+
 Quand une radio joue via HEOS (TuneIn, favori, URL de flux), l'intégration repère ses coupures pub
 et allume l'interrupteur **Radio ad break** de l'appareil pendant celles-ci. Par défaut, elle baisse aussi le
 volume de 20 crans, sans descendre sous 20, puis le remet quand la musique reprend. Si vous avez touché au volume entre-temps,
@@ -193,7 +199,7 @@ l'éteindre termine la coupure et remet le volume.
 indiquent le titre en cours, et parfois sa durée. Quand une chanson se termine sans qu'une autre
 suive, la station passe soit de la pub, soit l'animateur qui parle. Les deux se distinguent par
 l'heure. Pour chaque station, l'intégration apprend les minutes de l'heure où tombent ses coupures
-(longues de 4 à 8 minutes), par exemple :09–:14 et :34–:47 sur OUI FM :
+(longues de 4 à 8 minutes en général ; de 3 min 20 s à 15 min sont acceptées), par exemple :09–:14 et :34–:47 sur OUI FM :
 
 - **dans une de ces fenêtres**, une fin de chanson suivie de ~45 s sans musique est traitée comme une
   coupure. Ce délai laisse passer l'animateur avant le jingle pub ;
@@ -245,6 +251,26 @@ la chanson. Deux fois à ces heures-là suffisent pour que la baisse y soit imm�
 
 **Limite connue** : la fin de coupure n'est connue qu'au démarrage du titre suivant. Si l'animateur
 reprend la parole après les pubs, il reste à volume réduit jusqu'à la chanson.
+
+**Votre volume revient toujours.** Une coupure ne dure jamais plus de 10 minutes. Si l'intégration
+s'arrête ou redémarre pendant une coupure (mise à jour, changement de configuration), le volume est
+remis en partant. Si la connexion à l'ampli tombe, il est remis dès que HEOS répond à nouveau
+(abandon au bout d'une heure, ou si le volume a été changé entre-temps). Une annonce « Parler sur
+une enceinte » pendant une coupure la termine d'abord : l'annonce passe à votre volume normal, qui
+revient ensuite.
+
+**Ce que ça consomme**, uniquement pendant qu'une radio joue avec la détection activée :
+
+- des requêtes internet vers TuneIn (une fois par station), Deezer (durée des titres) et, pour les
+  stations comme OUI FM, leur site (flux des titres en direct, historique relu chaque heure) ;
+- avec **Reconnaître les jingles pub** : le flux radio est téléchargé une seconde fois et décodé
+  (environ 30 à 90 Mo par heure selon la qualité de la station), et après chaque coupure quelques
+  secondes de calcul, hors du fil principal de l'intégration. Désactivez-le pour économiser la
+  bande passante : les coupures ne sont alors repérées que par la règle des fenêtres.
+
+Désactivée, la détection ne consomme rien ; seul le titre des stations dont le flux n'en contient
+aucun (OUI FM…) reste lu sur leur site pendant l'écoute. Ce qui est appris est gardé dans le
+dossier de données de l'intégration (`/data/ad-breaks.json`, `/data/ad-jingles/`).
 
 ## Prérequis
 
@@ -300,6 +326,9 @@ reprend la parole après les pubs, il reste à volume réduit jusqu'à la chanso
 7. **Annonces** (onglet Configuration) : **Volume des annonces** (0 = garder le volume actuel) et
    **Rétablir l'ampli après une annonce** pour l'action « Parler sur une enceinte » — voir
    « Diffuser une notification » plus haut.
+8. **Coupures pub des radios** (onglet Configuration) : désactivé par défaut, voir « Coupures pub
+   des radios » plus haut — puis **Mettre à jour** l'appareil depuis la Découverte pour obtenir son
+   interrupteur **Radio ad break**.
 
 ## Dépannage
 

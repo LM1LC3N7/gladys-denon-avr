@@ -7,7 +7,8 @@ lineup — not tied to a specific model.
 ## Overview
 
 The integration talks directly to your receiver over the local network (Telnet, TCP port 23) —
-no cloud account, no internet dependency. The receiver itself pushes every state change
+no cloud account, no internet access needed (only the optional radio ad-break detection, and the
+song titles of a few stations like OUI FM, reach the internet: see "Radio ad breaks"). The receiver itself pushes every state change
 (power, volume, mute, source) as soon as it happens, whether triggered from Gladys, the
 physical remote, or the Denon/HEOS app, so the dashboard stays in sync in real time.
 
@@ -161,6 +162,9 @@ reachable, please report it (with the logs mentioned below) so it can be fixed.
 
 ## Radio ad breaks
 
+**Off by default.** To use it, switch on **Detect radio ad breaks** in the configuration, then run a
+Discovery scan and click **Update** on the device to get its **Radio ad break** switch.
+
 While a radio station plays through HEOS (TuneIn, a favorite, a stream URL), the integration spots
 its ad breaks and turns the device's **Radio ad break** switch on during them. By default it also lowers
 the volume by 20 steps, never below 20, then restores it when the music resumes. If you changed the volume by hand
@@ -173,7 +177,8 @@ the volume.
 **How it works.** No station says "this is an ad" in its stream. Many do say what song is playing,
 sometimes with its length. When a song ends and no other follows, the station is either airing ads
 or the host is talking, and the time of the hour tells the two apart. For each station, the
-integration learns the minutes of the hour its breaks (4 to 8 minutes long) start at, e.g.
+integration learns the minutes of the hour its breaks (usually 4 to 8 minutes long; anything from
+3 min 20 s to 15 min counts) start at, e.g.
 :09–:14 and :34–:47 on OUI FM:
 
 - **inside one of these windows**, a song ending with ~45 s of no music afterwards counts as a
@@ -226,6 +231,26 @@ hours are enough for the volume to drop right away then.
 **Known limit**: the end of a break is only known when the next song starts. If the host talks
 again after the ads, that stays at the lowered volume until the song.
 
+**Your volume always comes back.** A break never lasts more than 10 minutes. If the integration
+stops or restarts during a break (update, configuration change), the volume is restored on the
+way out. If the connection to the receiver drops, it is restored as soon as HEOS answers again
+(given up after an hour, or if the volume was changed meanwhile). A "Speak on a speaker"
+announcement during a break ends it first: the announcement plays at your normal volume, which
+comes back afterwards.
+
+**What it costs**, only while a station plays with the detection on:
+
+- internet requests to TuneIn (once per station), Deezer (song lengths) and, for stations like
+  OUI FM, their website (live song feed, hourly playlist history);
+- with **Recognize the ad jingles** on: the radio stream is downloaded a second time and decoded
+  (about 30 to 90 MB per hour, depending on the station's quality), and after each break a few
+  seconds of processing, kept off the integration's main thread. Switch it off to save the
+  bandwidth: breaks are then only caught by the windows rule.
+
+Switched off, the detection costs nothing; only the song title of stations whose stream carries
+none (OUI FM...) is still read from their website while they play. What is learned is kept in the
+integration's data folder (`/data/ad-breaks.json`, `/data/ad-jingles/`).
+
 ## Prerequisites
 
 - **Gladys 5.1.0 or newer** (the integration's own widgets and scene actions/triggers).
@@ -274,6 +299,8 @@ again after the ads, that stays at the lowered volume until the song.
 7. **Announcements** (Configuration tab): **Announcement volume** (0 = keep the current volume)
    and **Restore the receiver after an announcement**, for the "Speak on a speaker" action — see
    "Play notification" above.
+8. **Radio ad breaks** (Configuration tab): off by default, see "Radio ad breaks" above — then
+   **Update** the device from Discovery to get its **Radio ad break** switch.
 
 ## Troubleshooting
 

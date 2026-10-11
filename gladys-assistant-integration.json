@@ -198,8 +198,12 @@
         "en": "Detect radio ad breaks",
         "fr": "Détecter les coupures pub des radios"
       },
+      "description": {
+        "en": "Off by default. On, the integration reaches the internet while a radio station plays: TuneIn, Deezer (song durations), the station's website. Update the device from Discovery to get its \"Radio ad break\" switch. Off, only the song title of stations with no metadata in their stream (OUI FM...) is read from their website.",
+        "fr": "Désactivé par défaut. Activé, l'intégration contacte internet pendant qu'une radio joue : TuneIn, Deezer (durée des titres), le site de la station. Mettez à jour l'appareil depuis la Découverte pour obtenir son interrupteur « Radio ad break ». Désactivé, seul le titre des stations sans métadonnées dans leur flux (OUI FM…) est lu sur leur site."
+      },
       "required": false,
-      "default": true
+      "default": false
     },
     {
       "key": "ad_break_auto_duck",
@@ -211,6 +215,20 @@
       "description": {
         "en": "Switch off to only get the \"Radio ad break\" switch, and act on it in a scene of your own.",
         "fr": "Désactivez pour n'avoir que l'interrupteur « Radio ad break », et agir dessus dans votre propre scène."
+      },
+      "required": false,
+      "default": true
+    },
+    {
+      "key": "ad_break_jingles",
+      "type": "boolean",
+      "label": {
+        "en": "Recognize the ad jingles",
+        "fr": "Reconnaître les jingles pub"
+      },
+      "description": {
+        "en": "Learns each station's ad jingle to lower the volume right on it. Downloads the radio stream a second time while it plays (about 30 to 90 MB per hour).",
+        "fr": "Apprend le jingle pub de chaque station pour baisser le volume pile dessus. Télécharge le flux radio une seconde fois pendant l'écoute (environ 30 à 90 Mo par heure)."
       },
       "required": false,
       "default": true

@@ -8,3 +8,5 @@ data
 *.log
 .DS_Store
 README.md
+ad-breaks.json*
+ad-jingles

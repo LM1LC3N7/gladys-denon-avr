@@ -2,3 +2,5 @@ node_modules/
 package-lock.json
 data/
 *.log
+ad-breaks.json*
+ad-jingles/

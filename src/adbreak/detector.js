@@ -134,6 +134,9 @@ export function createAdBreakDetector({
 
     /** Manual "it's an ad" — toggles the break on a station without metadata. */
     mark() {
+      if (!station) {
+        return; // Nothing playing to learn about, nor any safety timeout.
+      }
       const at = now();
       if (breakState && station && !station.hasMetadata) {
         const durationSeconds = Math.round((at - breakState.startedAt) / 1000);
@@ -153,17 +156,19 @@ export function createAdBreakDetector({
     },
 
     tick() {
-      if (!station) {
-        return;
-      }
       const t = now();
       if (breakState) {
-        const limit = station.hasMetadata
-          ? MAX_BREAK_SECONDS
-          : Math.min(MAX_BREAK_SECONDS, station.typicalBreakSeconds || DEFAULT_BREAK_SECONDS);
+        // Checked even without a station: the volume never stays down.
+        const limit =
+          !station || station.hasMetadata
+            ? MAX_BREAK_SECONDS
+            : Math.min(MAX_BREAK_SECONDS, station.typicalBreakSeconds || DEFAULT_BREAK_SECONDS);
         if (t - breakState.startedAt > limit * 1000) {
           endBreak('timeout');
         }
+        return;
+      }
+      if (!station) {
         return;
       }
       const windowFresh = t - lastBreakAt > WINDOW_REUSE_MS;
@@ -204,9 +209,9 @@ export function createAdBreakDetector({
       return Boolean(station) && isInWindow(new Date(time).getMinutes(), adWindows(time));
     },
 
-    /** The user switched the break off by hand (a station with titles). */
-    end() {
-      endBreak('manual');
+    /** End a break from outside: switched off by hand (a station with titles), announcement... */
+    end(reason = 'manual') {
+      endBreak(reason);
     },
 
     isInBreak() {

@@ -65,7 +65,9 @@ export function identifyStation(payload) {
   }
   const hint = STREAM_URL_HINTS.find((s) => s.urlPatterns.some((re) => re.test(mid))) ?? null;
   const tuneinId = /^s\d+$/.test(albumId) ? albumId : (hint?.tuneinId ?? null);
-  const key = tuneinId ? `tunein:${tuneinId}` : `url:${mid}`;
+  // A direct URL often carries a per-play token: the station is the URL
+  // without its query string.
+  const key = tuneinId ? `tunein:${tuneinId}` : `url:${mid.replace(/[?#].*$/, '')}`;
   const song = typeof payload.song === 'string' ? payload.song.trim() : '';
   const artist = typeof payload.artist === 'string' ? payload.artist.trim() : '';
   // HEOS fills song/artist/album with the literal "Url Stream" for any
@@ -85,7 +87,38 @@ export function identifyStation(payload) {
   };
 }
 
+// Song durations, including misses — bounded: the oldest entry goes first.
+const DURATION_CACHE_SIZE = 5000;
 const durationCache = new Map();
+function cacheDuration(key, duration) {
+  durationCache.delete(key);
+  durationCache.set(key, duration);
+  if (durationCache.size > DURATION_CACHE_SIZE) {
+    durationCache.delete(durationCache.keys().next().value);
+  }
+}
+// The station's home page read to find its feed: never more than this.
+const MAX_PAGE_BYTES = 2 * 1024 * 1024;
+// A feed line never gets this long: past it, the feed is not what we think.
+const MAX_FEED_LINE = 64 * 1024;
+
+/** The text of a response body, cut at `maxBytes`. */
+async function readText(res, maxBytes) {
+  if (!res.body) {
+    return (await res.text()).slice(0, maxBytes);
+  }
+  const decoder = new TextDecoder();
+  let text = '';
+  let bytes = 0;
+  for await (const chunk of res.body) {
+    bytes += chunk.length;
+    text += decoder.decode(chunk, { stream: true });
+    if (bytes >= maxBytes) {
+      break;
+    }
+  }
+  return text;
+}
 
 /**
  * Song duration in seconds from Deezer's public search, or null.
@@ -127,7 +160,7 @@ export async function lookupDurationSeconds(artist, title, fetchImpl = fetch) {
   } catch (err) {
     logger.debug(`Deezer duration lookup failed for "${artist} - ${title}": ${err.message}`);
   }
-  durationCache.set(cacheKey, duration);
+  cacheDuration(cacheKey, duration);
   return duration;
 }
 
@@ -154,7 +187,7 @@ export async function discoverFeed(tuneinId, fetchImpl = fetch) {
   }
   const site = new URL(webUrl.replace(/^http:/, 'https:')).origin;
   const res = await fetchImpl(`${site}/`, { signal: AbortSignal.timeout(15_000) });
-  const page = await res.text();
+  const page = await readText(res, MAX_PAGE_BYTES);
   const mdsId = page.match(/"zones":\[\{.*?"idMds":"(\d+)"/s)?.[1];
   if (!mdsId) {
     return null;
@@ -174,7 +207,7 @@ export async function lookupDurationById(deezerId, fetchImpl = fetch) {
     } catch (err) {
       logger.debug(`Deezer lookup failed for track ${deezerId}: ${err.message}`);
     }
-    durationCache.set(cacheKey, duration);
+    cacheDuration(cacheKey, duration);
   }
   return durationCache.get(cacheKey);
 }
@@ -319,6 +352,9 @@ export function followIndesRadiosFeed({ site, mdsId, onTrack, fetchImpl = fetch 
         const decoder = new TextDecoder();
         for await (const chunk of res.body) {
           buffer += decoder.decode(chunk, { stream: true });
+          if (buffer.length > MAX_FEED_LINE && !buffer.includes('\n')) {
+            throw new Error('feed line too long');
+          }
           let newline;
           while ((newline = buffer.indexOf('\n')) !== -1) {
             const line = buffer.slice(0, newline).trim();

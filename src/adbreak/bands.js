@@ -173,22 +173,6 @@ export function dot(a, b) {
   return s;
 }
 
-/**
- * Best match of a template (normalizedWindow of `length` frames) in frames.
- * @returns {{at: number, score: number}} at: frame index, score in [-1, 1]
- */
-export function bestMatch(frames, template, length) {
-  let best = { at: -1, score: -1 };
-  for (let at = 0; at + length <= frames.length; at++) {
-    const window = normalizedWindow(frames, at, length);
-    const score = window ? dot(window, template) : -1;
-    if (score > best.score) {
-      best = { at, score };
-    }
-  }
-  return best;
-}
-
 /** Halve time and band resolution (for a fast first search). */
 export function coarse(frames) {
   const out = [];

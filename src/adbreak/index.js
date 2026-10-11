@@ -47,18 +47,21 @@ const logger = createLogger({ name: 'ad-break' });
 const STATS_FILE = process.env.AD_BREAK_STATS_FILE || '/data/ad-breaks.json';
 
 // Shared by every receiver: a station's schedule does not depend on which
-// receiver plays it. Loaded once, saved after every change.
+// receiver plays it. Loaded once, saved after every change — one save at a
+// time (two receivers, or the history and a live break, may save together).
 let storePromise = null;
+let saving = Promise.resolve();
 function getStore() {
   storePromise ??= loadStatsStore(STATS_FILE);
   return storePromise;
 }
-async function persist(store) {
-  try {
-    await saveStatsStore(STATS_FILE, store);
-  } catch (err) {
-    logger.warn(`Cannot save ad-break statistics to ${STATS_FILE}: ${err.message}`);
-  }
+function persist(store) {
+  saving = saving
+    .then(() => saveStatsStore(STATS_FILE, store))
+    .catch((err) =>
+      logger.warn(`Cannot save ad-break statistics to ${STATS_FILE}: ${err.message}`),
+    );
+  return saving;
 }
 
 /** Test hook: forget the cached store (and optionally point at another file). */
@@ -73,6 +76,12 @@ const RECHECK_MS = 7 * 24 * 3_600_000;
 // often (only the part not read yet): a continuous learning of its ad
 // breaks, see LEARNING_DAYS in stats.js.
 const HISTORY_REFRESH_MS = 3_600_000;
+// A volume restore the receiver could not take (HEOS down) is retried this
+// long, then given up.
+const RESTORE_RETRY_MS = 3_600_000;
+// Announcement URLs remembered, so a "Speak on a speaker" stream is never
+// taken for a radio station.
+const IGNORED_URLS = 10;
 
 /**
  * @param {object} opts
@@ -82,6 +91,7 @@ const HISTORY_REFRESH_MS = 3_600_000;
  * @param {(level: number) => boolean} opts.setVolume
  * @param {(inBreak: boolean) => void} opts.publishAdBreak
  * @param {(text: string) => void} opts.publishNowPlaying
+ * @param {typeof createJingleListener} [opts.createJingles] (tests)
  */
 export function createAdBreakController({
   name,
@@ -90,16 +100,59 @@ export function createAdBreakController({
   setVolume,
   publishAdBreak,
   publishNowPlaying,
+  createJingles = createJingleListener,
 }) {
-  let station = null; // result of identifyStation(), plus hasMetadata
+  let stopped = false;
+  let station = null; // result of identifyStation(), plus feed and hasMetadata
   let playing = false;
-  let feed = null;
+  let feed = null; // live song feed of feedFor (also what shows its titles)
+  let feedFor = null;
+  let historyTimer = null; // hourly playlist-history learning of historyFor
+  let historyFor = null;
   let lastHeosTitle = null;
   let duck = null; // { saved, ducked } while the volume is lowered by us
+  let pendingRestore = null; // { saved, ducked, since }: a restore not taken yet
   let jingles = null; // jingle listener of the station playing, see jingles.js
-  let historyTimer = null;
   let lastPlayed = null; // last feed song applied: { station, startedAt, durationSeconds }
   const pendingTracks = new Set(); // feed song changes waiting for the stream lag
+  const ignoredUrls = []; // streams the announcements played, newest last
+
+  // Detection runs (learning, Deezer, the jingles, the volume) only while a
+  // station plays with ad_break_detection on: off, it costs nothing.
+  const detecting = () =>
+    !stopped && playing && Boolean(station) && getConfig().ad_break_detection === true;
+
+  // Give the volume back, unless the user changed it meanwhile. Not taken
+  // (HEOS down, volume unknown until it reconnects): retried every tick.
+  function restoreVolume(lowered) {
+    const current = getVolume();
+    if (current !== null && current !== undefined && current !== lowered.ducked) {
+      logger.info(`${name}: volume changed by hand during the break (${current}), leaving it`);
+      pendingRestore = null;
+      return;
+    }
+    if (current != null && setVolume(lowered.saved)) {
+      logger.info(`${name}: volume restored ${current} -> ${lowered.saved}`);
+      pendingRestore = null;
+      return;
+    }
+    if (!pendingRestore) {
+      logger.warn(`${name}: cannot restore the volume to ${lowered.saved} yet, will retry`);
+    }
+    pendingRestore = { ...lowered, since: pendingRestore?.since ?? Date.now() };
+  }
+
+  function retryRestore() {
+    if (!pendingRestore) {
+      return;
+    }
+    if (Date.now() - pendingRestore.since > RESTORE_RETRY_MS) {
+      logger.warn(`${name}: giving up restoring the volume to ${pendingRestore.saved}`);
+      pendingRestore = null;
+      return;
+    }
+    restoreVolume(pendingRestore);
+  }
 
   const detector = createAdBreakDetector({
     onBreakStart({ reason }) {
@@ -114,6 +167,15 @@ export function createAdBreakController({
         logger.warn(`${name}: volume unknown, not lowering it for the ad break`);
         return;
       }
+      if (pendingRestore) {
+        const lowered = pendingRestore;
+        pendingRestore = null;
+        if (saved === lowered.ducked) {
+          // Still lowered from a break whose restore was not taken: keep it.
+          duck = { saved: lowered.saved, ducked: lowered.ducked };
+          return;
+        }
+      }
       // Never below ad_break_min_volume: ads turned down, not muted (real
       // feedback: 27 -> 7 was far too quiet).
       const ducked = Math.max(config.ad_break_min_volume, saved - config.ad_break_volume_drop);
@@ -127,19 +189,13 @@ export function createAdBreakController({
       }
     },
     onBreakEnd({ reason }) {
-      logger.info(`${name}: ad break ended on ${station?.name} (${reason})`);
+      logger.info(`${name}: ad break ended on ${station?.name ?? 'the station'} (${reason})`);
       publishAdBreak(false);
-      if (!duck) {
-        return;
+      if (duck) {
+        const lowered = duck;
+        duck = null;
+        restoreVolume(lowered);
       }
-      const current = getVolume();
-      if (current === duck.ducked) {
-        setVolume(duck.saved);
-        logger.info(`${name}: volume restored ${current} -> ${duck.saved}`);
-      } else {
-        logger.info(`${name}: volume changed by hand during the break (${current}), leaving it`);
-      }
-      duck = null;
     },
     onGap({ songEndedAt, gapSeconds }) {
       if (gapSeconds >= BREAK_MIN_SECONDS && gapSeconds <= BREAK_MAX_SECONDS) {
@@ -164,11 +220,12 @@ export function createAdBreakController({
           durationSeconds == null ? 'start' : 'end',
         )
         .catch((err) => logger.warn(`${name}: jingle learning failed: ${err.message}`));
+      const hasMetadata = station?.hasMetadata;
       updateStats((stats) => {
         let next = offsetSeconds != null ? recordMarkOffset(stats, offsetSeconds, at) : stats;
         // On a station with song metadata the break itself is measured from
         // the song gap (onGap): only the host-talk offset is learned here.
-        if (!station?.hasMetadata && durationSeconds != null) {
+        if (!hasMetadata && durationSeconds != null) {
           next = recordBreak(next, { startedAt: at, durationSeconds, source: 'manual' });
         }
         return next;
@@ -179,15 +236,20 @@ export function createAdBreakController({
   const ticker = setInterval(() => {
     detector.tick();
     jingles?.tick();
+    retryRestore();
   }, TICK_MS);
   ticker.unref?.();
 
-  async function stationContext() {
+  // Fire-and-forget async work: an error is logged, never left unhandled.
+  const background = (promise, what) =>
+    promise.catch((err) => logger.warn(`${name}: ${what} failed: ${err.message}`));
+
+  async function stationContext(target) {
     const store = await getStore();
-    const stats = store[station.key] ?? emptyStats();
+    const stats = store[target.key] ?? emptyStats();
     return {
-      key: station.key,
-      hasMetadata: station.hasMetadata,
+      key: target.key,
+      hasMetadata: target.hasMetadata,
       windows: learnedWindows(stats),
       schedule: learnedSchedule(stats, { coveredFrom: stats.historyFrom ?? null }),
       preBreakTalkSeconds: preBreakTalkSeconds(stats),
@@ -197,17 +259,17 @@ export function createAdBreakController({
     };
   }
 
-  // The jingle listener decodes the station's stream: only while it plays
-  // with detection on.
+  // The jingle listener decodes the station's stream: only while detecting,
+  // with the jingles setting on.
   function syncJingles() {
     const wanted =
-      station?.streamUrl &&
-      playing &&
-      getConfig().ad_break_detection &&
+      detecting() &&
+      station.streamUrl &&
+      getConfig().ad_break_jingles !== false &&
       process.env.AD_BREAK_JINGLES !== 'off'
         ? station
         : null;
-    if (jingles && jingles.station === wanted) {
+    if (jingles?.station === wanted) {
       return;
     }
     jingles?.stop();
@@ -215,7 +277,7 @@ export function createAdBreakController({
     if (!wanted) {
       return;
     }
-    const listener = createJingleListener({
+    const listener = createJingles({
       stationKey: wanted.key,
       streamUrl: wanted.streamUrl,
       onHit: ({ side, active }) => {
@@ -228,7 +290,7 @@ export function createAdBreakController({
           detector.jingleEnd();
         }
       },
-      onChange: () => refreshDetectorStation(),
+      onChange: () => background(refreshDetectorStation(), 'detector refresh'),
       context: () => ({
         hasSongs: Boolean(wanted.hasMetadata),
         inAdWindow: (at) => detector.isAdTime(at),
@@ -236,24 +298,27 @@ export function createAdBreakController({
       }),
     });
     jingles = Object.assign(listener, { station: wanted });
-    listener.ready.then(() => refreshDetectorStation());
+    background(
+      listener.ready.then(() => refreshDetectorStation()),
+      'detector refresh',
+    );
   }
 
   async function refreshDetectorStation() {
     syncJingles();
-    if (!station || !playing || !getConfig().ad_break_detection) {
+    if (!detecting()) {
       detector.setStation(null);
       return;
     }
     const target = station;
-    const context = await stationContext();
-    if (station === target) {
+    const context = await stationContext(target);
+    if (station === target && detecting()) {
       detector.setStation(context);
     }
   }
 
   async function updateStats(fn) {
-    if (!station) {
+    if (!detecting()) {
       return;
     }
     const key = station.key;
@@ -263,15 +328,51 @@ export function createAdBreakController({
     await refreshDetectorStation();
   }
 
+  function stopHistory() {
+    clearInterval(historyTimer);
+    historyTimer = null;
+    historyFor = null;
+  }
+
   function stopFeed() {
     feed?.stop();
     feed = null;
-    clearInterval(historyTimer);
-    historyTimer = null;
+    feedFor = null;
+    stopHistory();
     for (const timer of pendingTracks) {
       clearTimeout(timer);
     }
     pendingTracks.clear();
+  }
+
+  // The live song feed of a station that has one: followed while it plays
+  // (detection on or not: it is also what shows its real titles); its
+  // playlist history is learned from only with detection on.
+  function syncFeed() {
+    const wanted = !stopped && playing && station?.feed ? station : null;
+    if (feedFor !== wanted) {
+      stopFeed();
+      if (wanted) {
+        feedFor = wanted;
+        feed = followIndesRadiosFeed({
+          site: wanted.feed.site,
+          mdsId: wanted.feed.mdsId,
+          onTrack: (track) => onFeedTrack(track, wanted),
+        });
+        logger.info(`${name}: ${wanted.name}: following its live song feed (${wanted.feed.site})`);
+      }
+    }
+    const learning = feedFor && detecting() ? feedFor : null;
+    if (historyFor !== learning) {
+      stopHistory();
+      if (learning) {
+        historyFor = learning;
+        const learn = () => background(learnFromHistory(learning), 'playlist history');
+        historyTimer = setInterval(learn, HISTORY_REFRESH_MS);
+        historyTimer.unref?.();
+        learn();
+      }
+    }
   }
 
   // A feed runs ahead of what the receiver plays by the stream's buffering
@@ -294,8 +395,10 @@ export function createAdBreakController({
           startedAt: playedAt,
           durationSeconds: track.durationSeconds,
         };
-        detector.onTrack({ startedAt: playedAt, durationSeconds: track.durationSeconds });
-        jingles?.onSongStarted(playedAt);
+        if (detecting()) {
+          detector.onTrack({ startedAt: playedAt, durationSeconds: track.durationSeconds });
+          jingles?.onSongStarted(playedAt);
+        }
       },
       Math.max(0, playedAt - Date.now()),
     );
@@ -305,22 +408,30 @@ export function createAdBreakController({
   function switchStation(next) {
     stopFeed();
     lastHeosTitle = null;
-    station = next ? { ...next, feed: null, hasMetadata: false } : null;
+    station = next ? { ...next, feed: null, hasMetadata: false, feedLookup: false } : null;
     logger.info(
       `${name}: now playing ${station ? `${station.name} (${station.key})` : 'no radio station'}`,
     );
-    if (station?.tuneinId) {
-      resolveFeed(station).catch((err) =>
-        logger.warn(`${name}: song feed lookup failed for ${station?.name}: ${err.message}`),
-      );
-    }
   }
 
-  // Find (once, then cached in the statistics store and re-checked weekly
-  // when absent) whether this TuneIn station has a live song feed, follow
-  // it, and learn the ad windows from its playlist history right away.
-  // Followed even with detection off: the feed is also what shows the real
-  // song instead of the bare station name.
+  // Look up (once per station played, cached in the statistics store and
+  // re-checked weekly when absent) whether this TuneIn station has a live
+  // song feed: only once it actually plays.
+  function lookUpFeed() {
+    if (!playing || stopped || !station?.tuneinId || station.feedLookup) {
+      return;
+    }
+    const current = station;
+    current.feedLookup = true;
+    background(
+      resolveFeed(current).catch((err) => {
+        current.feedLookup = false; // Tried again on the next play.
+        throw err;
+      }),
+      `song feed lookup for ${current.name}`,
+    );
+  }
+
   async function resolveFeed(current) {
     const store = await getStore();
     let info = store[current.key]?.feed;
@@ -335,32 +446,23 @@ export function createAdBreakController({
     }
     current.feed = info;
     current.hasMetadata = true;
-    feed = followIndesRadiosFeed({
-      site: info.site,
-      mdsId: info.mdsId,
-      onTrack: (track) => onFeedTrack(track, current),
-    });
-    logger.info(`${name}: ${current.name}: following its live song feed (${info.site})`);
+    syncFeed();
     await refreshDetectorStation();
-    const learn = () =>
-      learnFromHistory(current).catch((err) =>
-        logger.warn(`${name}: ${current.name}: playlist history failed: ${err.message}`),
-      );
-    historyTimer = setInterval(learn, HISTORY_REFRESH_MS);
-    historyTimer.unref?.();
-    await learn();
   }
 
   // Learn from the days of playlist the station already published, instead
   // of only from what is heard here: a new station's ad windows are known
   // within a minute of first playing it. Then, every HISTORY_REFRESH_MS,
-  // the hours published since: the station is learned continuously, even
-  // while nobody listens to it.
+  // the hours published since.
   async function learnFromHistory(current) {
     const store = await getStore();
     // Never read with its coverage (historyFrom): read it all.
     const readUntil =
       store[current.key]?.historyFrom != null ? store[current.key].historyReadUntil : 0;
+    if (Date.now() - readUntil < HISTORY_REFRESH_MS) {
+      return; // Read recently (the station was just paused and resumed).
+    }
+    const stillLearning = () => historyFor === current;
     // One hour of overlap: the song before the first new one is needed to
     // measure the gap after it.
     const hours = Math.min(LEARNING_DAYS * 24, Math.ceil((Date.now() - readUntil) / 3_600_000) + 1);
@@ -373,6 +475,9 @@ export function createAdBreakController({
     const unique = [...new Map(songs.map((s) => [keyOf(s), s])).values()];
     const durations = new Map();
     for (let i = 0; i < unique.length; i += 5) {
+      if (!stillLearning()) {
+        return;
+      }
       await Promise.all(
         unique.slice(i, i + 5).map(async (s) => {
           const duration =
@@ -382,6 +487,9 @@ export function createAdBreakController({
         }),
       );
       await new Promise((resolve) => setTimeout(resolve, 600));
+    }
+    if (!stillLearning()) {
+      return;
     }
     const found = breaksFromHistory(songs, (s) => durations.get(keyOf(s)), {
       min: BREAK_MIN_SECONDS,
@@ -413,13 +521,26 @@ export function createAdBreakController({
     }
   }
 
+  // Everything that depends on the station, the play state or the config.
+  function sync() {
+    lookUpFeed();
+    syncFeed();
+    background(refreshDetectorStation(), 'detector refresh');
+  }
+
   return {
     /** Feed every HEOS get_now_playing_media payload here. */
     onNowPlayingMedia(payload) {
-      const next = identifyStation(payload);
+      if (stopped) {
+        return;
+      }
+      let next = identifyStation(payload);
+      if (next?.streamUrl && ignoredUrls.includes(next.streamUrl)) {
+        next = null; // An announcement, not a station.
+      }
       if ((next?.key ?? null) !== (station?.key ?? null)) {
         switchStation(next);
-        refreshDetectorStation();
+        sync();
       }
       if (!station || station.feed || !next.heosTitle) {
         return;
@@ -433,40 +554,51 @@ export function createAdBreakController({
       lastHeosTitle = title;
       if (!station.hasMetadata) {
         station.hasMetadata = true;
-        refreshDetectorStation();
+        background(refreshDetectorStation(), 'detector refresh');
       }
-      if (firstTitle) {
+      if (firstTitle || !detecting()) {
         return; // Joined mid-song: its start time (hence its end) is unknown.
       }
       const startedAt = Date.now();
       const current = station;
-      lookupDurationSeconds(next.heosArtist, next.heosTitle).then((durationSeconds) => {
-        if (station === current) {
-          detector.onTrack({ startedAt, durationSeconds });
-          jingles?.onSongStarted(startedAt);
-        }
-      });
+      background(
+        lookupDurationSeconds(next.heosArtist, next.heosTitle).then((durationSeconds) => {
+          if (station === current && detecting()) {
+            detector.onTrack({ startedAt, durationSeconds });
+            jingles?.onSongStarted(startedAt);
+          }
+        }),
+        'song duration lookup',
+      );
     },
 
     /** HEOS play state: only learn/act while actually playing. */
     onPlayState(isPlaying) {
-      if (isPlaying !== playing) {
-        playing = isPlaying;
+      if (stopped || isPlaying === playing) {
+        return;
+      }
+      playing = isPlaying;
+      lookUpFeed();
+      syncFeed();
+      background(
         refreshDetectorStation().then(() => {
           // Paused, the detector forgot the song: give it back the one
           // playing now, so that resuming during a break (or just before
           // one) is caught without waiting for the next song.
-          if (playing && lastPlayed && lastPlayed.station === station) {
+          if (detecting() && lastPlayed && lastPlayed.station === station) {
             detector.onTrack(lastPlayed);
           }
-        });
-      }
+        }),
+        'detector refresh',
+      );
     },
 
     /** The user said "it's an ad" (the AD_BREAK switch turned on). */
     mark() {
-      if (!station) {
-        logger.warn(`${name}: "it's an ad" pressed but no radio station is playing`);
+      if (!detecting()) {
+        logger.warn(
+          `${name}: "it's an ad" ignored: no radio station playing, or detection switched off`,
+        );
         return;
       }
       detector.mark();
@@ -492,25 +624,49 @@ export function createAdBreakController({
       publishAdBreak(detector.isInBreak());
     },
 
+    /**
+     * An announcement is about to play `url` on this receiver: end a break
+     * first (volume restored, so the announcement snapshots the real one)
+     * and never take that stream for a station.
+     * @returns {number|null} the volume to give back after the announcement
+     *   when it was lowered for a break (HEOS level), else null
+     */
+    interruptForAnnouncement(url) {
+      if (typeof url === 'string' && url) {
+        ignoredUrls.push(url);
+        ignoredUrls.splice(0, ignoredUrls.length - IGNORED_URLS);
+      }
+      const saved = duck?.saved ?? pendingRestore?.saved ?? null;
+      detector.end('announcement');
+      return saved;
+    },
+
     /** True while a station feed (not HEOS) supplies the now-playing text. */
     providesNowPlaying() {
       return feed !== null;
     },
 
-    /** Config changed (detection switched on/off...). */
+    /** Config changed (detection switched on/off...): apply it, same station. */
     onConfigUpdated() {
-      const current = station;
-      station = null;
-      switchStation(current);
-      refreshDetectorStation();
+      if (!stopped) {
+        sync();
+      }
     },
 
+    /**
+     * Stop everything — call it while the HEOS connection is still up: a
+     * break in progress ends here, and its volume is restored through it.
+     */
     stop() {
+      stopped = true;
       clearInterval(ticker);
       stopFeed();
       jingles?.stop();
       jingles = null;
       detector.setStation(null);
+      detector.end('stopped');
+      station = null;
+      playing = false;
     },
   };
 }

@@ -24,8 +24,10 @@
 // -----------------------------------------------------------------------------
 
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { Worker } from 'node:worker_threads';
 import { createLogger } from '@gladysassistant/integration-sdk';
 import {
   SAMPLE_RATE,
@@ -77,6 +79,65 @@ const MIN_PRECISION = 0.8;
 
 const STORE_DIR = process.env.AD_BREAK_JINGLES_DIR || '/data/ad-jingles';
 const STORE_VERSION = 2;
+
+// ffmpeg restarts after it exits (stream cut, dead URL): first after
+// RESTART_MIN_MS, doubling up to RESTART_MAX_MS while it keeps failing.
+const RESTART_MIN_MS = 10_000;
+const RESTART_MAX_MS = 10 * 60_000;
+// Decoded this long, a stream counts as working again (backoff reset).
+const HEALTHY_SECONDS = 60;
+// The ring is trimmed in batches of this many seconds (not on every frame).
+const RING_TRIM_SECONDS = 60;
+
+/** Learned-state file of a station: a readable name, unique and short. */
+export function stationFile(dir, stationKey) {
+  const readable = stationKey.replace(/[^a-z0-9_-]/gi, '_');
+  if (readable.length <= 80) {
+    return path.join(dir, `${readable}.json`);
+  }
+  const hash = createHash('sha1').update(stationKey).digest('hex').slice(0, 12);
+  return path.join(dir, `${readable.slice(0, 60)}_${hash}.json`);
+}
+
+// Two templates of the same jingle may cover slightly different parts of
+// it (each search picks its best 1.6 s within ~2 s): compared at every
+// relative shift up to this, on the overlapping part.
+const SAME_SOUND_MAX_SHIFT = Math.round(2 * FRAMES_PER_SECOND);
+
+/** Whether two templates (band frames) are the same sound, at some shift. */
+export function sameSound(a, b) {
+  const minOverlap = Math.ceil(Math.min(a.length, b.length) / 2);
+  for (let shift = -SAME_SOUND_MAX_SHIFT; shift <= SAME_SOUND_MAX_SHIFT; shift++) {
+    const fromA = Math.max(0, shift);
+    const fromB = Math.max(0, -shift);
+    const length = Math.min(a.length - fromA, b.length - fromB);
+    if (length < minOverlap) {
+      continue;
+    }
+    const wa = normalizedWindow(a, fromA, length);
+    const wb = normalizedWindow(b, fromB, length);
+    if (wa && wb && dot(wa, wb) >= MIN_HIT_SCORE) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** findSharedJingle() in a worker thread (see jingle-worker.js). */
+export function findSharedJingleInWorker(encodedSamples) {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL('./jingle-worker.js', import.meta.url), {
+      workerData: { samples: encodedSamples },
+    });
+    worker.once('message', resolve);
+    worker.once('error', reject);
+    worker.once('exit', (code) => {
+      if (code !== 0) {
+        reject(new Error(`jingle worker exited with code ${code}`));
+      }
+    });
+  });
+}
 
 /**
  * The sound most of `samples` share, as a jingle template, or null.
@@ -270,12 +331,19 @@ export function createJingleListener({
   // What is known of the station when a hit is heard (for hitVerdict).
   context = () => ({ hasSongs: true, inAdWindow: () => false, inBreak: false }),
   ffmpegPath = 'ffmpeg',
+  // Injectable for tests.
+  spawnImpl = spawn,
+  findJingle = findSharedJingleInWorker,
+  storeDir = STORE_DIR,
 }) {
-  const file = path.join(STORE_DIR, `${stationKey.replace(/[^a-z0-9_-]/gi, '_')}.json`);
+  const file = stationFile(storeDir, stationKey);
   let state = emptyState();
   let stopped = false;
   let child = null;
   let restartTimer = null;
+  let failures = 0; // ffmpeg runs in a row that ended before HEALTHY_SECONDS
+  let saving = Promise.resolve(); // one save at a time
+  let learning = Promise.resolve(); // one relearn at a time
 
   // Rolling buffer of the stream's band frames with their wall time.
   let ring = []; // [{frame: Float32Array, at: epoch ms}]
@@ -320,14 +388,15 @@ export function createJingleListener({
       prepare('end');
     });
 
-  async function save() {
-    try {
-      await fs.mkdir(STORE_DIR, { recursive: true });
-      await fs.writeFile(`${file}.tmp`, JSON.stringify(state));
-      await fs.rename(`${file}.tmp`, file);
-    } catch (err) {
-      logger.warn(`Cannot save ad-break jingles to ${file}: ${err.message}`);
-    }
+  function save() {
+    saving = saving
+      .then(async () => {
+        await fs.mkdir(storeDir, { recursive: true });
+        await fs.writeFile(`${file}.tmp`, JSON.stringify(state));
+        await fs.rename(`${file}.tmp`, file);
+      })
+      .catch((err) => logger.warn(`Cannot save ad-break jingles to ${file}: ${err.message}`));
+    return saving;
   }
 
   function onFrame(frame, endSample) {
@@ -335,7 +404,7 @@ export function createJingleListener({
     // "now", earlier ones are dated back from it.
     const at = receivedAt - ((receivedSamples - endSample) / SAMPLE_RATE) * 1000;
     ring.push({ frame, at });
-    if (ring[0].at < at - RING_SECONDS * 1000) {
+    if (ring[0].at < at - (RING_SECONDS + RING_TRIM_SECONDS) * 1000) {
       ring = ring.filter((h) => h.at >= at - RING_SECONDS * 1000);
     }
     recognize(at);
@@ -364,10 +433,10 @@ export function createJingleListener({
         logger.info(
           `${stationKey}: ${side} jingle heard (score ${score.toFixed(2)}, ${jingle.active ? 'active' : 'observing'})`,
         );
-        if (!jingle.active) {
-          const { inAdWindow, inBreak } = context();
-          pending.push({ side, at, inAdWindow: inAdWindow(at), inBreak });
-        }
+        // Every hit is judged, an active jingle's too: one that starts
+        // giving false alarms is dropped (see verdict()).
+        const { inAdWindow, inBreak } = context();
+        pending.push({ side, at, inAdWindow: inAdWindow(at), inBreak });
         onHit({ side, active: Boolean(jingle.active), at, score });
       }
     }
@@ -379,12 +448,15 @@ export function createJingleListener({
     }
     stream = createBandStream(onFrame);
     receivedSamples = 0;
-    child = spawn(
+    child = spawnImpl(
       ffmpegPath,
       [
         '-hide_banner',
         '-loglevel',
         'error',
+        // Network streams only (an HLS playlist could name other protocols).
+        '-protocol_whitelist',
+        'http,https,tcp,tls,crypto',
         '-reconnect',
         '1',
         '-reconnect_streamed',
@@ -418,11 +490,16 @@ export function createJingleListener({
       stopped = true;
     });
     child.on('exit', () => {
+      const healthy = receivedSamples >= HEALTHY_SECONDS * SAMPLE_RATE;
       child = null;
       ring = [];
-      if (!stopped) {
-        restartTimer = setTimeout(start, 10_000);
+      if (stopped) {
+        return;
       }
+      failures = healthy ? 0 : failures + 1;
+      const delay = Math.min(RESTART_MAX_MS, RESTART_MIN_MS * 2 ** Math.max(0, failures - 1));
+      logger.debug(`${stationKey}: stream decoding ended, restarting in ${delay / 1000} s`);
+      restartTimer = setTimeout(start, delay);
     });
   }
 
@@ -446,19 +523,27 @@ export function createJingleListener({
       ...state.samples[side],
       { anchor: sample.anchor, ...encodeFrames(sample.frames) },
     ].slice(-MAX_SAMPLES);
-    relearn(side);
+    learning = learning
+      .then(() => relearn(side))
+      .catch((err) => logger.warn(`${stationKey}: ${side} jingle search failed: ${err.message}`));
+    return learning;
   }
 
-  function relearn(side) {
-    const samples = state.samples[side].map((s) => ({ frames: decodeFrames(s), anchor: s.anchor }));
-    const found = findSharedJingle(samples);
+  async function relearn(side) {
+    const samples = state.samples[side];
+    if (samples.length < MIN_SAMPLES) {
+      return;
+    }
+    const found = await findJingle(samples);
+    if (stopped) {
+      return;
+    }
     const current = state.jingles[side];
     if (!found || !nearTransition(side, found.offsetSeconds)) {
       return;
     }
-    const template = normalizedWindow(found.frames, 0, found.frames.length);
     // Same sound as the current jingle (or its observation)? Keep its record.
-    if (current && templates[side] && template && dot(template, templates[side]) >= MIN_HIT_SCORE) {
+    if (current && sameSound(found.frames, decodeFrames(current.template))) {
       return;
     }
     if (current?.active) {
@@ -558,13 +643,10 @@ export function createJingleListener({
       if (endSide) {
         addSample('end', endSide);
       }
+      await learning;
       await save();
     },
 
-    /**
-     * The user pressed "it's an ad", usually right after the station's ad
-     * jingle: the most precise sample there is.
-     */
     /**
      * "It's an ad" pressed at `at` (side 'start'), or the end of a manual
      * break pressed (side 'end'): learn from the sound just before, and
@@ -581,7 +663,7 @@ export function createJingleListener({
       await waitUntilHeard(at + MARK_AFTER * 1000);
       const sample = !stopped && heard(at - MARK_BEFORE * 1000, at + MARK_AFTER * 1000, at);
       if (sample) {
-        addSample(side, sample);
+        await addSample(side, sample);
         await save();
       }
     },
@@ -608,6 +690,11 @@ export function createJingleListener({
       stopped = true;
       clearTimeout(restartTimer);
       child?.kill('SIGTERM');
+    },
+
+    /** Resolves once the learning and saving in progress are done (tests). */
+    settled() {
+      return learning.then(() => saving);
     },
   };
 }
