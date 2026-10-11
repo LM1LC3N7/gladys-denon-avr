@@ -38,6 +38,9 @@ const SHORT_BREAK_SECONDS = 120;
 // Without metadata (manual marks only), a predicted break lasts this long
 // unless the station's measured typical length says otherwise.
 export const DEFAULT_BREAK_SECONDS = 240;
+// Joining a station without metadata inside one of its ad windows starts
+// the break for what is left of it — unless less than this is left.
+const JOIN_MIN_LEFT_MS = 30_000;
 
 /**
  * @param {object} opts
@@ -60,6 +63,7 @@ export function createAdBreakDetector({
   let breakState = null; // { startedAt, songEndedAt, reason }
   let lastBreakAt = 0;
   let previousBreakAt = 0; // lastBreakAt before the current break
+  let endedByHandAt = 0; // last break the user switched off
 
   // The station's ad windows at `time`: by day type and hour when its
   // schedule is learned (see learnedSchedule), else the same every hour.
@@ -71,13 +75,13 @@ export function createAdBreakDetector({
     return track?.durationSeconds > 0 ? track.startedAt + track.durationSeconds * 1000 : null;
   }
 
-  function startBreak(reason, songEndedAt) {
+  function startBreak(reason, songEndedAt, startedAt = now()) {
     if (track) {
       // One break per song end at most: once it ends (timeout, manual...),
       // the same silence must not start another one.
       track.breakHandled = true;
     }
-    breakState = { startedAt: now(), songEndedAt, reason };
+    breakState = { startedAt, songEndedAt, reason };
     previousBreakAt = lastBreakAt;
     lastBreakAt = now();
     onBreakStart({ reason, songEndedAt });
@@ -90,8 +94,49 @@ export function createAdBreakDetector({
     if (reason === 'next_song' && now() - breakState.startedAt < SHORT_BREAK_SECONDS * 1000) {
       lastBreakAt = previousBreakAt;
     }
+    if (reason === 'manual') {
+      endedByHandAt = now();
+    }
     breakState = null;
     onBreakEnd({ reason });
+  }
+
+  // When the ad window `t` falls in opened (epoch ms, its first minute), or
+  // null outside the windows.
+  function windowOpenedAt(t) {
+    const minute = new Date(t).getMinutes();
+    const window = adWindows(t).find((w) => isInWindow(minute, [w]));
+    if (!window) {
+      return null;
+    }
+    const opened = new Date(t);
+    opened.setMinutes(window[0] % 60, 0, 0);
+    // A window wrapping past the hour (e.g. :58–:03) seen at :01 opened
+    // in the previous hour.
+    return opened.getTime() > t ? opened.getTime() - 3_600_000 : opened.getTime();
+  }
+
+  // Playback starting (or resuming) on a station without metadata in the
+  // middle of one of its ad windows: nothing will ever announce that break
+  // (its window opening has passed), so it starts now, for what is left of
+  // its typical length counted from the window opening. A station with
+  // metadata needs no guess: its last song's end tells (see tick()).
+  function joinMidWindow() {
+    if (!station?.joinable || station.hasMetadata || breakState) {
+      return;
+    }
+    const t = now();
+    const openedAt = windowOpenedAt(t);
+    if (openedAt === null || endedByHandAt >= openedAt) {
+      return; // Outside the windows, or this break was already switched off.
+    }
+    const length = Math.min(
+      MAX_BREAK_SECONDS,
+      station.typicalBreakSeconds || DEFAULT_BREAK_SECONDS,
+    );
+    if (openedAt + length * 1000 - t > JOIN_MIN_LEFT_MS) {
+      startBreak('joined_in_window', null, openedAt);
+    }
   }
 
   return {
@@ -99,14 +144,20 @@ export function createAdBreakDetector({
      * @param {null | {key: string, hasMetadata: boolean, windows: Array<[number, number]>,
      *   schedule?: {windows: object, hours: object|null},
      *   preBreakTalkSeconds?: number, preBreakTalkByHour?: number[], hasStartJingle?: boolean,
-     *   typicalBreakSeconds?: number|null}} next
+     *   typicalBreakSeconds?: number|null, joinable?: boolean}} next
      */
     setStation(next) {
       const changed = next?.key !== station?.key;
+      const wasJoinable = !changed && Boolean(station?.joinable);
       station = next;
       if (changed) {
         track = null;
         endBreak('station_changed');
+      }
+      // Once known to have no metadata at all (`joinable`, see index.js):
+      // right away, or as soon as its feed lookup found none.
+      if (next?.joinable && !wasJoinable) {
+        joinMidWindow();
       }
     },
 

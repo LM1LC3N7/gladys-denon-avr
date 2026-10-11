@@ -233,6 +233,18 @@ hours are enough for the volume to drop right away then.
 **Known limit**: the end of a break is only known when the next song starts. If the host talks
 again after the ads, that stays at the lowered volume until the song.
 
+**Turning the radio on during the ads:**
+
+- **with a station feed** (OUI FM…): caught within seconds — the feed gives the last song and its
+  start, so the integration knows it ended without a next one, inside an ad window;
+- **with no titles at all**: inside one of the station's ad windows, the break starts right away,
+  for what is left of its usual length (counted from the window opening), unless less than
+  30 s is left. Pausing then resuming during it does the same; once switched off by hand, that
+  window stays off;
+- **with HEOS titles**: not caught — the first title seen has no known start, so its end is
+  unknown, and lowering the volume on a guess would also do it on music. The integration is back
+  on track at the next song; switch **Radio ad break** on meanwhile if you like.
+
 **Your volume always comes back.** A break never lasts more than 10 minutes. If the integration
 stops or restarts during a break (update, configuration change), the volume is restored on the
 way out. If the connection to the receiver drops, it is restored as soon as HEOS answers again

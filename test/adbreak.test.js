@@ -371,6 +371,75 @@ test('without metadata, a learned window opening starts a break of the typical l
   assert.deepEqual(h.events.at(-1), ['end', 'timeout']);
 });
 
+const NO_TITLES = {
+  key: 'url:http://radio.example/notitles',
+  hasMetadata: false,
+  joinable: true,
+  windows: [[9, 15]],
+  typicalBreakSeconds: 300,
+};
+
+/** A detector with nothing playing until `setStation()` at `time`. */
+function joinAt(time, station = NO_TITLES) {
+  const h = harness();
+  h.detector.setStation(null);
+  h.setTime(time);
+  h.detector.setStation(station);
+  return h;
+}
+
+test('playing a station without titles inside its ad window starts the break for what is left', () => {
+  const h = joinAt(at(12, 11));
+  assert.deepEqual(h.events, [['start', 'joined_in_window']]);
+  h.runUntil(at(12, 13, 59));
+  assert.equal(h.events.length, 1, 'still in the break');
+  h.runUntil(at(12, 14, 2));
+  assert.deepEqual(h.events.at(-1), ['end', 'timeout'], 'the window opened at :09, 300 s ago');
+
+  assert.deepEqual(joinAt(at(12, 13, 40)).events, [], 'less than 30 s left: not worth it');
+  assert.deepEqual(joinAt(at(12, 20)).events, [], 'outside the windows');
+  assert.deepEqual(
+    joinAt(at(12, 11), { ...NO_TITLES, hasMetadata: true }).events,
+    [],
+    'with titles, the song end tells instead',
+  );
+  // A window wrapping past the hour, joined after it.
+  const wrap = joinAt(at(13, 1), { ...NO_TITLES, windows: [[58, 63]], typicalBreakSeconds: 360 });
+  assert.deepEqual(wrap.events, [['start', 'joined_in_window']]);
+  wrap.runUntil(at(13, 4, 2));
+  assert.deepEqual(wrap.events.at(-1), ['end', 'timeout'], 'opened at 12:58');
+});
+
+test('joining mid-window waits until the station is known to have no titles', () => {
+  const h = joinAt(at(12, 11), { ...NO_TITLES, joinable: false }); // TuneIn, feed lookup pending
+  assert.deepEqual(h.events, []);
+  h.detector.setStation({ ...NO_TITLES, joinable: false });
+  assert.deepEqual(h.events, []);
+  h.detector.setStation(NO_TITLES); // lookup done: no feed
+  assert.deepEqual(h.events, [['start', 'joined_in_window']]);
+  h.detector.setStation(NO_TITLES); // a later refresh: not twice
+  assert.equal(h.events.length, 1);
+});
+
+test('paused during a break, resumed in the window: the break goes on, unless switched off by hand', () => {
+  const h = joinAt(at(12, 10));
+  h.detector.setStation(null); // paused
+  h.setTime(at(12, 11));
+  h.detector.setStation(NO_TITLES); // resumed
+  assert.deepEqual(h.events, [
+    ['start', 'joined_in_window'],
+    ['end', 'station_changed'],
+    ['start', 'joined_in_window'],
+  ]);
+  h.detector.mark(); // "the ads are over", switched by hand
+  h.detector.setStation(null);
+  h.detector.setStation(NO_TITLES);
+  assert.deepEqual(h.events.slice(3), [
+    ['mark', null, 120],
+    ['end', 'manual'],
+  ]);
+});
+
 test('identifyStation recognizes OUI FM through TuneIn and its stream lag', () => {
   const station = identifyStation({
     type: 'station',

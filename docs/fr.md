@@ -254,6 +254,19 @@ la chanson. Deux fois à ces heures-là suffisent pour que la baisse y soit imm�
 **Limite connue** : la fin de coupure n'est connue qu'au démarrage du titre suivant. Si l'animateur
 reprend la parole après les pubs, il reste à volume réduit jusqu'à la chanson.
 
+**Allumer la radio pendant la pub :**
+
+- **avec flux de la station** (OUI FM…) : repéré en quelques secondes — le flux donne le dernier
+  titre et son début, l'intégration sait donc qu'il s'est terminé sans titre suivant, dans une
+  fenêtre de pub ;
+- **sans aucun titre** : dans une des fenêtres de pub de la station, la coupure démarre tout de
+  suite, pour ce qu'il reste de sa durée habituelle (comptée depuis l'ouverture de la fenêtre),
+  sauf s'il reste moins de 30 s. Pareil après une pause reprise pendant la coupure ; une fois
+  arrêtée à la main, cette fenêtre-là n'est plus reprise ;
+- **avec titres HEOS** : pas repéré — le début du premier titre vu est inconnu, donc sa fin aussi,
+  et baisser le volume au hasard le ferait aussi sur de la musique. L'intégration se recale au
+  titre suivant ; allumez **Radio ad break** entre-temps si besoin.
+
 **Votre volume revient toujours.** Une coupure ne dure jamais plus de 10 minutes. Si l'intégration
 s'arrête ou redémarre pendant une coupure (mise à jour, changement de configuration), le volume est
 remis en partant. Si la connexion à l'ampli tombe, il est remis dès que HEOS répond à nouveau

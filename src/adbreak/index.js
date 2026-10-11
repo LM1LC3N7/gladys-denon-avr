@@ -302,6 +302,9 @@ export function createAdBreakController({
     return {
       key: target.key,
       hasMetadata: target.hasMetadata,
+      // Known to have no song metadata at all: a TuneIn station only once
+      // its feed lookup found none (until then, it may have one).
+      joinable: !target.hasMetadata && (!target.tuneinId || Boolean(target.feedChecked)),
       windows: learnedWindows(stats),
       schedule: learnedSchedule(stats, { coveredFrom: stats.historyFrom ?? null }),
       preBreakTalkSeconds: preBreakTalkSeconds(stats),
@@ -498,7 +501,12 @@ export function createAdBreakController({
       };
       await persist(store);
     }
-    if (station !== current || info.none) {
+    current.feedChecked = true;
+    if (station !== current) {
+      return;
+    }
+    if (info.none) {
+      await refreshDetectorStation();
       return;
     }
     current.feed = info;
