@@ -15,6 +15,27 @@ const { createAdBreakController, adBreakReport, __resetStoreForTesting } =
 
 const wait = (ms = 30) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** Resolves once `condition()` holds (polled), fails the test after `ms`. */
+async function until(condition, ms = 5000) {
+  // performance.now(): some tests freeze Date.
+  const deadline = performance.now() + ms;
+  while (!(await condition())) {
+    if (performance.now() > deadline) {
+      throw new Error(`timed out waiting for ${condition}`);
+    }
+    await wait(10);
+  }
+}
+
+/** The statistics saved so far, or null before the first save. */
+async function savedStats() {
+  try {
+    return JSON.parse(await fs.readFile(process.env.AD_BREAK_STATS_FILE, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
 const STREAM = { type: 'station', station: 'Radio X', mid: 'http://radio.example/live?token=1' };
 const titled = (artist, song) => ({ ...STREAM, artist, song });
 const OUIFM = {
@@ -144,9 +165,9 @@ test('a manual break lowers the volume, a failed restore is retried until taken'
   assert.deepEqual(jingles.made[0].marks, ['start', 'end'], 'both presses teach a jingle');
 
   // A station without titles learns the break it was told about.
-  await wait(100);
-  const saved = JSON.parse(await fs.readFile(process.env.AD_BREAK_STATS_FILE, 'utf8'));
-  assert.equal(saved['url:http://radio.example/live'].breaks.length, 1);
+  await until(
+    async () => (await savedStats())?.['url:http://radio.example/live']?.breaks.length === 1,
+  );
 });
 
 test('a volume changed by hand wins; an unknown one is waited for, then given up', async (t) => {
@@ -306,8 +327,7 @@ test('a station feed is followed only while playing, its history learned only wi
   await wait();
   assert.deepEqual(fetches, [], 'nothing looked up before it plays');
   controller.onPlayState(true);
-  await wait(100);
-  assert.equal(controller.providesNowPlaying(), true);
+  await until(() => controller.providesNowPlaying());
   assert.equal(feeds.length, 1);
   assert.equal(fetches.filter((u) => u.includes('size=60')).length, 0, 'no history learning');
 
@@ -318,7 +338,7 @@ test('a station feed is followed only while playing, its history learned only wi
   settings.ad_break_detection = true;
   controller.onConfigUpdated();
   controller.onPlayState(true);
-  await wait(800);
+  await until(async () => (await savedStats())?.['tunein:s6586']?.breaks.length === 2);
   assert.equal(feeds.length, 2);
   assert.ok(
     fetches.some((u) => u.includes('size=60')),
@@ -388,8 +408,8 @@ test('a long gap between two HEOS songs is learned as a break; a break switched 
   await wait();
   t.mock.timers.tick(500_000);
   controller.onNowPlayingMedia(titled('A', 'B2')); // 300 s after its end
-  await wait(100);
-  const saved = JSON.parse(await fs.readFile(process.env.AD_BREAK_STATS_FILE, 'utf8'));
+  await until(async () => (await savedStats())?.['url:http://radio.example/live']);
+  const saved = await savedStats();
   const [brk] = saved['url:http://radio.example/live'].breaks;
   assert.equal(brk.durationSeconds, 300);
 
