@@ -15,6 +15,8 @@ the notes of the version's GitHub Release.
 - Shared tooling of the LM1LC3N7 Gladys integrations: CI on Node 22 and 24
   with `npm audit`, Release workflow driven by this changelog, GitHub Releases
   from its sections, grouped Dependabot updates.
+- Gladys integration SDK 0.15: poll-frequency and batch validation of the
+  discovered devices, state heartbeat, the SDK fake Gladys for the tests.
 
 ## [1.0.23] - 2026-10-13
 
