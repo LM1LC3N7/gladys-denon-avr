@@ -10,6 +10,8 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+## [1.0.24] - 2026-10-13
+
 ### Changed
 
 - Shared tooling of the LM1LC3N7 Gladys integrations: CI on Node 22 and 24
@@ -23,5 +25,6 @@ the notes of the version's GitHub Release.
 The releases before this file was started are described by their GitHub
 Releases.
 
-[Unreleased]: https://github.com/LM1LC3N7/gladys-denon-avr/compare/v1.0.23...HEAD
+[Unreleased]: https://github.com/LM1LC3N7/gladys-denon-avr/compare/v1.0.24...HEAD
+[1.0.24]: https://github.com/LM1LC3N7/gladys-denon-avr/compare/v1.0.23...v1.0.24
 [1.0.23]: https://github.com/LM1LC3N7/gladys-denon-avr/releases/tag/v1.0.23
