@@ -8,12 +8,14 @@
 #   2. writes it into `package.json`, `package-lock.json` AND the manifest
 #      (`gladys-assistant-integration.json`: both `version` and the
 #      `docker_image` tag, so the indexer and the image stay in lockstep);
-#   3. commits the bump and pushes the `vX.Y.Z` tag;
-#   4. calls build.yml to publish the multi-arch image (`:X.Y.Z` + `:latest`).
+#   3. moves the `## [Unreleased]` section of `CHANGELOG.md` under the version;
+#   4. commits the bump and pushes the `vX.Y.Z` tag;
+#   5. calls build.yml to publish the multi-arch image (`:X.Y.Z` + `:latest`);
+#   6. calls github-release.yml to publish the GitHub Release of the tag.
 #
-# Why call build.yml instead of relying on the tag push: a tag pushed with the
-# default GITHUB_TOKEN does NOT trigger other workflows, so we invoke the build
-# ourselves. No personal access token to create.
+# Why call build.yml and github-release.yml instead of relying on the tag push:
+# a tag pushed with the default GITHUB_TOKEN does NOT trigger other workflows,
+# so we invoke them ourselves. No personal access token to create.
 # -----------------------------------------------------------------------------
 name: Release
 
@@ -48,7 +50,7 @@ jobs:
         with:
           node-version: 24
 
-      - name: Bump version and update the manifest
+      - name: Bump version, update the manifest and the changelog
         id: bump
         env:
           RELEASE_TYPE: ${{ inputs.release-type }}
@@ -61,33 +63,15 @@ jobs:
           new_version="$(npm version "$RELEASE_TYPE" --no-git-tag-version | tail -n1)"
           new_version="${new_version#v}" # v1.2.0 -> 1.2.0
 
-          # Refuse early rather than fail halfway through: a re-run after a
-          # partial failure, or package.json out of sync with the last tag,
-          # would otherwise compute a version that already exists and only
-          # discover it at the `git push` below — after the bump commit is
-          # already made locally.
-          if git ls-remote --exit-code --tags origin "refs/tags/v${new_version}" >/dev/null; then
-            echo "::error::Tag v${new_version} already exists on origin. Is package.json out of sync with the last release?"
-            git checkout -- package.json package-lock.json
-            exit 1
-          fi
-
           image="ghcr.io/${GITHUB_REPOSITORY,,}:${new_version}"
 
           # Keep the manifest in lockstep: the version the indexer reads AND the
-          # image tag Gladys pulls must both point at this release.
-          tmp="$(mktemp)"
-          jq --arg version "$new_version" --arg image "$image" \
-            '.version = $version | .docker_image = $image' \
-            gladys-assistant-integration.json > "$tmp"
-          mv "$tmp" gladys-assistant-integration.json
-
-          # jq always re-indents every array across multiple lines regardless
-          # of length, which disagrees with Prettier's style (a short array
-          # like `categories` collapses to one line) — re-format back to that
-          # style so the next PR's CI doesn't inherit a pre-existing diff on
-          # a file this workflow, not that PR, touched last.
-          npx --yes prettier --write gladys-assistant-integration.json
+          # image tag Gladys pulls must both point at this release. The script
+          # rewrites those two values in place (re-printing the file with jq
+          # would break the Prettier layout, and the CI format check with it),
+          # and moves the [Unreleased] changes of CHANGELOG.md under the version.
+          node .github/scripts/release.mjs prepare "$new_version" "$image" \
+            "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}"
 
           echo "version=${new_version}" >> "$GITHUB_OUTPUT"
 
@@ -104,17 +88,12 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git add package.json package-lock.json gladys-assistant-integration.json
+          if [ -f CHANGELOG.md ]; then git add CHANGELOG.md; fi
           git commit -m "chore(release): ${VERSION}"
           git tag -a "v${VERSION}" -m "Release ${VERSION}"
 
           git push origin "HEAD:${GITHUB_REF_NAME}"
           git push origin "v${VERSION}"
-
-      - name: Create the GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.bump.outputs.version }}
-        run: gh release create "v${VERSION}" --generate-notes
 
   # Build and publish the image for the version we just tagged.
   build:
@@ -125,3 +104,11 @@ jobs:
       packages: write
     with:
       version: ${{ needs.prepare.outputs.version }}
+
+  # Publish the GitHub Release of the new tag, once its image exists: the
+  # Gladys Supervision page links each version to the repository's releases.
+  github-release:
+    needs: build
+    uses: ./.github/workflows/github-release.yml
+    permissions:
+      contents: write

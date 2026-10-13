@@ -1,53 +1,33 @@
 # -----------------------------------------------------------------------------
-# Dependabot version updates.
+# Dependabot: update pull requests, checked by the CI like any other.
 #
-# Opens a PR by itself when a newer version of a dependency is available, for
-# the three places this repo pins versions: npm packages, the Dockerfile base
-# image, and the GitHub Actions used by the workflows. Regression checking is
-# the existing CI workflow (.github/workflows/ci.yml), which already runs on
-# every pull_request with no extra setup needed here.
+#   - npm, monthly: the Gladys SDK first of all (new device categories and
+#     features arrive through it); the development tools share one PR;
+#   - GitHub Actions, monthly, all in one PR.
 #
-# `target-branch: main` is pinned defensively on every entry: without it,
-# Dependabot targets whatever the repo's GitHub "default branch" setting
-# says, and that setting silently drifting away from `main` (as happened on
-# a sibling Gladys integration repo, breaking a release) would otherwise
-# misdirect every Dependabot PR here too.
+# Monthly rather than weekly: every update pull request runs the CI, and the
+# GitHub Actions minutes are counted.
+#
+# The Docker base image is left out on purpose: `node:24-alpine` is a moving
+# tag, pulled fresh by every release build (latest Node 24 and Alpine patches),
+# and moving to the next Node major is a deliberate change (Dockerfile, CI
+# matrix and `engines` together).
 # -----------------------------------------------------------------------------
 version: 2
 updates:
-  - package-ecosystem: 'npm'
-    directory: '/'
-    target-branch: 'main'
+  - package-ecosystem: npm
+    directory: /
     schedule:
-      interval: 'weekly'
-    open-pull-requests-limit: 5
+      interval: monthly
     groups:
       dev-dependencies:
-        dependency-type: 'development'
-    labels:
-      - 'dependencies'
-    commit-message:
-      prefix: 'chore'
-      include: 'scope'
+        dependency-type: development
 
-  - package-ecosystem: 'docker'
-    directory: '/'
-    target-branch: 'main'
+  - package-ecosystem: github-actions
+    directory: /
     schedule:
-      interval: 'weekly'
-    labels:
-      - 'dependencies'
-    commit-message:
-      prefix: 'chore'
-      include: 'scope'
-
-  - package-ecosystem: 'github-actions'
-    directory: '/'
-    target-branch: 'main'
-    schedule:
-      interval: 'weekly'
-    labels:
-      - 'dependencies'
-    commit-message:
-      prefix: 'chore'
-      include: 'scope'
+      interval: monthly
+    groups:
+      github-actions:
+        patterns:
+          - '*'

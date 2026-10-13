@@ -1,20 +1,23 @@
 # -----------------------------------------------------------------------------
 # Continuous integration: runs on every push and every pull request.
 #
-# Two independent jobs:
-#   1. quality -> Prettier, ESLint, `node --test` with coverage thresholds
-#      on src/ (see `test:coverage` in package.json), and the Gladys store's
-#      own manifest validator (the admission rules the indexer applies).
-#   2. docker  -> `docker build .`, no push. Without this job a Dockerfile
-#      change (base image bump, a COPY typo...) goes green on `quality` alone
-#      and is only ever actually built the day someone cuts a release — this
-#      catches it on every PR instead.
+# Four gates:
+#   1. Prettier  -> consistent formatting (no style debates in reviews);
+#   2. ESLint    -> catch real mistakes (undefined vars, dead code, ...);
+#   3. Tests     -> `node --test`, the built-in runner (no network);
+#   4. npm audit -> known vulnerabilities of the production dependencies.
 #
-# Runs on Node 26, the version the Docker image ships with (see the Dockerfile),
-# so the check exercises the exact runtime the integration runs on — keep the
-# two in sync when Dependabot bumps the base image.
+# The GitHub Actions quota is limited: if every job fails in under 2 seconds,
+# the quota is exhausted, it is not a bug.
 #
-# Read-only token: nothing here writes to the repository or a registry.
+# They run on Node 24, the version `engines` requires and the one the Docker
+# image ships with (see the Dockerfile). The image is built too
+# (amd64 only, never pushed), so a broken Dockerfile shows up here rather than
+# in a release.
+#
+# The store validator (`npx github:GladysAssistant/integration-store .`) is not
+# a gate here: it also checks that the manifest's `docker_image` exists on its
+# registry, which is false until the first release.
 # -----------------------------------------------------------------------------
 name: CI
 
@@ -24,21 +27,29 @@ on:
       - main
   pull_request:
 
+# Checks only read the code: no write scope for the token, whatever the
+# repository default is.
 permissions:
   contents: read
 
 jobs:
   quality:
     runs-on: ubuntu-latest
-    name: Lint & test
+    name: Lint & test (Node ${{ matrix.node-version }})
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [24]
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false # no git push here
 
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 26
+          node-version: ${{ matrix.node-version }}
           cache: npm
 
       - name: Install dependencies
@@ -50,11 +61,11 @@ jobs:
       - name: Lint (ESLint)
         run: npm run lint
 
-      - name: Run tests (with coverage thresholds)
+      - name: Run tests
         run: npm run test:coverage
 
-      - name: Validate the manifest (Gladys store rules)
-        run: npx --yes github:GladysAssistant/integration-store .
+      - name: Audit the production dependencies
+        run: npm audit --omit=dev --audit-level=moderate
 
   docker:
     runs-on: ubuntu-latest
@@ -62,9 +73,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false # no git push here
 
-      - name: Build the image (no push)
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      # Same build as build.yml, without pushing, and for amd64 only: emulating
+      # arm64 is slow, and only the release build needs it.
+      - name: Build (no push)
         uses: docker/build-push-action@v7
         with:
           context: .
+          platforms: linux/amd64
           push: false

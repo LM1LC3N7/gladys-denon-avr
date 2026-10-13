@@ -8,7 +8,7 @@
 #   - multi-arch image (linux/amd64 + linux/arm64), see the CI workflow
 # -----------------------------------------------------------------------------
 
-FROM node:26-alpine
+FROM node:24-alpine
 
 # dumb-init: handles signals (SIGTERM) correctly for a graceful shutdown.
 # ffmpeg: decodes the radio stream playing on the receiver, to learn and
