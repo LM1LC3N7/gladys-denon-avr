@@ -8,6 +8,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { DEFAULT_CONFIG } from '../src/config.js';
 import { SOURCE_CODES, SOUND_MODE_CODES } from '../src/denon/protocol.js';
@@ -31,13 +32,18 @@ const manifest = JSON.parse(
 
 // Registered directly in index.js (there is a single device type, so no
 // per-blueprint action registry like the template's demo devices had).
-const HANDLED_ACTIONS = ['test_connection', 'select_source', 'ad_break_report'];
+const HANDLED_ACTIONS = ['test_connection', 'select_source', 'ad_break_report', 'qobuz_check'];
 
 test('every manifest action has a registered handler', () => {
+  const index = readFileSync(new URL('../index.js', import.meta.url), 'utf8');
   for (const action of manifest.actions ?? []) {
     assert.ok(
       HANDLED_ACTIONS.includes(action.key),
       `manifest action "${action.key}" has no handler`,
+    );
+    assert.ok(
+      index.includes(`gladys.onAction('${action.key}'`),
+      `index.js registers no handler for "${action.key}"`,
     );
   }
 });

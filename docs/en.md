@@ -115,6 +115,8 @@ Since Gladys 5.1, the scene editor offers this integration's own actions and tri
 - **AVR: recall a Quick Select** — Quick Select 1-5 (Smart Select on Marantz).
 - **AVR: play a HEOS favorite** — the n-th entry of the HEOS app favorites (a radio, a
   playlist…), on the configured zone, switched on and to HEOS when needed.
+- **AVR: play from Qobuz** — a playlist (yours first, then the catalog) or an album, by name,
+  through HEOS; see "Qobuz" below.
 - **AVR: set up the receiver** — power, input, sound mode and volume in a single action; a field
   left empty is not changed. Made for a "Movie" or "Music" scene.
 - **AVR: read the receiver state** — returns power, volume, input (code and name), sound mode,
@@ -161,6 +163,37 @@ cross-checked against the library behind Home Assistant's official HEOS integrat
 by the developer against a live HEOS streaming session, since that requires an actual paid
 streaming account. If the buttons don't do anything on your setup even though the receiver is
 reachable, please report it (with the logs mentioned below) so it can be fixed.
+
+## Qobuz
+
+Since 2025, Qobuz is built into the HEOS app. The scene action **AVR: play from Qobuz** uses it
+to start your playlists or an album from Gladys, without a phone: at wake-up, when you come home,
+when a "Dinner" scene starts.
+
+**Requirements**, once:
+
+1. In the HEOS app, add Qobuz (home → Music services → the three dots → Edit → Add more music)
+   and sign in to your Qobuz account.
+2. In Gladys, press **Qobuz: check and list my playlists** (Configuration screen) and pick the
+   receiver. The answer says whether HEOS sees Qobuz and lists your playlists. If you have just
+   added Qobuz in the app, restart the integration first: HEOS only shows a newly added service
+   to a new connection.
+
+**What the action does**: pick **Playlist** or **Album** and type a name. A playlist is looked up
+first in **your** Qobuz playlists, then in the catalog; an album in the catalog. Case, accents
+and punctuation are ignored, and part of the name is enough ("morning jazz" finds "Morning jazz
+2024"). The configured zone is switched on and to HEOS when needed, then the queue is replaced by
+the playlist or album. The name played (and the artist of an album) is handed to the following
+actions of the scene.
+
+Gladys never sees your Qobuz credentials: the receiver talks to Qobuz, with the account signed in
+in the HEOS app. The list of your playlists is read again at most every 5 minutes.
+
+**Limits**: built from the HEOS protocol (the other services follow the same shape there) but
+without a receiver showing Qobuz at hand; if the check button does not find your playlists, its
+answer (and the "Qobuz check" line of the logs) shows what HEOS returns: please report it so the
+lookup can be adjusted. No single track nor artist for now, and a session started from the Qobuz
+app (Qobuz Connect) stays controllable with the Play/Pause/Next/Previous buttons, as before.
 
 ## Radio ad breaks
 
@@ -317,11 +350,13 @@ integration's data folder (`/data/ad-breaks.json`, `/data/ad-jingles/`).
    networks)? Enter their addresses separated by commas, e.g. `192.168.1.50, 192.168.2.50` — each
    one becomes its own fallback entry. A fixed IP or a DHCP reservation for every receiver is
    recommended in that case, since the manual entry does not track IP changes automatically.
-4. Two actions are available from the Configuration screen for any AVR you added:
+4. Three actions are available from the Configuration screen for any AVR you added:
    - **Test connection** — queries the receiver and reports its current power/volume/mute/source
      (with its index, see "Source index" above)/sound mode.
    - **Select input** — pick an input from the standard list of Denon/Marantz source codes and
      switch to it.
+   - **Qobuz: check and list my playlists** — what HEOS shows of Qobuz on this receiver, see
+     "Qobuz" above.
 5. **Rename or hide sources on the dashboard dropdown** (Configuration tab, advanced): the
    dropdown shows generic codes like `SAT/CBL` or `GAME`, not what you actually plugged in. Fill
    in `CODE=Label` pairs separated by commas to rename them — e.g. `SAT/CBL=Chromecast` if that's

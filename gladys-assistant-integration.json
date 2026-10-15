@@ -501,6 +501,26 @@
       },
       "timeout_seconds": 15,
       "fields": []
+    },
+    {
+      "key": "qobuz_check",
+      "label": {
+        "en": "Qobuz: check and list my playlists",
+        "fr": "Qobuz : vérifier et lister mes playlists"
+      },
+      "timeout_seconds": 60,
+      "fields": [
+        {
+          "key": "device",
+          "type": "select",
+          "source": "devices",
+          "label": {
+            "en": "AVR",
+            "fr": "Ampli"
+          },
+          "required": true
+        }
+      ]
     }
   ],
   "widgets": [
@@ -2549,6 +2569,87 @@
           "default": 1,
           "min": 1,
           "max": 99
+        }
+      ]
+    },
+    {
+      "key": "play_qobuz",
+      "label": {
+        "en": "AVR: play from Qobuz",
+        "fr": "Ampli : jouer depuis Qobuz"
+      },
+      "description": {
+        "en": "A Qobuz playlist (yours first, then the catalog) or album, by name, through HEOS. Qobuz must be added in the HEOS app.",
+        "fr": "Une playlist Qobuz (les vôtres d'abord, puis le catalogue) ou un album, par son nom, via HEOS. Qobuz doit être ajouté dans l'application HEOS."
+      },
+      "timeout_seconds": 60,
+      "fields": [
+        {
+          "key": "avr",
+          "type": "select",
+          "source": "devices",
+          "label": {
+            "en": "Receiver",
+            "fr": "Ampli"
+          },
+          "required": true
+        },
+        {
+          "key": "kind",
+          "type": "select",
+          "label": {
+            "en": "What to play",
+            "fr": "Quoi jouer"
+          },
+          "required": true,
+          "default": "playlist",
+          "options": [
+            {
+              "value": "playlist",
+              "label": {
+                "en": "Playlist",
+                "fr": "Playlist"
+              }
+            },
+            {
+              "value": "album",
+              "label": {
+                "en": "Album",
+                "fr": "Album"
+              }
+            }
+          ]
+        },
+        {
+          "key": "name",
+          "type": "string",
+          "label": {
+            "en": "Name",
+            "fr": "Nom"
+          },
+          "required": true,
+          "placeholder": {
+            "en": "e.g. Morning jazz",
+            "fr": "ex. Jazz du matin"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "key": "played",
+          "type": "string",
+          "label": {
+            "en": "Playlist or album played",
+            "fr": "Playlist ou album joué"
+          }
+        },
+        {
+          "key": "artist",
+          "type": "string",
+          "label": {
+            "en": "Artist (album)",
+            "fr": "Artiste (album)"
+          }
         }
       ]
     },

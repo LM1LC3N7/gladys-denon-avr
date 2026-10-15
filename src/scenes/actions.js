@@ -16,6 +16,7 @@ import {
   STATE,
   getDeviceSnapshot,
   playHeosFavorite,
+  playQobuz,
   selectQuickSelect,
   setPower,
   setSoundMode,
@@ -27,6 +28,7 @@ import {
 export const SCENE_ACTION = Object.freeze({
   QUICK_SELECT: 'quick_select',
   PLAY_HEOS_FAVORITE: 'play_heos_favorite',
+  PLAY_QOBUZ: 'play_qobuz',
   SET_AMP: 'set_amp',
   GET_STATE: 'get_state',
 });
@@ -59,6 +61,17 @@ export function createSceneActionHandlers(getConfig) {
     [SCENE_ACTION.PLAY_HEOS_FAVORITE]: async (fields) => {
       const { externalId } = targetAvr(fields);
       await playHeosFavorite(externalId, Number(fields.favorite), normalizeZone(getConfig().zone));
+    },
+
+    // A Qobuz playlist (the user's own first, then the catalog) or album,
+    // by name, through HEOS; what was played for the following actions.
+    [SCENE_ACTION.PLAY_QOBUZ]: async (fields) => {
+      const { externalId } = targetAvr(fields);
+      return playQobuz(
+        externalId,
+        { kind: fields.kind || 'playlist', name: fields.name },
+        normalizeZone(getConfig().zone),
+      );
     },
 
     // One card for the usual "watch a movie" setup: power, input, sound mode

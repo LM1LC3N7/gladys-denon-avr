@@ -129,6 +129,8 @@ Depuis Gladys 5.1, l'éditeur de scènes propose les actions et déclencheurs de
 - **Ampli : rappeler un Quick Select** — Quick Select 1 à 5 (Smart Select chez Marantz).
 - **Ampli : jouer un favori HEOS** — la n-ième entrée des favoris de l'application HEOS (une
   radio, une playlist…), sur la zone configurée, allumée et basculée sur HEOS si besoin.
+- **Ampli : jouer depuis Qobuz** — une playlist (les vôtres d'abord, puis le catalogue) ou un
+  album, par son nom, via HEOS ; voir « Qobuz » plus bas.
 - **Ampli : régler l'ampli** — alimentation, entrée, mode son et volume en une seule action ; un
   champ laissé vide n'est pas modifié. Idéal pour une scène « Film » ou « Musique ».
 - **Ampli : lire l'état de l'ampli** — renvoie l'alimentation, le volume, l'entrée (code et nom),
@@ -181,6 +183,39 @@ Assistant — non testé par le développeur sur une vraie session de streaming 
 nécessite un compte de streaming payant réel. Si les boutons ne font rien chez vous alors que
 l'ampli est joignable, merci de le signaler (avec les logs mentionnés plus bas) pour
 que ce soit corrigé.
+
+## Qobuz
+
+Depuis 2025, Qobuz est intégré directement dans l'application HEOS. L'action de scène **Ampli :
+jouer depuis Qobuz** s'en sert pour lancer vos playlists ou un album depuis Gladys, sans
+téléphone : au réveil, en rentrant, au lancement d'une scène « Dîner ».
+
+**Prérequis**, une seule fois :
+
+1. Dans l'application HEOS, ajoutez Qobuz (accueil → Services de musique → les trois points →
+   Modifier → Ajouter des services) et connectez votre compte Qobuz.
+2. Dans Gladys, cliquez sur **Qobuz : vérifier et lister mes playlists** (écran Configuration),
+   en choisissant l'ampli. La réponse dit si HEOS voit Qobuz et liste vos playlists. Si vous
+   venez d'ajouter Qobuz dans l'application, redémarrez d'abord l'intégration : HEOS ne montre un
+   service ajouté qu'à une nouvelle connexion.
+
+**Ce que fait l'action** : vous choisissez **Playlist** ou **Album** et tapez un nom. Une
+playlist est cherchée d'abord dans **vos** playlists Qobuz, puis dans le catalogue ; un album
+dans le catalogue. Majuscules, accents et ponctuation sont ignorés, et un nom partiel suffit
+(« jazz matin » trouve « Jazz du matin »). La zone configurée est allumée et basculée sur HEOS si
+besoin, puis la file de lecture est remplacée par la playlist ou l'album. Le nom joué (et
+l'artiste d'un album) est renvoyé aux actions suivantes de la scène.
+
+Gladys ne voit jamais vos identifiants Qobuz : c'est l'ampli qui parle à Qobuz, avec le compte
+connecté dans l'application HEOS. La liste de vos playlists est relue toutes les 5 minutes au
+plus.
+
+**Limites** : construit d'après le protocole HEOS (les autres services y suivent la même forme)
+mais sans ampli montrant Qobuz sous la main ; si le bouton de vérification ne trouve pas vos
+playlists, sa réponse (et la ligne « Qobuz check » des logs) montre ce que HEOS renvoie : merci
+de la signaler pour ajuster la recherche. Pas de morceau seul ni d'artiste pour l'instant, et une
+session lancée depuis l'application Qobuz (Qobuz Connect) reste pilotable avec les boutons
+Lecture/Pause/Suivant/Précédent, comme avant.
 
 ## Coupures pub des radios
 
@@ -343,11 +378,13 @@ dossier de données de l'intégration (`/data/ad-breaks.json`, `/data/ad-jingles
    par des virgules, ex. `192.168.1.50, 192.168.2.50` — chacune devient sa propre entrée de
    secours. Une IP fixe ou une réservation DHCP pour chaque ampli est alors recommandée, car
    l'entrée manuelle ne suit pas automatiquement les changements d'IP.
-4. Deux actions sont disponibles depuis l'écran de configuration pour chaque ampli ajouté :
+4. Trois actions sont disponibles depuis l'écran de configuration pour chaque ampli ajouté :
    - **Tester la connexion** — interroge l'ampli et rapporte son état actuel (alimentation,
      volume, muet, source avec son index — voir « Index de source » ci-dessus —, mode sonore).
    - **Sélectionner l'entrée** — choisissez une entrée dans la liste standard des codes source
      Denon/Marantz et basculez dessus.
+   - **Qobuz : vérifier et lister mes playlists** — ce que HEOS voit de Qobuz sur cet ampli, voir
+     « Qobuz » plus haut.
 5. **Renommer ou masquer des sources dans le menu déroulant** (onglet Configuration, avancé) :
    le menu montre des codes génériques comme `SAT/CBL` ou `GAME`, pas ce qui est réellement
    branché. Renseignez des paires `CODE=Label` séparées par des virgules pour les renommer — ex.

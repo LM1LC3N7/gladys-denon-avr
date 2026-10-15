@@ -43,6 +43,14 @@ const DEFAULT_TIMING = Object.freeze({
   announcementPollMs: 1_000,
   announcementStartTimeoutMs: 15_000,
   announcementMaxMs: 180_000,
+  // A HEOS request awaited for its answer (browse, search, add to queue:
+  // ./qobuz.js). Browsing a music service goes through the service's cloud,
+  // a few seconds on a good day: 15 s before giving up on one answer.
+  heosRequestTimeoutMs: 15_000,
+  // How long the Qobuz source id and the user's playlists are reused before
+  // HEOS is asked again (./qobuz.js): a scene must not browse the whole
+  // library every time it runs.
+  qobuzCacheMs: 5 * 60_000,
 });
 
 export const timing = { ...DEFAULT_TIMING };

@@ -52,7 +52,9 @@ export {
   runTestConnectionAction,
   runSelectSourceAction,
   runAdBreakReportAction,
+  runQobuzCheckAction,
 } from './actions.js';
+export { playQobuz, listQobuzPlaylists, QobuzUnavailableError } from './qobuz.js';
 export {
   setPower,
   setSource,

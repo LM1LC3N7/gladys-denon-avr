@@ -190,6 +190,91 @@ export function buildPlayPresetCommand(pid, preset) {
   return `browse/play_preset?pid=${pid}&preset=${position}`;
 }
 
+// HEOS' own sources, fixed ids of the CLI spec (unlike the music services,
+// whose ids are only known from get_music_sources: Qobuz has none in the
+// spec nor in pyheos, it is looked up by name — see ./qobuz.js).
+export const HEOS_SOURCE = Object.freeze({
+  PLAYLISTS: 1025,
+  FAVORITES: 1028,
+});
+
+// `aid` of browse/add_to_queue (CLI spec "Add Container to Queue").
+export const ADD_TO_QUEUE = Object.freeze({
+  PLAY_NOW: 1,
+  PLAY_NEXT: 2,
+  ADD_TO_END: 3,
+  REPLACE_AND_PLAY: 4,
+});
+
+/**
+ * Escape one parameter value: HEOS reads `&`, `=` and `%` as separators and
+ * escapes, so a search text or a container id carrying one must be quoted —
+ * the same three characters pyheos' QUOTE_MAP escapes, and nothing else
+ * (spaces and accents go through as is). Not for `url` of play_stream,
+ * which HEOS takes raw (see buildPlayStreamCommand).
+ */
+export function escapeHeosValue(value) {
+  return String(value).replace(/[%&=]/g, (c) => ({ '%': '%25', '&': '%26', '=': '%3D' })[c]);
+}
+
+/** `heos://browse/get_music_sources` — every source of the system, with its `sid`. */
+export function buildGetMusicSourcesCommand() {
+  return 'browse/get_music_sources';
+}
+
+/**
+ * `heos://browse/browse?sid=<sid>[&cid=<cid>][&range=<start>,<end>]` — the
+ * top level of a source, or one of its containers; `range` is inclusive and
+ * 0-based (the spec caps a page at 100 items for most services).
+ */
+export function buildBrowseCommand(sid, cid, range) {
+  let command = `browse/browse?sid=${escapeHeosValue(sid)}`;
+  if (cid !== undefined && cid !== null && cid !== '') {
+    command += `&cid=${escapeHeosValue(cid)}`;
+  }
+  if (Array.isArray(range)) {
+    command += `&range=${Number(range[0])},${Number(range[1])}`;
+  }
+  return command;
+}
+
+/** `heos://browse/get_search_criteria?sid=<sid>` — what a service can search (Artist, Album…). */
+export function buildGetSearchCriteriaCommand(sid) {
+  return `browse/get_search_criteria?sid=${escapeHeosValue(sid)}`;
+}
+
+/** `heos://browse/search?sid=<sid>&search=<text>&scid=<scid>[&range=<start>,<end>]`. */
+export function buildSearchCommand(sid, scid, text, range) {
+  let command = `browse/search?sid=${escapeHeosValue(sid)}&search=${escapeHeosValue(text)}&scid=${escapeHeosValue(scid)}`;
+  if (Array.isArray(range)) {
+    command += `&range=${Number(range[0])},${Number(range[1])}`;
+  }
+  return command;
+}
+
+/**
+ * `heos://browse/add_to_queue?pid=<pid>&sid=<sid>&cid=<cid>&aid=<aid>` — put
+ * a whole container (playlist, album) in the queue of one player; the
+ * default replaces the queue and plays it, like a tap on "Play" in the app.
+ */
+export function buildAddContainerToQueueCommand(
+  pid,
+  sid,
+  cid,
+  aid = ADD_TO_QUEUE.REPLACE_AND_PLAY,
+) {
+  return `browse/add_to_queue?pid=${pid}&sid=${escapeHeosValue(sid)}&cid=${escapeHeosValue(cid)}&aid=${aid}`;
+}
+
+/**
+ * Whether a reply is HEOS' "command under process" placeholder (a slow
+ * command, typically a music service browse): the real answer to the same
+ * command follows later, with the same command name.
+ */
+export function isCommandUnderProcess(parsed) {
+  return Object.prototype.hasOwnProperty.call(parsed?.message ?? {}, 'command under process');
+}
+
 /**
  * `heos://system/register_for_change_events?enable=on` — ask the HEOS
  * system to push `event/player_state_changed` (and other `event/*` lines)

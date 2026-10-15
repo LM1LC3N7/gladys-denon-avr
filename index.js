@@ -28,6 +28,7 @@ import {
   runTestConnectionAction,
   runSelectSourceAction,
   runAdBreakReportAction,
+  runQobuzCheckAction,
 } from './src/devices/avr.js';
 import { registerWidgets } from './src/widgets/index.js';
 import { registerSceneActions } from './src/scenes/actions.js';
@@ -74,6 +75,7 @@ gladys.onSetValue(async (device, feature, value) => {
 gladys.onAction('test_connection', (fields) => runTestConnectionAction(gladys, { fields, config }));
 gladys.onAction('select_source', (fields) => runSelectSourceAction(gladys, { fields, config }));
 gladys.onAction('ad_break_report', () => runAdBreakReportAction());
+gladys.onAction('qobuz_check', (fields) => runQobuzCheckAction({ fields }));
 
 // --- Dashboard widgets and scene cards (Gladys >= 5.1.0) ---------------------
 // Five widgets (src/widgets/), scene actions and scene triggers

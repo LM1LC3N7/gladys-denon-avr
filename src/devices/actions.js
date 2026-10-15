@@ -1,14 +1,22 @@
 // -----------------------------------------------------------------------------
 // The manifest `actions` of the Configuration screen: "Test connection",
-// "Select input" and "Ad-break report" (gladys.onAction in index.js).
+// "Select input", "Ad-break report" and "Qobuz: check" (gladys.onAction in
+// index.js).
 // -----------------------------------------------------------------------------
 
+import { createLogger } from '@gladysassistant/integration-sdk';
 import { adBreakReport } from '../adbreak/index.js';
 import { reportText } from '../adbreak/insights.js';
 import { buildSourceCommand, normalizeZone } from '../denon/protocol.js';
 import { visibleSourceCodes } from './features.js';
 import { getHeos, getState, getTelnet } from './registry.js';
 import { initialQueries } from './session.js';
+import { QobuzUnavailableError, listQobuzPlaylists } from './qobuz.js';
+
+const logger = createLogger({ name: 'avr' });
+
+// Playlist names shown by "Qobuz: check" (the rest is counted).
+const SHOWN_PLAYLISTS = 30;
 
 /**
  * `test_connection` manifest action: query the device and report its last
@@ -94,4 +102,48 @@ export async function runSelectSourceAction(gladys, { fields, config }) {
 export async function runAdBreakReportAction() {
   const stations = await adBreakReport();
   return { en: reportText(stations, 'en'), fr: reportText(stations, 'fr') };
+}
+
+/**
+ * "Qobuz: check" manifest action: what HEOS shows of Qobuz on one receiver
+ * (the source, the first level of its tree, the playlists found), as text
+ * and as one log line. Built without a receiver showing Qobuz: this is what
+ * a user reports to fix the lookup rules of src/heos/qobuz.js.
+ */
+export async function runQobuzCheckAction({ fields }) {
+  const externalId = fields.device;
+  let result;
+  try {
+    result = await listQobuzPlaylists(externalId, { refresh: true });
+  } catch (err) {
+    logger.warn(`${externalId}: Qobuz check failed: ${err.message}`);
+    if (err instanceof QobuzUnavailableError && err.reason === 'missing') {
+      const seen = err.sources.join(', ') || '-';
+      return {
+        en: `HEOS lists no Qobuz source on this receiver (sources seen: ${seen}). Add Qobuz in the HEOS app (Music services, Add more music), then restart the integration: HEOS only shows a newly added service to a new connection.`,
+        fr: `HEOS ne liste pas de source Qobuz sur cet ampli (sources vues : ${seen}). Ajoutez Qobuz dans l'application HEOS (Services de musique, Ajouter des services), puis redémarrez l'intégration : HEOS ne montre un service ajouté qu'à une nouvelle connexion.`,
+      };
+    }
+    if (err instanceof QobuzUnavailableError) {
+      return {
+        en: 'HEOS lists Qobuz, but no Qobuz account is signed in: sign in to Qobuz in the HEOS app, then try again.',
+        fr: "HEOS liste Qobuz, mais aucun compte Qobuz n'y est connecté : connectez-vous à Qobuz dans l'application HEOS, puis réessayez.",
+      };
+    }
+    return {
+      en: `Qobuz could not be read through HEOS: ${err.message}`,
+      fr: `Impossible de lire Qobuz via HEOS : ${err.message}`,
+    };
+  }
+  const { source, topLevel, opened, playlists } = result;
+  const names = playlists.slice(0, SHOWN_PLAYLISTS).map((item) => item.name);
+  const more = playlists.length - names.length;
+  const list = names.join(', ') + (more > 0 ? ` (+${more})` : '');
+  logger.info(
+    `${externalId}: Qobuz check: source ${source.sid} "${source.name}", top level [${topLevel.join(' | ')}], opened [${opened.join(' | ')}], ${playlists.length} playlists`,
+  );
+  return {
+    en: `Qobuz found (HEOS source ${source.sid}). First level: ${topLevel.join(', ') || '-'}. ${playlists.length} playlists${playlists.length ? `: ${list}` : ' found: tell the integration author which entry above holds them'}.`,
+    fr: `Qobuz trouvé (source HEOS ${source.sid}). Premier niveau : ${topLevel.join(', ') || '-'}. ${playlists.length} playlists${playlists.length ? ` : ${list}` : " trouvées : indiquez à l'auteur de l'intégration quelle entrée ci-dessus les contient"}.`,
+  };
 }

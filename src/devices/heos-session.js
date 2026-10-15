@@ -27,6 +27,7 @@ import {
   parseNowPlayingMedia,
   parseNowPlayingArtwork,
   buildSetVolumeCommand,
+  isCommandUnderProcess,
   HEOS_EVENT,
 } from '../heos/protocol.js';
 import { createAdBreakController } from '../adbreak/index.js';
@@ -55,6 +56,42 @@ export const HEOS_MATCH = {
   MATCHED: 'matched',
   UNMATCHED: 'unmatched',
 };
+
+/** A HEOS command answered `result=fail`: `eid` and `text` as HEOS sent them. */
+export class HeosCommandError extends Error {
+  constructor(command, message = {}) {
+    super(
+      `HEOS refused ${command}: ${message.text || 'no reason given'} (eid=${message.eid ?? '?'})`,
+    );
+    this.name = 'HeosCommandError';
+    this.command = command;
+    this.eid = message.eid === undefined ? null : Number(message.eid);
+    this.text = message.text ?? '';
+  }
+}
+
+/** The parameters of a `heos://` command path, decoded (`browse/browse?sid=5&cid=x`). */
+function commandParams(commandPath) {
+  const query = String(commandPath).split('?')[1] ?? '';
+  const params = {};
+  for (const pair of query.split('&')) {
+    const equals = pair.indexOf('=');
+    if (equals > 0) {
+      try {
+        params[pair.slice(0, equals)] = decodeURIComponent(pair.slice(equals + 1));
+      } catch {
+        params[pair.slice(0, equals)] = pair.slice(equals + 1);
+      }
+    }
+  }
+  return params;
+}
+
+// The parameters a HEOS reply echoes in its `message` and that tell two
+// requests of the same command apart (two browses of the same service).
+// `search` and `range` are echoed too, but not always verbatim: never
+// compared.
+const ECHOED_PARAMS = ['pid', 'sid', 'cid', 'scid'];
 
 /**
  * Open the HEOS session of one AVR.
@@ -110,8 +147,83 @@ export function openHeosSession(
       // its volume back through it.
       session.adBreak?.stop();
       session.client?.stop();
+      rejectPending(new Error(`${externalId}: HEOS session stopped`));
     },
+    /**
+     * Send one command and resolve with its answer (the parsed line), or
+     * reject with HeosCommandError (`result=fail`) or a timeout. One request
+     * at a time: HEOS answers in order, and two browses of one service are
+     * only told apart by the parameters it echoes back. A "command under
+     * process" placeholder is skipped (the real answer follows).
+     */
+    request(commandPath, { timeoutMs = timing.heosRequestTimeoutMs } = {}) {
+      const run = () =>
+        new Promise((resolve, reject) => {
+          const command = String(commandPath).split('?')[0];
+          const params = commandParams(commandPath);
+          const entry = {
+            command,
+            matches: (parsed) =>
+              ECHOED_PARAMS.every(
+                (key) =>
+                  params[key] === undefined ||
+                  parsed.message?.[key] === undefined ||
+                  String(parsed.message[key]) === String(params[key]),
+              ),
+            resolve,
+            reject,
+            timer: setTimeout(() => {
+              pending.delete(entry);
+              reject(
+                new Error(`${externalId}: no HEOS answer to ${command} within ${timeoutMs} ms`),
+              );
+            }, timeoutMs),
+          };
+          pending.add(entry);
+          if (!session.client.sendCommand(commandPath)) {
+            clearTimeout(entry.timer);
+            pending.delete(entry);
+            reject(new Error(`${externalId}: HEOS is not connected`));
+          }
+        });
+      const result = session.requestChain.then(run, run);
+      // The chain only orders the requests: a failed one must not fail the next.
+      session.requestChain = result.catch(() => {});
+      return result;
+    },
+    requestChain: Promise.resolve(),
   };
+
+  // Requests waiting for their answer (session.request).
+  const pending = new Set();
+
+  function rejectPending(error) {
+    for (const entry of pending) {
+      clearTimeout(entry.timer);
+      entry.reject(error);
+    }
+    pending.clear();
+  }
+
+  /** Hand a reply to the request waiting for it; true when it was one. */
+  function settlePending(parsed) {
+    for (const entry of pending) {
+      if (entry.command === parsed.command && entry.matches(parsed)) {
+        if (isCommandUnderProcess(parsed)) {
+          return true;
+        }
+        pending.delete(entry);
+        clearTimeout(entry.timer);
+        if (parsed.result === 'fail') {
+          entry.reject(new HeosCommandError(parsed.command, parsed.message));
+        } else {
+          entry.resolve(parsed);
+        }
+        return true;
+      }
+    }
+    return false;
+  }
 
   function setMatch(match) {
     if (session.match !== match) {
@@ -244,6 +356,9 @@ export function openHeosSession(
       session.client.sendCommand(buildRegisterForChangeEventsCommand());
     },
     onMessage: (parsed) => {
+      if (settlePending(parsed)) {
+        return;
+      }
       if (parsed.command === 'player/get_players' && parsed.result !== 'fail') {
         const pid = findPlayerIdByIp(parsed.payload, host, zone);
         if (pid != null) {
@@ -358,6 +473,9 @@ export function openHeosSession(
       session.volume = null;
       session.lastPublished.clear();
       setMatch(HEOS_MATCH.NONE);
+      // An answer will never come on this socket: fail fast instead of
+      // waiting for each timeout.
+      rejectPending(new Error(`${externalId}: HEOS disconnected`));
     },
   });
 

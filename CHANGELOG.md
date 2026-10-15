@@ -10,6 +10,15 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+### Added
+
+- Scene action **AVR: play from Qobuz**: a Qobuz playlist (yours first, then
+  the catalog) or album, by name, through HEOS, which has Qobuz built in
+  since 2025; the configured zone is switched on and to HEOS, the queue
+  replaced. The name played (and the artist of an album) are outputs.
+- Configuration button **Qobuz: check and list my playlists**: whether HEOS
+  sees Qobuz on the receiver, signed in or not, and the playlists found.
+
 ## [1.0.25] - 2026-10-13
 
 ## [1.0.24] - 2026-10-13

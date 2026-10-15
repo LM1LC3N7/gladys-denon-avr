@@ -243,7 +243,10 @@ TuneIn...) — see "Playback controls" below.
   nudges are coalesced to the core's 1-per-10 s window with a trailing nudge
   (`src/widgets/refresh.js`), so a card always ends on the receiver's last state.
 - **Scene actions and triggers** (Gladys >=5.1.0, `src/scenes/`): **AVR: recall a Quick Select**,
-  **AVR: play a HEOS favorite** (`browse/play_preset`), **AVR: set up the receiver** (power, input,
+  **AVR: play a HEOS favorite** (`browse/play_preset`), **AVR: play from Qobuz** (a playlist or
+  an album by name: `browse/get_music_sources` finds Qobuz by name, `browse/browse` reads the
+  user's playlists, `browse/search` the catalog, `browse/add_to_queue` plays it — see
+  `src/devices/qobuz.js`), **AVR: set up the receiver** (power, input,
   sound mode and volume in one card, each optional — power on first with the wake-up pause,
   standby alone) and **AVR: read the receiver state** (outputs: power, volume, input code and
   name, sound mode, Quick Select, playing, title, artist — what the core's "Continue only if"
@@ -425,12 +428,14 @@ notes Dependabot links in the PR body) and merge it like any other PR once CI is
 │  │  ├─ features.js                 # feature/state keys, discovery payload (buildFeatures)
 │  │  ├─ registry.js                 # shared state: sessions, last known state, listeners
 │  │  ├─ session.js                  # Telnet session lifecycle: connect / refresh / disconnect
-│  │  ├─ heos-session.js             # HEOS CLI session: player match, poll, deduped publishes
+│  │  ├─ heos-session.js             # HEOS CLI session: player match, poll, deduped publishes,
+│  │  │                              #   awaited requests (request(): one at a time, answer or eid)
 │  │  ├─ transport.js                # per-device local/unreachable badge
 │  │  ├─ control.js                  # controls shared by commands, scenes and widgets
 │  │  ├─ commands.js                 # onSetValue routing (Telnet vs HEOS)
 │  │  ├─ announcements.js            # "Speak on a speaker": volume, end, restore
-│  │  ├─ actions.js                  # Configuration-screen actions (test, select input)
+│  │  ├─ qobuz.js                    # Qobuz through HEOS: source, playlists, search, play
+│  │  ├─ actions.js                  # Configuration-screen actions (test, select input, Qobuz check)
 │  │  └─ index.js                    # composes SSDP discovery + the manual host fallback
 │  ├─ widgets/                       # dashboard widgets (Gladys >=5.1.0)
 │  │  ├─ content.js                  # PURE: one content builder per widget
@@ -440,7 +445,7 @@ notes Dependabot links in the PR body) and merge it like any other PR once CI is
 │  │  ├─ artwork.js / refresh.js     # cover download + cache, coalesced refresh nudges
 │  │  └─ index.js                    # SDK handlers + state-change nudges
 │  ├─ scenes/
-│  │  ├─ actions.js                  # scene actions (Quick Select, HEOS favorite, set up, read)
+│  │  ├─ actions.js                  # scene actions (Quick Select, HEOS favorite, Qobuz, set up, read)
 │  │  └─ triggers.js                 # scene triggers (input changed, track changed)
 │  ├─ denon/
 │  │  ├─ protocol.js                 # PURE: parse Telnet lines <-> feature values, build commands
@@ -448,6 +453,7 @@ notes Dependabot links in the PR body) and merge it like any other PR once CI is
 │  │  └─ discovery.js                # SSDP scan + UPnP description.xml parsing
 │  ├─ heos/
 │  │  ├─ protocol.js                 # PURE: parse HEOS CLI JSON lines, build heos:// commands
+│  │  ├─ qobuz.js                    # PURE: find Qobuz among the sources, match names, criteria
 │  │  └─ client.js                   # thin wrapper of denon/telnet.js for the HEOS CLI socket
 │  ├─ adbreak/                       # radio ad-break detection (opt-in)
 │  │  ├─ index.js                    # per-receiver controller: station, feed, volume ducking
@@ -558,11 +564,12 @@ Telnet otherwise), speak-on-a-speaker TTS playback (HEOS `browse/play_stream`, s
 speaker" above, with an announcement volume and a return to the previous state), now-playing
 metadata, Setup-menu remote-control keys (cursor pad, Enter/Return/Info/Menu, relative Volume
 Up/Down), zone selection (main zone by default, or Zone 2/3 — one zone per integration, not
-several zones side by side), SSDP discovery, five dashboard widgets, four scene actions, two
-scene triggers, a per-device connection badge.
+several zones side by side), SSDP discovery, five dashboard widgets, five scene actions (Qobuz
+playlists and albums by name among them), two scene triggers, a per-device connection badge.
 Deliberately out of scope for now: controlling several zones at once (one device per zone),
-HEOS-specific features beyond play/pause/next/previous and favorites by number (grouping, queue
-or favorites browsing, volume-per-player...), resuming what HEOS played before an announcement,
+HEOS-specific features beyond play/pause/next/previous, favorites by number and Qobuz playlists
+and albums by name (grouping, queue or favorites browsing, other services, single tracks,
+volume-per-player...), resuming what HEOS played before an announcement,
 and an HTTP fallback control channel — see the design notes at the top of
 [`src/devices/avr.js`](./src/devices/avr.js) and
 [`src/denon/discovery.js`](./src/denon/discovery.js).
