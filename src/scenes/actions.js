@@ -81,11 +81,11 @@ export function createSceneActionHandlers(getConfig) {
       const { externalId } = targetAvr(fields);
       const zone = normalizeZone(getConfig().zone);
       if (fields.power === 'off') {
-        await setPower(externalId, false, zone);
+        await setPower(externalId, false, zone, 'scene');
         return;
       }
       if (fields.power === 'on') {
-        await setPower(externalId, true, zone);
+        await setPower(externalId, true, zone, 'scene');
       }
       if (fields.source) {
         setSource(externalId, fields.source, zone);

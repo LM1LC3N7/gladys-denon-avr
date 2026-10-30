@@ -24,6 +24,13 @@ const DEFAULT_TIMING = Object.freeze({
   // the input switch has landed is exactly the "played on whichever zone HEOS
   // last used" case the switch is there to prevent.
   zoneSwitchDelayMs: 1500,
+  // After each Telnet connect, how long the main zone's ZM? may take to be
+  // answered before a receiver that answered PW? is taken for one without
+  // zones (./power.js). A real AVR answers ZM? within a few hundred ms.
+  powerProbeMs: 4_000,
+  // After a power command, how long the receiver has to report its power
+  // back before the device badge says "not confirmed" (./power.js).
+  powerConfirmMs: 5_000,
   // How often to actively re-query HEOS for playback state + now-playing
   // metadata while a player id is known, on top of reacting to its pushed
   // events. HEOS CLI connections are known to drop silently when idle (the

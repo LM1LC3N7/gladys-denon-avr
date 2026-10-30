@@ -17,6 +17,14 @@ These show up per receiver:
 - **Power** — on/off, controllable. Only ever the **main zone** (or the zone picked in
   Configuration, see "Zone" below): turning the receiver on from Gladys can no longer wake it up
   on Zone 2, and turning it off no longer cuts a Zone 2 someone is listening to.
+  Receivers **without zones** (stereo network amplifiers and systems: for example the Marantz
+  PM7000N, M-CR610/611, Denon DRA-100) ignore the zone power commands: right after
+  connecting, the integration notices that such a receiver answers the whole-unit power query but
+  not the zone one, and from then on switches it with `PWON`/`PWSTANDBY` (logged as "power mode
+  is now receiver without zones"). An AV receiver that answers the zone query keeps the zone
+  commands. Each power command is logged at info level with the exact command sent. The
+  detection was checked against the published protocols and simulated receivers, not yet against
+  a real PM7000N.
 - **Volume** — 0-100%, controllable (mapped from the receiver's internal -80 dB to +18 dB scale).
   Confirmed on real hardware: one specific percent (25% on the default scale) can never stay put —
   setting it snaps to 26% instead. This is a genuine hardware limit (the receiver only has 99
@@ -386,7 +394,13 @@ integration's data folder (`/data/ad-breaks.json`, `/data/ad-jingles/`).
   _unreachable_ = neither the Telnet control nor HEOS answers (receiver unplugged, network standby
   off, wrong IP); an **orange dot** flags a degraded mode, with the reason on hover — HEOS lists
   no player at the receiver's IP ("Speak on a speaker" will not work), or only HEOS answers (a
-  standalone HEOS speaker, or a receiver whose port 23 is closed).
+  standalone HEOS speaker, or a receiver whose port 23 is closed), or the receiver did not report
+  its power back within 5 s after an on/off command (the command is named; the dot goes away as
+  soon as the receiver reports its power again).
+- **On/Off does nothing**: look in the logs for `power on (device command) -> sent ...`. `ZMON`/
+  `ZMOFF` on a stereo amplifier means it was not detected as a receiver without zones: send the
+  log lines that follow `connected (main zone)` (or run `node scripts/debug-telnet.js <ip>` and
+  type `ZM?` then `PW?`). "Test connection" also shows which power commands are used.
 
 - **Nothing found by the scan**: check that Gladys and the receiver are on the same network
   segment and that multicast/UPnP is not filtered by your router or switches, then use the

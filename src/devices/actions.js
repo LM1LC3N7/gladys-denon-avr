@@ -7,13 +7,21 @@
 import { createLogger } from '@gladysassistant/integration-sdk';
 import { adBreakReport } from '../adbreak/index.js';
 import { reportText } from '../adbreak/insights.js';
-import { buildSourceCommand, normalizeZone } from '../denon/protocol.js';
+import { POWER_MODE, ZONE, buildSourceCommand, normalizeZone } from '../denon/protocol.js';
 import { visibleSourceCodes } from './features.js';
 import { getHeos, getState, getTelnet } from './registry.js';
 import { initialQueries } from './session.js';
+import { describePowerMode, getPowerMode } from './power.js';
 import { QobuzUnavailableError, listQobuzPlaylists } from './qobuz.js';
 
 const logger = createLogger({ name: 'avr' });
+
+// The French twin of describePowerMode() (./power.js), for "Test connection".
+const POWER_MODE_FR = {
+  [POWER_MODE.UNKNOWN]: 'zones pas encore détectées : ZMON/ZMOFF',
+  [POWER_MODE.ZONE]: 'ampli à zones : ZMON/ZMOFF',
+  [POWER_MODE.SYSTEM]: 'ampli sans zones : PWON/PWSTANDBY',
+};
 
 // Playlist names shown by "Qobuz: check" (the rest is counted).
 const SHOWN_PLAYLISTS = 30;
@@ -74,9 +82,15 @@ export async function runTestConnectionAction(gladys, { fields, config }) {
         ? 'connecté, mais aucun identifiant lecteur trouvé — Parler sur une enceinte ne fonctionnera pas sur cet ampli'
         : 'non connecté (pas de module HEOS, injoignable, ou pas encore confirmé)';
 
+  // Which power commands the main zone gets (./power.js); a secondary zone
+  // always gets its own Z2/Z3 ones.
+  const isMain = zone === ZONE.MAIN;
+  const powerModeEn = isMain ? ` (${describePowerMode(externalId)})` : '';
+  const powerModeFr = isMain ? ` (${POWER_MODE_FR[getPowerMode(externalId)]})` : '';
+
   return {
-    en: `Zone: ${zone}. Power: ${power}, Volume: ${state.volume ?? '?'}%, Mute: ${mute}, Source: ${state.source ?? '?'} (index ${sourceIndexText}), Sound mode: ${state.sound_mode ?? '?'}. HEOS: ${heosStatusEn}.`,
-    fr: `Zone : ${zone}. Alimentation : ${power}, Volume : ${state.volume ?? '?'}%, Muet : ${mute}, Source : ${state.source ?? '?'} (index ${sourceIndexText}), Mode sonore : ${state.sound_mode ?? '?'}. HEOS : ${heosStatusFr}.`,
+    en: `Zone: ${zone}. Power: ${power}${powerModeEn}, Volume: ${state.volume ?? '?'}%, Mute: ${mute}, Source: ${state.source ?? '?'} (index ${sourceIndexText}), Sound mode: ${state.sound_mode ?? '?'}. HEOS: ${heosStatusEn}.`,
+    fr: `Zone : ${zone}. Alimentation : ${power}${powerModeFr}, Volume : ${state.volume ?? '?'}%, Muet : ${mute}, Source : ${state.source ?? '?'} (index ${sourceIndexText}), Mode sonore : ${state.sound_mode ?? '?'}. HEOS : ${heosStatusFr}.`,
   };
 }
 

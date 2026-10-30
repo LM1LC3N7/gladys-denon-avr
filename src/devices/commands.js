@@ -5,7 +5,6 @@
 // -----------------------------------------------------------------------------
 
 import {
-  buildPowerCommand,
   buildVolumeCommand,
   buildMuteCommand,
   buildSourceCommand,
@@ -36,6 +35,7 @@ import {
 } from './features.js';
 import { getHeos, getState, getTelnet } from './registry.js';
 import { playAnnouncement } from './announcements.js';
+import { sendPower } from './power.js';
 
 /**
  * Dispatch a user command (`onSetValue`) to the right device's Telnet
@@ -153,10 +153,17 @@ export async function onSetValue(gladys, { device, feature, value, config }) {
     throw new Error(`${device.external_id} is not connected`);
   }
 
-  let command;
   if (key === FEATURE.POWER) {
-    command = buildPowerCommand(value === 1, zone);
-  } else if (key === FEATURE.VOLUME) {
+    // ZMON/ZMOFF, or PWON/PWSTANDBY on a receiver without zones; logged at
+    // info level with the command actually sent (./power.js).
+    if (!sendPower(telnet, device.external_id, value === 1, zone, 'device command')) {
+      throw new Error(`Failed to send command to ${device.external_id}`);
+    }
+    return;
+  }
+
+  let command;
+  if (key === FEATURE.VOLUME) {
     command = buildVolumeCommand(value, zone);
   } else if (key === FEATURE.MUTE) {
     // DEVICE_FEATURE_TYPES.TELEVISION.VOLUME_MUTE is a remote-control button

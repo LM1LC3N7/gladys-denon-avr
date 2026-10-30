@@ -10,6 +10,8 @@
 // Reference commands used by this integration:
 //   ZM?   / ZMON / ZMOFF               -> main zone power (see ZONE below)
 //   PWSTANDBY (push only)              -> whole unit in standby: every zone off
+//   PW?   / PWON / PWSTANDBY           -> power of a receiver WITHOUT zones
+//                                         (POWER_MODE.SYSTEM, see below)
 //   MV?   / MV<nn>                     -> master volume (raw scale, see below)
 //   MU?   / MUON / MUOFF               -> mute
 //   SI?   / SI<CODE>                   -> input source
@@ -69,6 +71,33 @@ const DENON_VOLUME_MAX = 98;
 // every other zone off puts the unit in standby all the same). For the same
 // reason a bare PWON push is NOT read as "main zone on" (it's also sent when
 // only Zone 2 wakes the unit up) — the ZMON/ZMOFF push that follows it is.
+//
+// Receivers WITHOUT zones are the exception: the stereo network models
+// (Marantz PM7000N, M-CR610/611, Denon DRA-100...) only know the
+// system PW commands. Their published protocols (Marantz "M-CR511/611
+// PROTOCOL Ver1.0.0", Denon "DRA-100 PROTOCOL Ver1.0.0") list PWON,
+// PWSTANDBY and PW? and no ZM command at all, and the python denonavr
+// library (MIT, behind Home Assistant) switches to PWON/PWSTANDBY/PW? for
+// receivers reporting a single zone since its PR #367 (Marantz M-CR610:
+// "Timeout waiting for confirmation of command: ZMOFF"). There, PW is safe:
+// there is no other zone to wake up or cut. src/devices/power.js detects
+// which kind of receiver it is talking to (POWER_MODE below); every power
+// builder/parser takes that mode and keeps ZM until a receiver is known to
+// have no zones.
+export const POWER_MODE = Object.freeze({
+  // Not detected yet: same as ZONE (today's behaviour, safe on an AVR).
+  UNKNOWN: 'unknown',
+  // Answers ZM?: main-zone power is ZMON/ZMOFF.
+  ZONE: 'zone',
+  // Answers PW? but never ZM?: power is PWON/PWSTANDBY (no zones).
+  SYSTEM: 'system',
+});
+
+/** Whether the main zone's power goes through the system PW commands. */
+function usesSystemPower(zone, powerMode) {
+  return powerMode === POWER_MODE.SYSTEM && zonePrefix(zone) === null;
+}
+
 export const ZONE = {
   MAIN: 'main',
   ZONE2: 'zone2',
@@ -173,7 +202,7 @@ export function denonVolumeToPercent(rawVolume) {
  * aren't per-zone (sound mode, Setup menu, NSE now-playing) are reported
  * whatever the zone.
  */
-export function parseLine(rawLine, zone = ZONE.MAIN) {
+export function parseLine(rawLine, zone = ZONE.MAIN, powerMode = POWER_MODE.UNKNOWN) {
   const line = String(rawLine).trim();
   if (line.length === 0) {
     return null;
@@ -183,7 +212,11 @@ export function parseLine(rawLine, zone = ZONE.MAIN) {
   if (line.startsWith('PWSTANDBY')) {
     return { feature: 'power', value: 0 };
   }
-  // PWON is deliberately ignored — see the comment above ZONE.
+  // A receiver without zones: PWON is its only "on" (POWER_MODE.SYSTEM).
+  if (line === 'PWON' && usesSystemPower(zone, powerMode)) {
+    return { feature: 'power', value: 1 };
+  }
+  // Otherwise PWON is deliberately ignored — see the comment above ZONE.
   if (line.startsWith('PW')) {
     return null;
   }
@@ -420,16 +453,27 @@ export function describeTunerFrequency(raw) {
 
 /**
  * Build the command that queries a zone's power state (no trailing CR).
- * Main zone: ZM? (not PW? — see the comment above ZONE). A secondary zone's
- * bare Z2?/Z3? query answers with its power, volume and source all at once.
+ * Main zone: ZM? (not PW? — see the comment above ZONE), PW? on a receiver
+ * without zones (POWER_MODE.SYSTEM). A secondary zone's bare Z2?/Z3? query
+ * answers with its power, volume and source all at once.
  */
-export function buildPowerQuery(zone = ZONE.MAIN) {
+export function buildPowerQuery(zone = ZONE.MAIN, powerMode = POWER_MODE.UNKNOWN) {
+  if (usesSystemPower(zone, powerMode)) {
+    return 'PW?';
+  }
   const prefix = zonePrefix(zone);
   return prefix ? `${prefix}?` : 'ZM?';
 }
 
-/** Build the command that turns a zone on/off (no trailing CR) — never the whole-unit PW commands. */
-export function buildPowerCommand(on, zone = ZONE.MAIN) {
+/**
+ * Build the command that turns a zone on/off (no trailing CR): ZMON/ZMOFF,
+ * Z2ON/Z2OFF... — never the whole-unit PW commands, except on a receiver
+ * without zones (POWER_MODE.SYSTEM: PWON/PWSTANDBY, its only power commands).
+ */
+export function buildPowerCommand(on, zone = ZONE.MAIN, powerMode = POWER_MODE.UNKNOWN) {
+  if (usesSystemPower(zone, powerMode)) {
+    return on ? 'PWON' : 'PWSTANDBY';
+  }
   const prefix = zonePrefix(zone) ?? 'ZM';
   return `${prefix}${on ? 'ON' : 'OFF'}`;
 }

@@ -35,6 +35,13 @@ TuneIn...) — see "Playback controls" below.
   the whole-unit `PWON`/`PWSTANDBY`: `PWON` wakes the receiver up restoring whichever zones were on
   last (so it could come back on Zone 2 alone), and `PWSTANDBY` also cuts Zone 2. A bare `PWON`
   push is likewise not read as "main zone on" (Zone 2 alone sends it too) — the `ZMON` push is.
+  Exception, receivers **without zones** (Marantz PM7000N, M-CR610/611, Denon DRA-100...):
+  their protocol has no `ZM` at all, so `src/devices/power.js` detects them after each connect
+  (`PW?` answered, `ZM?` not within `timing.powerProbeMs`) and uses `PWON`/`PWSTANDBY`/`PW?`
+  (`POWER_MODE.SYSTEM`) for the main zone only; one `ZMON`/`ZMOFF` line ever seen keeps
+  `ZMON`/`ZMOFF` for good. Same rule as python denonavr (MIT) for one-zone receivers (its PR #367).
+  Every power command is logged at info level, and one left unanswered for
+  `timing.powerConfirmMs` turns the device badge degraded, naming the command.
   `parseLine(line, zone)` drops other zones' lines (`Z2...`/`Z3...` in main-zone mode, `ZM`/`MV`/
   `MU`/`SI` in secondary-zone mode). On the HEOS side, a multi-zone AVR can expose one player per
   zone on the same IP: `findPlayerIdByIp(payload, ip, zone)` picks the one named after the zone

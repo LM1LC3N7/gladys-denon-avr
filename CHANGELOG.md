@@ -10,6 +10,23 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+### Fixed
+
+- On/Off did nothing on receivers without zones, such as the Marantz PM7000N
+  (forum topic 10722): their protocol has no zone power command (`ZMON`/
+  `ZMOFF`), only the whole-unit `PWON`/`PWSTANDBY`. The integration now
+  detects them right after connecting (they answer `PW?` but not `ZM?`) and
+  uses `PWON`/`PWSTANDBY` for power and `PW?`/`PWON` for its state, there and
+  in "Speak on a speaker" (power on before, back to standby after). AV
+  receivers with zones keep `ZMON`/`ZMOFF`.
+
+### Added
+
+- Each power command is logged at info level with the exact command sent, and
+  a command the receiver does not confirm within 5 s turns the device badge
+  orange, naming the command. "Test connection" tells which power commands
+  the receiver gets.
+
 ## [1.1.0] - 2026-10-15
 
 ### Added

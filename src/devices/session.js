@@ -25,6 +25,8 @@ import {
   buildQuickSelectQuery,
   buildTunerQueries,
   normalizeZone,
+  POWER_MODE,
+  ZONE,
 } from '../denon/protocol.js';
 import {
   FEATURE,
@@ -42,10 +44,12 @@ import {
   setSession,
   updateState,
   getState,
+  timing,
 } from './registry.js';
 import { openHeosSession } from './heos-session.js';
 import { forgetHealth, reportHealth } from './transport.js';
 import { cancelAnnouncement } from './announcements.js';
+import { forgetPower, getPowerMode, notePowerReport, setPowerMode } from './power.js';
 
 const logger = createLogger({ name: 'avr' });
 
@@ -53,12 +57,15 @@ const logger = createLogger({ name: 'avr' });
  * The state queries for one zone, deduplicated: a secondary zone's bare
  * Z2?/Z3? answers power, volume and source at once, so it's only sent once.
  * Sound mode (MS?) is the main zone's, but reported whatever the zone — see
- * parseLine() in ../denon/protocol.js.
+ * parseLine() in ../denon/protocol.js. The main zone asks both ZM? and PW?:
+ * which of the two the receiver answers tells one with zones from one
+ * without (./power.js).
  */
 export function initialQueries(zone) {
   return [
     ...new Set([
       buildPowerQuery(zone),
+      buildPowerQuery(zone, POWER_MODE.SYSTEM),
       buildVolumeQuery(zone),
       buildMuteQuery(zone),
       buildSourceQuery(zone),
@@ -99,12 +106,63 @@ export function connectDevice(gladys, device, config) {
   // reported itself up — and must never move the badge of its successor.
   const isCurrent = (field, client) => getSession(externalId)?.[field] === client;
 
+  // Zones or not (./power.js), probed after every connect of the main zone:
+  // what the receiver answered to ZM? and PW? within timing.powerProbeMs.
+  let probe = null;
+  const stopProbe = () => {
+    clearTimeout(probe?.timer);
+    probe = null;
+  };
+  const startProbe = () => {
+    stopProbe();
+    if (zone !== ZONE.MAIN) {
+      return;
+    }
+    const current = { sawPw: false, sawZm: false };
+    // Cleared by the next connect, a disconnect and disconnectDevice().
+    current.timer = setTimeout(() => {
+      probe = null;
+      if (current.sawZm || !current.sawPw) {
+        if (!current.sawZm) {
+          logger.info(`${externalId}: no answer to ZM? nor PW? yet, power mode unchanged`);
+        }
+        return;
+      }
+      if (getPowerMode(externalId) === POWER_MODE.ZONE) {
+        // Once a ZM answer was seen, never PW: on an AVR it would also wake
+        // or cut Zone 2. A missed answer is not proof of "no zones".
+        logger.info(`${externalId}: ZM? unanswered this time, keeping ZMON/ZMOFF`);
+        return;
+      }
+      setPowerMode(externalId, POWER_MODE.SYSTEM, 'PW? answered but ZM? did not (no zones)');
+      // The PW answer that came in before was ignored (PWON means nothing
+      // in zone mode): ask again, now read in this mode.
+      telnet.send(buildPowerQuery(zone, POWER_MODE.SYSTEM));
+    }, timing.powerProbeMs);
+    current.timer.unref?.();
+    probe = current;
+  };
+  // Seen before parseLine(): detection only, the parsing is mode-aware.
+  // Without a probe (another zone) a ZM line still marks the receiver as
+  // one with zones, which secondary zones ignore anyway.
+  const observePowerLine = (line) => {
+    if (line === 'ZMON' || line === 'ZMOFF') {
+      if (probe) {
+        probe.sawZm = true;
+      }
+      setPowerMode(externalId, POWER_MODE.ZONE, `answered ${line}`);
+    } else if ((line === 'PWON' || line === 'PWSTANDBY') && probe) {
+      probe.sawPw = true;
+    }
+  };
+
   const telnet = createTelnetClient({
     host,
     port,
     reconnectIntervalSeconds: config.reconnect_interval_seconds,
     onConnect: () => {
       logger.info(`${externalId}: connected (${zone} zone), seeding initial state`);
+      startProbe();
       for (const query of initialQueries(zone)) {
         telnet.send(query);
       }
@@ -116,13 +174,23 @@ export function connectDevice(gladys, device, config) {
         telnet.send(query);
       }
       if (isCurrent('telnet', telnet)) {
-        reportHealth(gladys, externalId, { telnetUp: true, telnetFailures: 0, host, port });
+        reportHealth(gladys, externalId, {
+          telnetUp: true,
+          telnetFailures: 0,
+          powerUnconfirmed: null,
+          host,
+          port,
+        });
       }
     },
     onLine: (line) => {
-      const update = parseLine(line, zone);
+      observePowerLine(line.trim());
+      const update = parseLine(line, zone, getPowerMode(externalId));
       if (!update) {
         return;
+      }
+      if (update.feature === FEATURE.POWER) {
+        notePowerReport(externalId, update.value);
       }
       const isNowPlayingLine =
         update.feature === STATE.NOW_PLAYING_TITLE || update.feature === STATE.NOW_PLAYING_ARTIST;
@@ -182,6 +250,7 @@ export function connectDevice(gladys, device, config) {
       }
     },
     onDisconnect: (consecutiveFailures) => {
+      stopProbe();
       if (!isCurrent('telnet', telnet)) {
         return;
       }
@@ -194,7 +263,16 @@ export function connectDevice(gladys, device, config) {
     },
   });
 
-  setSession(externalId, { telnet, host, device });
+  setSession(externalId, {
+    telnet,
+    host,
+    device,
+    stopProbe,
+    // ./power.js: a power command the receiver did not confirm (its
+    // command), or null once it reports its power again.
+    reportPower: (powerUnconfirmed) =>
+      reportHealth(gladys, externalId, { powerUnconfirmed, host, port }),
+  });
 
   heos = openHeosSession(gladys, device, {
     host,
@@ -244,8 +322,10 @@ export function refreshDevice(gladys, device, config) {
 export function disconnectDevice(externalId) {
   const session = getSession(externalId);
   session?.telnet?.stop();
+  session?.stopProbe?.();
   session?.heos?.stop?.();
   cancelAnnouncement(externalId);
+  forgetPower(externalId);
   deleteSession(externalId);
   forgetHealth(externalId);
 }

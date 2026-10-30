@@ -9,7 +9,6 @@
 // -----------------------------------------------------------------------------
 
 import {
-  buildPowerCommand,
   buildSourceCommand,
   buildSoundModeCommand,
   buildVolumeCommand,
@@ -23,6 +22,7 @@ import {
   buildSetVolumeCommand as buildHeosSetVolumeCommand,
 } from '../heos/protocol.js';
 import { HEOS_SOURCE_CODE, TUNER_SOURCE_CODE } from './features.js';
+import { sendPower } from './power.js';
 import {
   getHeos,
   getState,
@@ -90,7 +90,8 @@ async function ensureZoneOn(externalId, zone, sourceCode) {
   const state = getState(externalId);
   let switched = false;
   if (state.power !== 1) {
-    telnet.send(buildPowerCommand(true, zone));
+    // PWON on a receiver without zones, ZMON otherwise (./power.js).
+    sendPower(telnet, externalId, true, zone, 'before a HEOS stream or the tuner');
     switched = true;
   }
   if (sourceCode && state.source !== sourceCode) {
@@ -104,8 +105,10 @@ async function ensureZoneOn(externalId, zone, sourceCode) {
 }
 
 /** Turn the configured zone on (pausing for it to wake up) or off. */
-export async function setPower(externalId, on, zone) {
-  sendTelnet(externalId, buildPowerCommand(on, normalizeZone(zone)));
+export async function setPower(externalId, on, zone, origin = 'scene or widget') {
+  if (!sendPower(requireTelnet(externalId), externalId, on, normalizeZone(zone), origin)) {
+    throw new Error(`Failed to send command to ${externalId}`);
+  }
   if (on && getState(externalId).power !== 1) {
     await settle(timing.zoneSwitchDelayMs);
   }

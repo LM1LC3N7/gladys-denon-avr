@@ -115,7 +115,7 @@ async function restore(externalId, entry) {
     setSource(externalId, snapshot.source, zone);
   }
   if (snapshot.power === 0 && state.power !== 0) {
-    await setPower(externalId, false, zone);
+    await setPower(externalId, false, zone, 'back to standby after an announcement');
   }
 }
 

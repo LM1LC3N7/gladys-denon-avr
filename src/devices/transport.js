@@ -11,6 +11,8 @@
 //
 // What each receiver shows:
 //   - Telnet up                       -> local (nominal);
+//   - Telnet up, a power command left unanswered (./power.js)
+//                                     -> local, degraded (names the command);
 //   - Telnet up, HEOS answering but no player at this IP
 //                                     -> local, degraded ("Speak on a speaker"
 //                                        cannot work: multi-NIC / IP mismatch);
@@ -31,11 +33,15 @@ const logger = createLogger({ name: 'avr' });
 // as not reachable over Telnet (the backoff makes 3 attempts ~1 min).
 export const CONNECTION_FAILURE_THRESHOLD = 3;
 
-// external_id -> { telnetUp, telnetFailures, heosMatch, host, port, published }
+// external_id -> { telnetUp, telnetFailures, heosMatch, powerUnconfirmed, host, port, published }
 const health = new Map();
 registerResetHook(() => health.clear());
 
 const MESSAGES = {
+  powerUnconfirmed: (command) => ({
+    en: `Power command ${command} sent, but the receiver did not report its power back: on/off is not confirmed.`,
+    fr: `Commande d'alimentation ${command} envoyée, mais l'ampli n'a pas renvoyé son état : marche/arrêt non confirmé.`,
+  }),
   heosUnmatched: (host) => ({
     en: `HEOS answers but lists no player at ${host}: "Speak on a speaker" and HEOS playback cannot work.`,
     fr: `HEOS répond mais n'a aucun lecteur à ${host} : « Parler sur une enceinte » et la lecture HEOS ne fonctionneront pas.`,
@@ -51,8 +57,19 @@ const MESSAGES = {
 };
 
 /** The badge entry of one receiver, or null when it is too early to say. Pure. */
-export function computeTransport(externalId, { telnetUp, telnetFailures, heosMatch, host, port }) {
+export function computeTransport(
+  externalId,
+  { telnetUp, telnetFailures, heosMatch, powerUnconfirmed, host, port },
+) {
   if (telnetUp) {
+    if (powerUnconfirmed) {
+      return {
+        external_id: externalId,
+        transport: DEVICE_TRANSPORTS.LOCAL,
+        degraded: true,
+        message: MESSAGES.powerUnconfirmed(powerUnconfirmed),
+      };
+    }
     if (heosMatch === HEOS_MATCH.UNMATCHED) {
       return {
         external_id: externalId,
