@@ -37,12 +37,13 @@ TuneIn...) — see "Playback controls" below.
   push is likewise not read as "main zone on" (Zone 2 alone sends it too) — the `ZMON` push is.
   Exception, receivers **without zones** (Marantz PM7000N, M-CR610/611, Denon DRA-100...):
   their protocol has no `ZM` at all, so the main zone uses `PWON`/`PWSTANDBY`/`PW?`
-  (`POWER_MODE.SYSTEM`) there. `src/devices/power.js` decides, strongest source first:
-  `DeviceZones` in `/goform/Deviceinfo.xml` (port 80, then 8080; 1 = no zones, as python
-  denonavr, MIT, does), then any `ZM`/`Z2`/`Z3` line ever seen (zones; kept in
-  `/data/power-modes.json` per device and IP), then, only without `DeviceZones` and with a
-  readable `/data`, a Telnet probe: `PW?` answered while `ZM?` (asked again alone) and `Z2?` are
-  not. In doubt: `ZMON`/`ZMOFF`. Every power command is logged at info level, re-queried after
+  (`POWER_MODE.SYSTEM`) there. `src/devices/power.js` decides, strongest source first: a
+  `Z2`/`Z3` line (zones, always); `DeviceZones` read this session from `/goform/Deviceinfo.xml`
+  (port 80, then 8080; 1 = no zones, as python denonavr, MIT, does); a `ZM` line or a saved
+  verdict (zones); then, only without `DeviceZones` and with a readable `/data`, a Telnet probe:
+  `PW?` answered while `ZM?` (asked again alone) and `Z2?` are not. In doubt: `ZMON`/`ZMOFF`.
+  `/data/power-modes.json` keeps only "with zones" verdicts (per device and IP, deleted with the
+  device). Every power command is logged at info level, re-queried after
   `timing.powerReadBackMs`, and one left unanswered for `timing.powerConfirmMs` turns the device
   badge degraded, naming the command.
   `parseLine(line, zone)` drops other zones' lines (`Z2...`/`Z3...` in main-zone mode, `ZM`/`MV`/

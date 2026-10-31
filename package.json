@@ -10,7 +10,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "node --test --test-timeout=60000",
+    "test": "node --test --test-timeout=60000 --test-force-exit",
     "test:coverage": "node --test --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-include=index.js --test-coverage-lines=95 --test-coverage-branches=90 --test-coverage-functions=95",
     "audit": "npm audit --omit=dev"
   },

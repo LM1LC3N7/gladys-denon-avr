@@ -47,7 +47,13 @@ import {
 import { openHeosSession } from './heos-session.js';
 import { forgetHealth, reportHealth } from './transport.js';
 import { cancelAnnouncement } from './announcements.js';
-import { createPowerDetector, forgetPower, getPowerMode, notePowerReport } from './power.js';
+import {
+  createPowerDetector,
+  forgetPower,
+  forgetSavedPower,
+  getPowerMode,
+  notePowerReport,
+} from './power.js';
 
 const logger = createLogger({ name: 'avr' });
 
@@ -276,21 +282,28 @@ export function refreshDevice(gladys, device, config) {
   connectDevice(gladys, device, config);
 }
 
-/** Close and forget the persistent sessions of one device, if any. */
-export function disconnectDevice(externalId) {
+/**
+ * Close and forget the persistent sessions of one device, if any — and its
+ * saved power mode (./power.js), unless `keepSaved` (shutdown, config
+ * change): a device deleted or moved may come back as another receiver.
+ */
+export function disconnectDevice(externalId, { keepSaved = false } = {}) {
   const session = getSession(externalId);
   session?.telnet?.stop();
   session?.power?.stop?.();
   session?.heos?.stop?.();
   cancelAnnouncement(externalId);
   forgetPower(externalId);
+  if (!keepSaved) {
+    forgetSavedPower(externalId);
+  }
   deleteSession(externalId);
   forgetHealth(externalId);
 }
 
-/** Close every open session (graceful shutdown). */
+/** Close every open session (graceful shutdown, config change): saved power modes stay. */
 export function disconnectAllDevices() {
   for (const externalId of sessionIds()) {
-    disconnectDevice(externalId);
+    disconnectDevice(externalId, { keepSaved: true });
   }
 }

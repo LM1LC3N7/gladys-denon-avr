@@ -26,8 +26,13 @@ Voici ce qui apparaît par ampli :
   `PWON`/`PWSTANDBY` ; deux ou plus, les commandes de zone. Sans cette page, elle se fie aux
   réponses Telnet : `PWON`/`PWSTANDBY` seulement si l'ampli répond à la question d'alimentation
   de l'appareil entier et ni à celle de la zone principale (posée deux fois) ni à celle de la
-  Zone 2. Dans le doute, elle garde les commandes de zone. Un ampli qui a répondu une fois à une
-  question de zone est retenu dans les données de l'intégration, redémarrage compris. Le choix est
+  Zone 2. Dans le doute, elle garde les commandes de zone, et une réponse de la Zone 2 ou de la
+  Zone 3 veut toujours dire « avec zones », quoi que dise la page. Seul « avec zones » est retenu
+  dans les données de l'intégration (pour cet appareil et cette adresse IP, effacé avec
+  l'appareil), donc aussi après un redémarrage ; « sans zones » est redécidé à chaque démarrage.
+  Limite connue : un ampli home-cinéma sans cette page qui, à sa toute première connexion, perd
+  les trois réponses de zone est pris pour un ampli sans zones jusqu'à ce qu'il en donne une. Le
+  choix est
   noté dans les logs (« power mode is now … ») et affiché par « Tester la connexion » ; chaque
   commande d'alimentation est notée (niveau info) avec la commande exacte envoyée. Vérifié sur les
   protocoles publiés et des amplis simulés, pas encore sur un vrai PM7000N.

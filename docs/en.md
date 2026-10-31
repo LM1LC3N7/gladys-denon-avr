@@ -23,8 +23,12 @@ These show up per receiver:
   `Deviceinfo.xml` page (HTTP, port 80 or 8080): one zone means `PWON`/`PWSTANDBY`, two or more
   the zone commands. Without that page, it falls back on what the receiver answers over Telnet:
   `PWON`/`PWSTANDBY` only if it answers the whole-unit power query and neither the main-zone query
-  (asked twice) nor the Zone 2 query. In doubt, it keeps the zone commands. A receiver once seen
-  answering a zone query is remembered in the integration's data, restart included. The choice is
+  (asked twice) nor the Zone 2 query. In doubt, it keeps the zone commands, and a Zone 2 or Zone 3
+  answer always means zones, whatever the page says. Only "with zones" is remembered in the
+  integration's data (for that device and IP address, deleted with the device), so it also
+  applies after a restart; "without zones" is decided again at each start. Known limit: an AV
+  receiver without that page, on its very first connection, that loses all three zone answers is
+  taken for one without zones until it answers one. The choice is
   logged ("power mode is now ...") and shown by "Test connection"; each power command is logged at
   info level with the exact command sent. Checked against the published protocols and simulated
   receivers, not yet against a real PM7000N.

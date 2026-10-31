@@ -18,9 +18,12 @@ the notes of the version's GitHub Release.
   the number of zones the receiver declares (`DeviceZones` in its
   `Deviceinfo.xml` page, port 80 or 8080). Without that page, it checks what
   the receiver answers over Telnet, and switches to `PWON`/`PWSTANDBY` only
-  when it answers the whole-unit power query and none of the zone queries. In
-  doubt, and on every AV receiver with zones, power stays `ZMON`/`ZMOFF`, so
-  Zone 2 is never cut. A receiver seen with zones is remembered in `/data`.
+  when it answers the whole-unit power query and none of the zone queries. A
+  Zone 2 or Zone 3 answer always means zones. In doubt, power stays
+  `ZMON`/`ZMOFF`. Only "with zones" is remembered in `/data`, and the entry is
+  deleted with the device. Known limit: an AV receiver without that page, on
+  its very first connection, that loses all three zone answers is taken for
+  one without zones until it answers one.
   "Speak on a speaker" uses the same commands (power on before, back to
   standby after).
 

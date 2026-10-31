@@ -8,18 +8,25 @@
 // (forum topic 10722, post 35: On/Off did nothing on a PM7000N).
 //
 // How a receiver is classified (POWER_MODE), per device, strongest first:
-//   1. DeviceZones in /goform/Deviceinfo.xml (HTTP, port 80 then 8080, read
+//   1. A Z2/Z3 line (this session, or saved): the receiver has a Zone 2 ->
+//      ZONE, whatever any other source says.
+//   2. DeviceZones in /goform/Deviceinfo.xml (HTTP, port 80 then 8080, read
 //      once per session), the signal python denonavr (MIT) switches on:
-//      2 or more -> ZONE, 1 -> SYSTEM. Nothing else overrides it.
-//   2. A ZM or Z2/Z3 line ever seen on this receiver's Telnet session ->
-//      ZONE. Kept in /data (with DeviceZones), per device and IP address, so
-//      a restart starts from it instead of probing again.
-//   3. Only when Deviceinfo.xml gave no DeviceZones and /data is readable,
+//      2 or more -> ZONE, 1 -> SYSTEM. A ZM line does not override a 1 read
+//      this session: some one-zone units answer ZM? yet ignore ZMON/ZMOFF.
+//   3. A ZM line (this session or saved), or DeviceZones >= 2 saved -> ZONE.
+//   4. Only when Deviceinfo.xml gave no DeviceZones and /data is readable,
 //      the Telnet probe: PW? answered, and none of ZM?, Z2? (sent with the
 //      first queries) and a second ZM? sent alone answered by any ZM/Z2/Z3
-//      line -> SYSTEM. A later ZM/Z2/Z3 line turns it back to ZONE.
+//      line -> SYSTEM. Known limit: an AV receiver without Deviceinfo.xml,
+//      on its very first connection, losing all three zone answers.
 //   In doubt (nothing answered, probe cut by a disconnect, Deviceinfo.xml
 //   still being read): POWER_MODE.UNKNOWN, i.e. ZMON/ZMOFF as in 1.1.0.
+//
+// /data keeps only verdicts in the safe direction ("with zones": DeviceZones
+// >= 2, a ZM line, a Z2/Z3 line), per device and IP address, never "without
+// zones": that one must come from the current session. The entry is deleted
+// with the device.
 //
 // Every power command sent is logged at info level with the exact command,
 // re-queried after timing.powerReadBackMs and followed for
@@ -36,7 +43,7 @@ import { getSession, registerResetHook, timing } from './registry.js';
 const logger = createLogger({ name: 'avr' });
 
 // How sure a mode is: a weaker source never replaces a stronger one.
-const RANK = Object.freeze({ PROBE: 1, ZONE_LINE: 2, DEVICE_INFO: 3 });
+const RANK = Object.freeze({ PROBE: 1, ZONE_LINE: 2, DEVICE_INFO: 3, ZONE2_LINE: 4 });
 
 // Deviceinfo.xml: bounded in size and time, like every other answer.
 const DEVICE_INFO_MAX_BYTES = 64 * 1024;
@@ -46,7 +53,7 @@ const DEVICE_INFO_TIMEOUT_MS = 3_000;
 const modes = new Map();
 // external_id -> { timer, readBack, value, command }: a power command awaiting its report.
 const pending = new Map();
-// The /data store, loaded once: { ok, data: { [external_id]: { host, deviceZones?, zone? } } }.
+// The /data store, loaded once: { ok, data: { [external_id]: { host, deviceZones?, zone?, zone2? } } }.
 let storePromise = null;
 let saving = Promise.resolve();
 
@@ -85,7 +92,7 @@ export function setPowerMode(externalId, mode, reason, rank = RANK.PROBE) {
   if (current && current.rank > rank) {
     return false;
   }
-  modes.set(externalId, { mode, rank: Math.max(rank, current?.rank ?? 0) });
+  modes.set(externalId, { mode, rank }); // rank >= current.rank here
   if ((current?.mode ?? POWER_MODE.UNKNOWN) === mode) {
     return false;
   }
@@ -179,11 +186,13 @@ function validEntry(entry) {
   if (!entry || typeof entry !== 'object' || typeof entry.host !== 'string') {
     return null;
   }
+  // Only "with zones" verdicts: a stored 1 (older file) is dropped.
   const deviceZones = Number.isInteger(entry.deviceZones) ? entry.deviceZones : undefined;
   return {
     host: entry.host,
-    ...(deviceZones >= 1 && deviceZones <= 9 ? { deviceZones } : {}),
+    ...(deviceZones >= 2 && deviceZones <= 9 ? { deviceZones } : {}),
     ...(entry.zone === true ? { zone: true } : {}),
+    ...(entry.zone2 === true ? { zone2: true } : {}),
   };
 }
 
@@ -234,11 +243,25 @@ async function remember(externalId, host, fields) {
   }
   const before = store.data[externalId];
   const base = before?.host === host ? before : { host };
-  const next = { ...base, ...fields };
-  if (JSON.stringify(next) === JSON.stringify(before)) {
-    return;
+  const next = JSON.parse(JSON.stringify({ ...base, ...fields }));
+  if (JSON.stringify(next) === JSON.stringify(before ?? { host })) {
+    return; // Unchanged, or nothing worth saving.
   }
   store.data[externalId] = next;
+  await writeStore(store);
+}
+
+/** Delete the stored entry of one receiver (device deleted). */
+export async function forgetSavedPower(externalId) {
+  const store = await loadStore();
+  if (!store.ok || !(externalId in store.data)) {
+    return;
+  }
+  delete store.data[externalId];
+  await writeStore(store);
+}
+
+async function writeStore(store) {
   const snapshot = JSON.stringify(store.data);
   saving = saving
     .then(async () => {
@@ -340,10 +363,15 @@ export function createPowerDetector({ externalId, host, zone, send, fetchFn = fe
   // Deviceinfo.xml gave nothing and /data is readable).
   let probeSaysSystem = false;
 
-  const applyDeviceZones = (zones, from) => {
+  const applyDeviceZones = (zones) => {
     const mode = zones >= 2 ? POWER_MODE.ZONE : POWER_MODE.SYSTEM;
     if (
-      setPowerMode(externalId, mode, `${from} says DeviceZones=${zones}`, RANK.DEVICE_INFO) &&
+      setPowerMode(
+        externalId,
+        mode,
+        `Deviceinfo.xml says DeviceZones=${zones}`,
+        RANK.DEVICE_INFO,
+      ) &&
       mode === POWER_MODE.SYSTEM
     ) {
       // A PW answer already received was not read in the old mode.
@@ -381,10 +409,23 @@ export function createPowerDetector({ externalId, host, zone, send, fetchFn = fe
       storeOk = store.ok;
       const saved = store.data[externalId];
       if (saved?.host === host) {
-        if (saved.deviceZones) {
-          applyDeviceZones(saved.deviceZones, 'saved Deviceinfo.xml');
-        } else if (saved.zone) {
-          setPowerMode(externalId, POWER_MODE.ZONE, 'answered ZM/Z2 before', RANK.ZONE_LINE);
+        if (saved.zone2) {
+          setPowerMode(
+            externalId,
+            POWER_MODE.ZONE,
+            'saved: answered Z2/Z3 before',
+            RANK.ZONE2_LINE,
+          );
+        } else if (saved.deviceZones || saved.zone) {
+          // Below a DeviceZones read this session (a box swapped at that IP).
+          setPowerMode(
+            externalId,
+            POWER_MODE.ZONE,
+            saved.deviceZones
+              ? `saved: DeviceZones=${saved.deviceZones} before`
+              : 'saved: answered ZM before',
+            RANK.ZONE_LINE,
+          );
         }
       }
       decide();
@@ -396,13 +437,14 @@ export function createPowerDetector({ externalId, host, zone, send, fetchFn = fe
       deviceZones = zones;
       if (zones === null) {
         logger.info(
-          `${externalId}: no DeviceZones in Deviceinfo.xml, power mode from Telnet answers`,
+          `${externalId}: no DeviceZones in Deviceinfo.xml, power mode stays "${describePowerMode(externalId)}" until the Telnet answers or saved data decide`,
         );
         decide();
         return;
       }
-      applyDeviceZones(zones, 'Deviceinfo.xml');
-      remember(externalId, host, { deviceZones: zones });
+      applyDeviceZones(zones);
+      // Only "with zones" is saved; a 1 also drops an older saved count.
+      remember(externalId, host, { deviceZones: zones >= 2 ? zones : undefined });
     });
   }
 
@@ -448,14 +490,21 @@ export function createPowerDetector({ externalId, host, zone, send, fetchFn = fe
         return;
       }
       if (ZONE_LINE.test(line)) {
+        const isZm = line.startsWith('ZM');
         if (probe) {
           probe.sawZone = true;
-          probe.sawZm ||= line.startsWith('ZM');
+          probe.sawZm ||= isZm;
         }
         probeSaysSystem = false;
-        if (setPowerMode(externalId, POWER_MODE.ZONE, `answered ${line}`, RANK.ZONE_LINE)) {
-          remember(externalId, host, { zone: true });
-        }
+        // A Zone 2/3 line proves zones over anything; a ZM line over all
+        // but a DeviceZones=1 read this session (see the header).
+        setPowerMode(
+          externalId,
+          POWER_MODE.ZONE,
+          `answered ${line}`,
+          isZm ? RANK.ZONE_LINE : RANK.ZONE2_LINE,
+        );
+        remember(externalId, host, isZm ? { zone: true } : { zone2: true });
       } else if ((line === 'PWON' || line === 'PWSTANDBY') && probe) {
         probe.sawPw = true;
       }

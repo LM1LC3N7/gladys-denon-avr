@@ -19,6 +19,7 @@ import {
   FEATURE,
   buildDiscoveredDevice,
   connectDevice,
+  disconnectAllDevices,
   disconnectDevice,
   featureExternalId,
   onSetValue,
@@ -27,6 +28,7 @@ import {
 import { initialQueries } from '../src/devices/session.js';
 import {
   __flushPowerStoreForTesting,
+  createPowerDetector,
   describePowerMode,
   fetchDeviceZones,
   getPowerMode,
@@ -242,8 +244,12 @@ async function startDeviceInfo(body, delayMs = 0) {
   process.env.DENON_DEVICEINFO_PORTS = String(port);
   return {
     port,
+    // Safe to call twice (in a try and again in its finally).
     close: () => {
       process.env.DENON_DEVICEINFO_PORTS = '';
+      if (!server.listening) {
+        return Promise.resolve();
+      }
       server.closeAllConnections();
       return new Promise((resolve) => server.close(resolve));
     },
@@ -485,27 +491,201 @@ test('a device closed while Deviceinfo.xml is read gets no verdict from it', asy
   }
 });
 
-test('a saved DeviceZones applies at once after a restart, Deviceinfo.xml unreachable', async () => {
-  const info = await startDeviceInfo(deviceInfoXml(1));
+const readStore = async () => {
+  await __flushPowerStoreForTesting();
+  try {
+    return JSON.parse(await fs.readFile(STORE, 'utf8'));
+  } catch {
+    return {};
+  }
+};
+
+test('DeviceZones=1 is never saved, DeviceZones=2 is, and applies after a restart with every zone answer lost', async () => {
+  const one = await startDeviceInfo(deviceInfoXml(1));
   const gladys = createFakeGladys();
-  const rx = await startReceiver({ zones: false });
+  const stereo = await startReceiver({ zones: false });
+  const s = connect(gladys, stereo);
+  try {
+    await waitFor(() => getPowerMode(s.id) === POWER_MODE.SYSTEM, 'SYSTEM mode');
+    assert.equal((await readStore())[s.id], undefined, '"no zones" is not saved');
+  } finally {
+    disconnectDevice(s.id);
+    await stereo.close();
+    await one.close();
+  }
+
+  const two = await startDeviceInfo(deviceInfoXml(2));
+  const rx = await startReceiver({ zones: true, zone2: true, dropZm: 99, answerZ2: false });
   let c = connect(gladys, rx);
   try {
-    await waitFor(() => getPowerMode(c.id) === POWER_MODE.SYSTEM, 'SYSTEM mode');
-    await __flushPowerStoreForTesting();
-    assert.deepEqual(JSON.parse(await fs.readFile(STORE, 'utf8'))[c.id], {
-      host: '127.0.0.1',
-      deviceZones: 1,
-    });
-    disconnectDevice(c.id);
-    await info.close();
+    await waitFor(() => getPowerMode(c.id) === POWER_MODE.ZONE, 'ZONE mode');
+    assert.deepEqual((await readStore())[c.id], { host: '127.0.0.1', deviceZones: 2 });
+    await two.close();
     __clearConnectionsForTesting(); // A restart: nothing left in memory.
     c = connect(gladys, rx);
-    await waitFor(() => getPowerMode(c.id) === POWER_MODE.SYSTEM, 'SYSTEM from /data', 100);
+    await waitFor(() => getPowerMode(c.id) === POWER_MODE.ZONE, 'ZONE from /data', 100);
+    await tick(PROBE_DONE_MS);
+    assert.equal(getPowerMode(c.id), POWER_MODE.ZONE);
+  } finally {
+    disconnectDevice(c.id);
+    await rx.close();
+    await two.close();
+  }
+});
+
+test('a "no zones" entry left by an older version is ignored: an AVR at that IP keeps ZMOFF (H4)', async () => {
+  const gladys = createFakeGladys();
+  const rx = await startReceiver({ zones: true, main: true, zone2: true });
+  const id = `avr:udn-${rx.port}`;
+  await fs.writeFile(STORE, JSON.stringify({ [id]: { host: '127.0.0.1', deviceZones: 1 } }));
+  const c = connect(gladys, rx);
+  try {
+    assert.equal(c.id, id);
+    await tick(PROBE_DONE_MS);
+    assert.equal(getPowerMode(c.id), POWER_MODE.ZONE);
+    await setPower(gladys, c, 0);
+    await tick(100);
+    assert.deepEqual(rx.powerCommands(), ['ZMOFF']);
+    assert.equal(rx.zone2, true);
+    assert.equal((await readStore())[id].deviceZones, undefined);
   } finally {
     disconnectDevice(c.id);
     await rx.close();
   }
+});
+
+test('Deviceinfo.xml says 1 but the receiver answers Z2?: zones win, now and after a restart (H6, H8)', async () => {
+  const info = await startDeviceInfo(deviceInfoXml(1), 50);
+  const gladys = createFakeGladys();
+  const rx = await startReceiver({ zones: true, main: true, zone2: true });
+  let c = connect(gladys, rx);
+  try {
+    await waitFor(() => rx.received.includes('Z2?'), 'Z2? sent');
+    await tick(200); // Deviceinfo.xml read too.
+    assert.equal(getPowerMode(c.id), POWER_MODE.ZONE);
+    rx.push('Z2ON');
+    await setPower(gladys, c, 0);
+    await tick(100);
+    assert.deepEqual(rx.powerCommands(), ['ZMOFF']);
+    assert.equal(rx.zone2, true);
+    assert.equal((await readStore())[c.id].zone2, true);
+
+    // Restart: Deviceinfo.xml still says 1, every zone answer lost.
+    __clearConnectionsForTesting();
+    rx.dropZm = 99;
+    rx.answerZ2 = false;
+    c = connect(gladys, rx);
+    await tick(PROBE_DONE_MS);
+    assert.equal(getPowerMode(c.id), POWER_MODE.ZONE);
+  } finally {
+    disconnectDevice(c.id);
+    await rx.close();
+    await info.close();
+  }
+});
+
+test('a deleted device loses its saved entry; a shutdown keeps every entry (H7)', async () => {
+  const gladys = createFakeGladys();
+  const rx = await startReceiver({ zones: true, zone2: true });
+  const c = connect(gladys, rx);
+  try {
+    await waitFor(() => getPowerMode(c.id) === POWER_MODE.ZONE, 'ZONE mode');
+    assert.ok((await readStore())[c.id]);
+    disconnectAllDevices(); // Shutdown.
+    await tick(20);
+    assert.ok((await readStore())[c.id], 'kept on shutdown');
+    disconnectDevice(c.id); // onDeviceDeleted.
+    await tick(20);
+    assert.equal((await readStore())[c.id], undefined);
+  } finally {
+    disconnectDevice(c.id);
+    await rx.close();
+  }
+});
+
+test('an unreadable /data file (a directory) turns the probe off, Deviceinfo.xml still counts', async () => {
+  await fs.mkdir(STORE);
+  const gladys = createFakeGladys();
+  const rx = await startReceiver({ zones: false });
+  let c = connect(gladys, rx);
+  try {
+    await tick(PROBE_DONE_MS);
+    assert.equal(getPowerMode(c.id), POWER_MODE.UNKNOWN);
+    disconnectDevice(c.id);
+    __clearConnectionsForTesting();
+    const info = await startDeviceInfo(deviceInfoXml(1));
+    try {
+      c = connect(gladys, rx);
+      await waitFor(() => getPowerMode(c.id) === POWER_MODE.SYSTEM, 'SYSTEM from Deviceinfo.xml');
+    } finally {
+      await info.close();
+    }
+  } finally {
+    disconnectDevice(c.id);
+    await rx.close();
+    await fs.rm(STORE, { recursive: true, force: true });
+  }
+});
+
+test('fetchDeviceZones refuses a host that is not a plain name or address', async () => {
+  const info = await startDeviceInfo(deviceInfoXml(2));
+  try {
+    const signal = new AbortController().signal;
+    // Would reach the server through the URL if the host were not checked.
+    const sneaky = `127.0.0.1:${info.port}/goform/Deviceinfo.xml#`;
+    process.env.DENON_DEVICEINFO_PORTS = '1';
+    assert.equal(await fetchDeviceZones(sneaky, signal), null);
+  } finally {
+    await info.close();
+  }
+});
+
+test('a detector stopped before /data is read applies nothing from it', async () => {
+  const ID = 'avr:stopped-early';
+  await fs.writeFile(STORE, JSON.stringify({ [ID]: { host: '127.0.0.1', zone2: true } }));
+  const detector = createPowerDetector({
+    externalId: ID,
+    host: '127.0.0.1',
+    zone: ZONE.MAIN,
+    send: () => {},
+  });
+  detector.stop();
+  await tick(50);
+  assert.equal(getPowerMode(ID), POWER_MODE.UNKNOWN);
+});
+
+test('__clearConnectionsForTesting also stops the detectors (no late Deviceinfo.xml verdict)', async () => {
+  const info = await startDeviceInfo(deviceInfoXml(1), 200);
+  const gladys = createFakeGladys();
+  const rx = await startReceiver({ zones: false });
+  const c = connect(gladys, rx);
+  try {
+    await tick(50);
+    __clearConnectionsForTesting();
+    await tick(350);
+    assert.equal(getPowerMode(c.id), POWER_MODE.UNKNOWN);
+  } finally {
+    disconnectDevice(c.id);
+    await rx.close();
+    await info.close();
+  }
+});
+
+test('a stopped detector gives no verdict afterwards', async () => {
+  const ID = 'avr:stopped';
+  const sent = [];
+  const detector = createPowerDetector({
+    externalId: ID,
+    host: '127.0.0.1',
+    zone: ZONE.MAIN,
+    send: (command) => sent.push(command),
+  });
+  detector.onConnect();
+  detector.onLine('PWSTANDBY');
+  detector.stop();
+  await tick(PROBE_DONE_MS);
+  assert.equal(getPowerMode(ID), POWER_MODE.UNKNOWN);
+  assert.deepEqual(sent, ['Z2?']);
 });
 
 // --- Telnet probe (no Deviceinfo.xml) ------------------------------------------
@@ -645,6 +825,24 @@ test('a "with zones" verdict survives a restart in /data, even if ZM? and Z2? go
   }
 });
 
+test('a ZM answer alone is saved too: after a restart with every answer lost, ZMOFF', async () => {
+  const gladys = createFakeGladys();
+  const rx = await startReceiver({ zones: true, zone2: true, answerZ2: false });
+  let c = connect(gladys, rx);
+  try {
+    await waitFor(() => getPowerMode(c.id) === POWER_MODE.ZONE, 'ZONE mode');
+    assert.deepEqual((await readStore())[c.id], { host: '127.0.0.1', zone: true });
+    __clearConnectionsForTesting(); // A restart.
+    rx.dropZm = 99;
+    c = connect(gladys, rx);
+    await tick(PROBE_DONE_MS);
+    assert.equal(getPowerMode(c.id), POWER_MODE.ZONE);
+  } finally {
+    disconnectDevice(c.id);
+    await rx.close();
+  }
+});
+
 test('a saved verdict for another IP address is not used', async () => {
   const gladys = createFakeGladys();
   const rx = await startReceiver({ zones: false });
@@ -735,6 +933,7 @@ test('Zone 2 on a stereo receiver: no probe, Z2ON/Z2OFF as before', async () => 
     await tick(PROBE_DONE_MS);
     assert.equal(getPowerMode(c.id), POWER_MODE.UNKNOWN);
     assert.ok(!rx.received.includes('PW?'));
+    assert.ok(!rx.received.includes('ZM?'), 'no probe query on a Zone 2 session (H11)');
     await setPower(gladys, c, 1);
     await waitFor(() => rx.received.includes('Z2ON'), 'Z2ON sent');
     assert.ok(!rx.received.includes('PWON'));
