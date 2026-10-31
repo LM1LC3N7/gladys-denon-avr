@@ -20,13 +20,17 @@ Voici ce qui apparaît par ampli :
   choisie dans la Configuration, voir « Zone » ci-dessous) : allumer l'ampli depuis Gladys ne peut
   plus le réveiller sur la Zone 2, et l'éteindre ne coupe plus une Zone 2 en cours d'écoute.
   Les amplis **sans zones** (amplis et chaînes stéréo réseau : par exemple le Marantz PM7000N,
-  les M-CR610/611, le Denon DRA-100) ignorent les commandes d'alimentation
-  de zone : juste après la connexion, l'intégration voit qu'un tel ampli répond à la question
-  d'alimentation de l'appareil entier mais pas à celle de la zone, et l'allume ou l'éteint ensuite
-  avec `PWON`/`PWSTANDBY` (noté dans les logs « power mode is now receiver without zones »). Un
-  ampli home-cinéma qui répond à la question de zone garde les commandes de zone. Chaque commande
-  d'alimentation est notée dans les logs (niveau info) avec la commande exacte envoyée. Détection
-  vérifiée sur les protocoles publiés et des amplis simulés, pas encore sur un vrai PM7000N.
+  les M-CR610/611, le Denon DRA-100) n'ont pas de commandes d'alimentation de zone, seulement
+  `PWON`/`PWSTANDBY` pour l'appareil entier. L'intégration lit le nombre de zones que l'ampli
+  déclare dans sa page `Deviceinfo.xml` (HTTP, port 80 ou 8080) : une zone, c'est
+  `PWON`/`PWSTANDBY` ; deux ou plus, les commandes de zone. Sans cette page, elle se fie aux
+  réponses Telnet : `PWON`/`PWSTANDBY` seulement si l'ampli répond à la question d'alimentation
+  de l'appareil entier et ni à celle de la zone principale (posée deux fois) ni à celle de la
+  Zone 2. Dans le doute, elle garde les commandes de zone. Un ampli qui a répondu une fois à une
+  question de zone est retenu dans les données de l'intégration, redémarrage compris. Le choix est
+  noté dans les logs (« power mode is now … ») et affiché par « Tester la connexion » ; chaque
+  commande d'alimentation est notée (niveau info) avec la commande exacte envoyée. Vérifié sur les
+  protocoles publiés et des amplis simulés, pas encore sur un vrai PM7000N.
 - **Volume** — 0-100 %, contrôlable (converti depuis l'échelle interne de l'ampli, -80 dB à +18 dB).
   Confirmé sur du matériel réel : un pourcentage précis (25 % sur l'échelle par défaut) ne peut
   jamais rester tel quel — le régler bascule immédiatement à 26 %. C'est une vraie limite
@@ -427,10 +431,12 @@ dossier de données de l'intégration (`/data/ad-breaks.json`, `/data/ad-jingles
   au survol — HEOS ne connaît aucun lecteur à l'IP de l'ampli (« Parler sur une enceinte » ne
   fonctionnera pas), ou seul HEOS répond (une enceinte HEOS autonome, ou un ampli dont le port 23
   est fermé), ou l'ampli n'a pas renvoyé son état d'alimentation dans les 5 s après une commande
-  marche/arrêt (la commande est citée ; le point disparaît dès que l'ampli renvoie son état).
+  marche/arrêt, même redemandé au bout de 2 s (la commande est citée ; le point disparaît dès que
+  l'ampli renvoie son état).
 - **Marche/arrêt sans effet** : cherchez dans les logs `power on (device command) -> sent ...`.
   `ZMON`/`ZMOFF` sur un ampli stéréo veut dire qu'il n'a pas été reconnu comme ampli sans zones :
-  envoyez les lignes qui suivent `connected (main zone)` (ou lancez
+  envoyez les lignes qui suivent `connected (main zone)` et celles qui contiennent `DeviceZones` ou
+  `power mode`, et ce qu'affiche `http://<ip>/goform/Deviceinfo.xml` (ou le port 8080) (ou lancez
   `node scripts/debug-telnet.js <ip>` et tapez `ZM?` puis `PW?`). « Tester la connexion » indique
   aussi les commandes d'alimentation utilisées.
 

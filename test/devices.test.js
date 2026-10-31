@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
 import net from 'node:net';
+import os from 'node:os';
+import path from 'node:path';
 import {
   DEVICE_FEATURE_CATEGORIES,
   DEVICE_FEATURE_TYPES,
@@ -28,6 +31,17 @@ import { normalizeConfig } from '../src/config.js';
 import { createFakeGladys } from '../test-fixtures/fakeGladys.js';
 import { HEOS_PORT } from '../src/heos/protocol.js';
 import { denonVolumeToPercent } from '../src/denon/protocol.js';
+
+// connectDevice() reads Deviceinfo.xml and /data (src/devices/power.js):
+// neither on this machine's real ports nor in its real /data.
+process.env.DENON_DEVICEINFO_PORTS = '';
+process.env.DENON_POWER_FILE = path.join(
+  await fs.mkdtemp(path.join(os.tmpdir(), 'denon-devices-')),
+  'power-modes.json',
+);
+test.after(() =>
+  fs.rm(path.dirname(process.env.DENON_POWER_FILE), { recursive: true, force: true }),
+);
 
 const gladys = createFakeGladys();
 

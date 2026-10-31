@@ -77,13 +77,13 @@ const DENON_VOLUME_MAX = 98;
 // system PW commands. Their published protocols (Marantz "M-CR511/611
 // PROTOCOL Ver1.0.0", Denon "DRA-100 PROTOCOL Ver1.0.0") list PWON,
 // PWSTANDBY and PW? and no ZM command at all, and the python denonavr
-// library (MIT, behind Home Assistant) switches to PWON/PWSTANDBY/PW? for
-// receivers reporting a single zone since its PR #367 (Marantz M-CR610:
-// "Timeout waiting for confirmation of command: ZMOFF"). There, PW is safe:
-// there is no other zone to wake up or cut. src/devices/power.js detects
-// which kind of receiver it is talking to (POWER_MODE below); every power
-// builder/parser takes that mode and keeps ZM until a receiver is known to
-// have no zones.
+// library (MIT, behind Home Assistant) switches to PWON/PWSTANDBY/PW? when
+// Deviceinfo.xml reports DeviceZones = 1 (its PR #367, after Marantz
+// M-CR610: "Timeout waiting for confirmation of command: ZMOFF"). There, PW
+// is safe: there is no other zone to wake up or cut. src/devices/power.js
+// decides which kind of receiver it is talking to (POWER_MODE below); every
+// power builder/parser takes that mode and keeps ZM until a receiver is
+// known to have no zones.
 export const POWER_MODE = Object.freeze({
   // Not detected yet: same as ZONE (today's behaviour, safe on an AVR).
   UNKNOWN: 'unknown',
