@@ -30,3 +30,11 @@
      Zone 2 and Zone 3 never use `PW` commands.
 - 2026-10-30, power commands are re-queried after 2 s and followed for 5 s: no power report back
   turns the device badge degraded (not an error: the command may still have worked).
+
+## Next patch (review r3, 9191491)
+
+- m1: delete the /data power-mode entry only in onDeviceDeleted; keep the "with zones" verdict across IP changes for devices identified by UDN (H12, H13).
+- m2: when DeviceZones=1 arrives after a ZM line was seen, send `Z2?` alone again.
+- m3: tests for T5 (a saved ZM verdict never beats a DeviceZones=1 read) and T9 (deletion never writes over an unreadable /data).
+- m4: docs: after swapping an AVR for a stereo amp at the same IP, delete and re-add the device.
+- m5: docs (en.md:19, fr.md:21): link the Zone 2 promise to the documented probe limit, not only the very first connection.
