@@ -10,6 +10,8 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-10-31
+
 ### Fixed
 
 - On/Off did nothing on receivers without zones, such as the Marantz PM7000N
@@ -62,7 +64,8 @@ the notes of the version's GitHub Release.
 The releases before this file was started are described by their GitHub
 Releases.
 
-[Unreleased]: https://github.com/LM1LC3N7/gladys-denon-avr/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/LM1LC3N7/gladys-denon-avr/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/LM1LC3N7/gladys-denon-avr/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/LM1LC3N7/gladys-denon-avr/compare/v1.0.25...v1.1.0
 [1.0.25]: https://github.com/LM1LC3N7/gladys-denon-avr/compare/v1.0.24...v1.0.25
 [1.0.24]: https://github.com/LM1LC3N7/gladys-denon-avr/compare/v1.0.23...v1.0.24
