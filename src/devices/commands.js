@@ -38,6 +38,22 @@ import { playAnnouncement } from './announcements.js';
 import { sendPower } from './power.js';
 import { heosOnlyError, isHeosOnly } from './control.js';
 
+// What a HEOS-only speaker refuses, named for the error (review r1, m5).
+const HEOS_ONLY_REFUSED_NAMES = {
+  [FEATURE.POWER]: 'power on/off',
+  [FEATURE.SOURCE]: 'choosing an input',
+  [FEATURE.SOURCE_INDEX]: 'choosing an input',
+  [FEATURE.SOUND_MODE]: 'choosing a sound mode',
+  [FEATURE.MENU]: 'the Setup menu',
+  [FEATURE.CURSOR_UP]: 'the Setup menu',
+  [FEATURE.CURSOR_DOWN]: 'the Setup menu',
+  [FEATURE.CURSOR_LEFT]: 'the Setup menu',
+  [FEATURE.CURSOR_RIGHT]: 'the Setup menu',
+  [FEATURE.ENTER]: 'the Setup menu',
+  [FEATURE.RETURN]: 'the Setup menu',
+  [FEATURE.INFO]: 'the Setup menu',
+};
+
 /**
  * Dispatch a user command (`onSetValue`) to the right device's Telnet
  * session. `config` is optional (defaults to no source overrides) so
@@ -158,7 +174,7 @@ export async function onSetValue(gladys, { device, feature, value, config }) {
       key,
     );
     if (isHeosOnly(device.external_id) && !heosRoutable) {
-      throw heosOnlyError(device.external_id, key === FEATURE.POWER ? 'power on/off' : `"${key}"`);
+      throw heosOnlyError(device.external_id, HEOS_ONLY_REFUSED_NAMES[key] ?? 'this command');
     }
     throw new Error(`${device.external_id} is not connected`);
   }

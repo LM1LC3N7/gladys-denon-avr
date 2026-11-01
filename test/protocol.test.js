@@ -118,8 +118,19 @@ test('parseLine: volume, three-digit half steps', () => {
   assert.deepEqual(parseLine('MV800'), { feature: 'volume', value: denonVolumeToPercent(80) });
 });
 
-test('parseLine: MVMAX is ignored (volume ceiling, not current volume)', () => {
-  assert.equal(parseLine('MVMAX 98'), null);
+test('parseLine: MVMAX is the volume ceiling (volume_max), never the current volume', () => {
+  assert.deepEqual(parseLine('MVMAX 60'), {
+    feature: 'volume_max',
+    value: denonVolumeToPercent(60),
+  });
+  assert.deepEqual(parseLine('MVMAX 605'), {
+    feature: 'volume_max',
+    value: denonVolumeToPercent(60.5),
+  });
+  assert.equal(parseLine('MVMAX'), null);
+  assert.equal(parseLine('MVMAX x'), null);
+  // Zone 2 has no ceiling line: a main-zone MVMAX is never Zone 2's volume.
+  assert.equal(parseLine('MVMAX 60', 'zone2'), null);
 });
 
 test('parseLine: source, verbatim SI code, including ones with a slash', () => {

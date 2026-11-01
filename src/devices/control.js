@@ -19,6 +19,7 @@ import {
   normalizeZone,
   SOURCE_CODES,
   TUNER_COMMANDS,
+  ZONE,
 } from '../denon/protocol.js';
 import {
   buildPlayPresetCommand,
@@ -26,7 +27,7 @@ import {
   buildVolumeUpCommand as buildHeosVolumeUpCommand,
   buildVolumeDownCommand as buildHeosVolumeDownCommand,
 } from '../heos/protocol.js';
-import { HEOS_SOURCE_CODE, TUNER_SOURCE_CODE } from './features.js';
+import { HEOS_SOURCE_CODE, STATE, TUNER_SOURCE_CODE } from './features.js';
 import { sendPower } from './power.js';
 import {
   getHeos,
@@ -179,13 +180,17 @@ export function setVolume(externalId, percent, zone) {
     throw new Error(`Invalid volume "${percent}"`);
   }
   const clamped = Math.round(Math.max(0, Math.min(100, level)));
-  forgetVolume(externalId);
+  // Nothing tapped before this volume goes out after it.
+  cancelPendingVolume(externalId);
+  wantedVolumes.delete(externalId);
   if (isTelnetConnected(externalId)) {
     sendTelnet(externalId, buildVolumeCommand(clamped, normalizeZone(zone)));
+    noteVolumeSent(externalId, 'telnet', clamped);
     return;
   }
   const heos = requireHeos(externalId, 'set the volume');
   sendHeos(externalId, buildHeosSetVolumeCommand(heos.pid, clamped), 'set the volume');
+  noteVolumeSent(externalId, 'heos', clamped);
 }
 
 // --- Widget Vol −/+ ----------------------------------------------------------
@@ -213,16 +218,42 @@ export const WIDGET_VOLUME_STEP = Object.freeze({ telnet: 2, heos: 5 });
 // external_id -> { lastSentAt, timer, send } the spaced sender.
 const wantedVolumes = new Map();
 const volumeSenders = new Map();
+// Every volume timer alive, so a test can prove none outlives a disconnect.
+const volumeTimers = new Set();
 
-function forgetVolumeSender(externalId) {
-  const sender = volumeSenders.get(externalId);
+function clearVolumeTimer(sender) {
   if (sender?.timer) {
     clearTimeout(sender.timer);
+    volumeTimers.delete(sender.timer);
+    sender.timer = null;
   }
+}
+
+function forgetVolumeSender(externalId) {
+  clearVolumeTimer(volumeSenders.get(externalId));
   volumeSenders.delete(externalId);
 }
 
-/** Drop the wanted volume and any spaced send of one device (disconnect, absolute set). */
+/** Cancel a volume send still waiting for its turn, keeping the pace. */
+function cancelPendingVolume(externalId) {
+  clearVolumeTimer(volumeSenders.get(externalId));
+}
+
+/** An absolute volume just sent: the next tap starts from it, at the receiver's pace. */
+function noteVolumeSent(externalId, route, level) {
+  const now = performance.now();
+  wantedVolumes.set(externalId, { level, route, at: now });
+  const sender = volumeSenders.get(externalId) ?? { lastSentAt: -Infinity, timer: null };
+  sender.lastSentAt = now;
+  volumeSenders.set(externalId, sender);
+}
+
+/** Volume sends still waiting for their turn (tests: none may outlive a disconnect). */
+export function pendingVolumeSends() {
+  return volumeTimers.size;
+}
+
+/** Drop the wanted volume and any spaced send of one device (disconnect). */
 export function forgetVolume(externalId) {
   wantedVolumes.delete(externalId);
   forgetVolumeSender(externalId);
@@ -250,11 +281,18 @@ function sendVolumeSpaced(externalId, send) {
   }
   const wait = sender.lastSentAt + timing.volumeGapMs - now;
   if (wait <= 0) {
+    const previous = sender.lastSentAt;
     sender.lastSentAt = now;
-    send();
+    try {
+      send();
+    } catch (err) {
+      sender.lastSentAt = previous; // Nothing went out: no pause owed.
+      throw err;
+    }
     return;
   }
-  sender.timer = setTimeout(() => {
+  const timer = setTimeout(() => {
+    volumeTimers.delete(timer);
     sender.timer = null;
     if (volumeSenders.get(externalId) !== sender) {
       return; // Forgotten meanwhile (disconnect): nothing goes out.
@@ -267,6 +305,8 @@ function sendVolumeSpaced(externalId, send) {
       logger.warn(`${externalId}: volume not sent: ${err.message}`);
     }
   }, wait);
+  sender.timer = timer;
+  volumeTimers.add(timer);
 }
 
 /**
@@ -279,12 +319,21 @@ export function nudgeVolume(externalId, direction, zone) {
   const heos = route === 'heos' ? requireHeos(externalId, 'change the volume') : null;
   const now = performance.now();
   const wanted = wantedVolumes.get(externalId);
-  const reported = getState(externalId).volume;
+  const state = getState(externalId);
+  const normalizedZone = normalizeZone(zone);
+  // The receiver's own "Max Volume" (MVMAX, main zone only, review r1 I4):
+  // a wanted level past it would make the next Vol − taps dead.
+  const ceiling =
+    route === 'telnet' &&
+    normalizedZone === ZONE.MAIN &&
+    typeof state[STATE.VOLUME_MAX] === 'number' &&
+    Number.isFinite(state[STATE.VOLUME_MAX])
+      ? Math.max(0, Math.min(100, state[STATE.VOLUME_MAX]))
+      : 100;
   const base =
     wanted && wanted.route === route && now - wanted.at < timing.volumeWantedMs
       ? wanted.level
-      : reported;
-  const normalizedZone = normalizeZone(zone);
+      : state.volume;
   if (typeof base !== 'number' || !Number.isFinite(base)) {
     if (route === 'telnet') {
       const build = sign > 0 ? buildVolumeUpCommand : buildVolumeDownCommand;
@@ -295,7 +344,9 @@ export function nudgeVolume(externalId, direction, zone) {
     }
     return;
   }
-  const level = Math.round(Math.max(0, Math.min(100, base + sign * WIDGET_VOLUME_STEP[route])));
+  const level = Math.round(
+    Math.max(0, Math.min(ceiling, Math.min(ceiling, base) + sign * WIDGET_VOLUME_STEP[route])),
+  );
   wantedVolumes.set(externalId, { level, route, at: now });
   try {
     sendVolumeSpaced(externalId, () =>

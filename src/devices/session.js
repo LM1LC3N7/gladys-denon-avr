@@ -43,11 +43,12 @@ import {
   setSession,
   updateState,
   getState,
+  timing,
 } from './registry.js';
 import { openHeosSession } from './heos-session.js';
 import { forgetHealth, reportHealth } from './transport.js';
 import { HEOS_MATCH } from './heos-session.js';
-import { decideHeosOnly, HEOS_ONLY_TELNET_RETRY_MS } from './speaker.js';
+import { decideHeosOnly } from './speaker.js';
 import { forgetVolume } from './control.js';
 import { cancelAnnouncement } from './announcements.js';
 import {
@@ -114,7 +115,7 @@ export function connectDevice(gladys, device, config) {
   const isCurrent = (field, client) => getSession(externalId)?.[field] === client;
 
   // HEOS-only speaker (./speaker.js): what the two sessions told so far.
-  const speaker = { telnetEverUp: false, refusals: 0, heosOnly: false, announced: false };
+  const speaker = { telnetEverUp: false, refused: false, heosOnly: false, announced: false };
   function updateSpeakerMode() {
     // Sticky for the session once seen (a speaker unplugged is still a
     // speaker); only Telnet answering makes it an AVR again.
@@ -123,7 +124,7 @@ export function connectDevice(gladys, device, config) {
       (speaker.heosOnly ||
         decideHeosOnly({
           telnetEverUp: speaker.telnetEverUp,
-          refusals: speaker.refusals,
+          refused: speaker.refused,
           heosMatched: heos?.match === HEOS_MATCH.MATCHED,
           model: heos?.model ?? null,
         }));
@@ -132,13 +133,17 @@ export function connectDevice(gladys, device, config) {
     }
     speaker.heosOnly = heosOnly;
     setSession(externalId, { heosOnly });
+    if (heosOnly) {
+      // The retry scheduled before the verdict used the receiver backoff.
+      telnet.retryIn(timing.heosOnlyTelnetRetryMs);
+    }
     if (heosOnly && !speaker.announced) {
       speaker.announced = true;
       logger.info(
         `${externalId}: ${host} is a HEOS speaker${heos?.model ? ` (${heos.model})` : ''} without ` +
           `AVR Control (Telnet ${host}:${port} refused): volume, mute, playback and announcements ` +
           'go through HEOS; power, inputs, sound modes and the Setup menu are not available. ' +
-          `Telnet is retried every ${HEOS_ONLY_TELNET_RETRY_MS / 60_000} min.`,
+          `Telnet is retried every ${Math.round(timing.heosOnlyTelnetRetryMs / 1000)} s.`,
       );
     }
     reportHealth(gladys, externalId, { heosOnly, host, port });
@@ -158,15 +163,21 @@ export function connectDevice(gladys, device, config) {
     host,
     port,
     reconnectIntervalSeconds: config.reconnect_interval_seconds,
-    reconnectDelayMs: () => (speaker.heosOnly ? HEOS_ONLY_TELNET_RETRY_MS : undefined),
+    reconnectDelayMs: () => (speaker.heosOnly ? timing.heosOnlyTelnetRetryMs : undefined),
     onConnect: () => {
       logger.info(`${externalId}: connected (${zone} zone), seeding initial state`);
       if (speaker.heosOnly) {
         logger.info(`${externalId}: AVR Control (Telnet) answers now: every feature is back`);
       }
       speaker.telnetEverUp = true;
-      speaker.refusals = 0;
-      updateSpeakerMode();
+      speaker.refused = false;
+      // Back to a receiver in one badge change (review r1, m1): heosOnly
+      // goes with telnetUp in the reportHealth below.
+      const wasHeosOnly = speaker.heosOnly;
+      speaker.heosOnly = false;
+      if (wasHeosOnly && isCurrent('telnet', telnet)) {
+        setSession(externalId, { heosOnly: false });
+      }
       for (const query of initialQueries(zone)) {
         telnet.send(query);
       }
@@ -182,6 +193,7 @@ export function connectDevice(gladys, device, config) {
         reportHealth(gladys, externalId, {
           telnetUp: true,
           telnetFailures: 0,
+          heosOnly: false,
           powerUnconfirmed: null,
           host,
           port,
@@ -259,7 +271,7 @@ export function connectDevice(gladys, device, config) {
       if (!isCurrent('telnet', telnet)) {
         return;
       }
-      speaker.refusals = refused ? speaker.refusals + 1 : 0;
+      speaker.refused = refused;
       updateSpeakerMode();
       reportHealth(gladys, externalId, {
         telnetUp: false,

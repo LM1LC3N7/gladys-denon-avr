@@ -1,7 +1,9 @@
 // -----------------------------------------------------------------------------
-// HEOS-only speakers: a Denon Home, a HEOS 1/3/5/7, a HEOS Link/Amp/Drive...
-// run the HEOS CLI (port 1255) but no "AVR Control" service at all: port 23
-// is refused, for good (forum topic 10722, post 37, Denon Home 150).
+// HEOS-only speakers: a Denon Home (forum topic 10722, post 37, Denon Home
+// 150: port 23 refused, for good), a HEOS 1/3/5/7... run the HEOS CLI (port
+// 1255) but no "AVR Control" service. Which other "HEOS ..." models lack
+// Telnet is not verified: a model that does answer on port 23 is never
+// treated as a speaker anyway (telnetEverUp below).
 //
 // Such a device is driven over HEOS only: volume, mute, playback and "Speak
 // on a speaker". HEOS CLI has no power, input or sound mode command, so
@@ -12,14 +14,9 @@
 // an AVR keeps every feature whatever HEOS says.
 // -----------------------------------------------------------------------------
 
-// Refused Telnet attempts before an unknown model, with HEOS matched, is
-// taken for a HEOS-only speaker (a receiver waking up refuses for a few
-// seconds at most; the backoff makes 3 attempts about a minute).
-export const HEOS_ONLY_REFUSALS = 3;
-
 // How often Telnet is retried on a HEOS-only speaker: it may come back (a
-// firmware that adds it, a wrong guess), but rarely enough to stay quiet.
-export const HEOS_ONLY_TELNET_RETRY_MS = 5 * 60_000;
+// firmware that adds it), but rarely enough to stay quiet. Read from
+// `timing.heosOnlyTelnetRetryMs` (./registry.js), 5 min.
 
 /**
  * Whether a model name (SSDP modelName, HEOS get_players `model`) is a
@@ -41,20 +38,21 @@ export function isHeosOnlyModel(model) {
 /**
  * Whether one device is driven as a HEOS-only speaker. Pure.
  *
+ * Only on a model KNOWN to be a speaker (review r1, I3): a receiver whose
+ * HEOS model is missing or unreadable, with port 23 refused for a while
+ * (restarting, Telnet held elsewhere), stays a receiver — its power, inputs
+ * and Zone 2 are never taken away on a guess; the badge says that only HEOS
+ * answers, and Telnet keeps its usual backoff.
+ *
  * @param {object} facts
  * @param {boolean} facts.telnetEverUp Telnet came up at least once this session
- * @param {number} facts.refusals consecutive refused Telnet attempts (ECONNREFUSED)
+ * @param {boolean} facts.refused the last Telnet attempt was actively refused (ECONNREFUSED)
  * @param {boolean} facts.heosMatched HEOS answers and lists a player at this IP
- * @param {string|null} [facts.model] the model HEOS reports for that player
+ * @param {string|null} [facts.model] the model HEOS (or SSDP) reports for that player
  */
-export function decideHeosOnly({ telnetEverUp, refusals, heosMatched, model }) {
-  if (telnetEverUp || !heosMatched || refusals < 1) {
+export function decideHeosOnly({ telnetEverUp, refused, heosMatched, model }) {
+  if (telnetEverUp || !heosMatched || !refused) {
     return false;
   }
-  if (typeof model === 'string' && model.trim() !== '') {
-    // A known AVR model with port 23 refused stays an AVR (Telnet off or
-    // held by another controller): the badge says what still works.
-    return isHeosOnlyModel(model);
-  }
-  return refusals >= HEOS_ONLY_REFUSALS;
+  return isHeosOnlyModel(model);
 }

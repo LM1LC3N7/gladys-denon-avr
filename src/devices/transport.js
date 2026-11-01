@@ -89,8 +89,16 @@ export function computeTransport(
     }
     return { external_id: externalId, transport: DEVICE_TRANSPORTS.LOCAL };
   }
-  if (heosMatch === HEOS_MATCH.MATCHED && heosOnly) {
-    return { external_id: externalId, transport: DEVICE_TRANSPORTS.LOCAL };
+  if (heosOnly) {
+    // A speaker's reachability is HEOS's (review r1, I2): its Telnet is
+    // only retried every few minutes and says nothing.
+    return heosMatch === HEOS_MATCH.MATCHED
+      ? { external_id: externalId, transport: DEVICE_TRANSPORTS.LOCAL }
+      : {
+          external_id: externalId,
+          transport: DEVICE_TRANSPORTS.UNREACHABLE,
+          message: MESSAGES.speakerUnreachable(host),
+        };
   }
   // An AVR whose Telnet is still in its first failed attempts is not
   // reported yet: HEOS often answers first, and a receiver that is waking
@@ -107,7 +115,7 @@ export function computeTransport(
     return {
       external_id: externalId,
       transport: DEVICE_TRANSPORTS.UNREACHABLE,
-      message: heosOnly ? MESSAGES.speakerUnreachable(host) : MESSAGES.unreachable(host, port),
+      message: MESSAGES.unreachable(host, port),
     };
   }
   return null;

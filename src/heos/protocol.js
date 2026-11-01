@@ -100,9 +100,13 @@ export function buildGetVolumeCommand(pid) {
   return `player/get_volume?pid=${pid}`;
 }
 
-/** `heos://player/set_volume?pid=<pid>&level=<0-100>`. */
+/** `heos://player/set_volume?pid=<pid>&level=<0-100>`, the level rounded and kept within 0-100. */
 export function buildSetVolumeCommand(pid, level) {
-  return `player/set_volume?pid=${pid}&level=${level}`;
+  const value = Number(level);
+  if (!Number.isFinite(value)) {
+    throw new Error(`Invalid HEOS volume "${level}"`);
+  }
+  return `player/set_volume?pid=${pid}&level=${Math.round(Math.max(0, Math.min(100, value)))}`;
 }
 
 /** `heos://player/volume_up?pid=<pid>&step=<step>` (HEOS default step is 5). */

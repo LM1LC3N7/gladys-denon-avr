@@ -15,15 +15,18 @@
 
 ## Decisions
 
-- 2026-11-01, HEOS-only speaker (`src/devices/speaker.js`): HEOS matched + port 23 refused
-  (ECONNREFUSED) + a speaker model (HEOS `model`, SSDP `modelName`: "Denon Home", "HEOS", never
-  AVR/receiver/SR/NR/AV/PM/CINEMA models) at the first refusal, or 3 refusals with no model.
-  Never once Telnet came up in the session (sticky otherwise until then). Telnet retried every
-  5 min. No power feature (HEOS CLI has none). Badge nominal; "only HEOS answers" on an AVR now
-  waits for 3 Telnet failures.
+- 2026-11-01 (review r1 of f37aa92), HEOS-only speaker (`src/devices/speaker.js`): HEOS matched
+  - last Telnet attempt refused (ECONNREFUSED only) + a speaker model (HEOS `model`, SSDP
+    `modelName`: "Denon Home", "HEOS", never AVR/receiver/SR/NR/AV/PM/CINEMA models). No model, no
+    speaker: an AVR never loses power/zones on a guess (r1 I3). Never once Telnet came up in the
+    session (sticky otherwise until then). Telnet retried every 5 min. No power feature (HEOS CLI
+    has none). Badge follows HEOS only (r1 I2); "only HEOS answers" on an AVR waits for 3 Telnet
+    failures.
 - 2026-11-01, widget Vol −/+ (`nudgeVolume()`): 2 % (Telnet, ~2 dB) / 5 % (HEOS) from the last
   wanted level (kept 2.5 s), 60 ms between volume commands per device; the device features
   Volume up/down keep one remote step (MVUP/MVDOWN).
+  Wanted level capped by `MVMAX` (main zone) and 0-100 (r1 I4); `buildSetVolumeCommand` clamps
+  too.
 
 - 2026-10-31, power mode per receiver (`src/devices/power.js`), after reviews r1 and r2 (a lost
   `ZM?` answer, then a saved `DeviceZones=1`, could make a multi-zone AVR cut Zone 2 with
@@ -46,6 +49,9 @@
   turns the device badge degraded (not an error: the command may still have worked).
 
 ## Next patch (review r3, 9191491; m4 and m5 done 2026-11-01)
+
+- r1 (f37aa92) m4: a delayed volume send (60 ms) that fails is only logged; the tap already
+  answered success. Accepted, noted.
 
 - m1: delete the /data power-mode entry only in onDeviceDeleted; keep the "with zones" verdict across IP changes for devices identified by UDN (H12, H13).
 - m2: when DeviceZones=1 arrives after a ZM line was seen, send `Z2?` alone again.

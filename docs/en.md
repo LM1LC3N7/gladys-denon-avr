@@ -95,13 +95,18 @@ These show up per receiver:
 
 ## HEOS speakers (Denon Home, HEOS 1/3/5/7...)
 
-A standalone HEOS speaker (Denon Home 150/250/350, Denon Home Sound Bar, HEOS 1/3/5/7, HEOS
-Link/Amp/Drive...) answers HEOS (port 1255) but has no Telnet "AVR Control" (port 23 refused).
-The integration recognizes it when HEOS lists a player at its address and port 23 is refused,
-from the model it announces (over HEOS or in the scan): at the first refusal for a known speaker
-model, after three refusals in a row (about a minute) when the model is unknown. A device whose
-Telnet answered even once since the start stays a receiver, and a known receiver or amplifier
-model (for example the Marantz PM7000N) is never taken for a speaker, even with port 23 closed.
+A standalone HEOS speaker (Denon Home 150/250/350, Denon Home Sound Bar, HEOS 1/3/5/7...)
+answers HEOS (port 1255) but has no Telnet "AVR Control" (port 23 refused). For the other "HEOS"
+models (Link, Amp, Drive...), the lack of Telnet is not verified: if they answer on port 23, they
+stay handled as receivers.
+
+The integration recognizes it when three things hold: HEOS lists a player at its address, port
+23 is refused, and the announced model (over HEOS or in the scan) is a speaker model ("Denon
+Home…", "HEOS…"). It is then immediate. Without a readable model, the device stays a receiver:
+it keeps power, inputs and zones, Telnet is retried at the usual pace, and the badge gets the
+"only HEOS answers" orange dot after three Telnet failures. A device whose Telnet answered even
+once since the start stays a receiver, and a known receiver or amplifier model (for example the
+Marantz PM7000N) is never taken for a speaker.
 
 What the integration then does:
 
@@ -112,10 +117,12 @@ What the integration then does:
   version, run a scan in the Discovery tab and click **Update** to remove them. Until then these
   commands are refused with a clear message ("not available on a HEOS speaker … nothing sent"),
   and nothing is sent.
-- **Badge**: _local_, with no orange dot (not a degraded mode for a speaker).
+- **Badge**: _local_, with no orange dot (not a degraded mode for a speaker); _unreachable_ as
+  soon as HEOS stops answering (speaker unplugged).
 - **Logs**: one info line ("… is a HEOS speaker … without AVR Control …") instead of a Telnet
-  warning every 10 to 30 seconds. Telnet is retried every 5 minutes: if it ever answers,
-  everything works as on a receiver again.
+  warning every 10 to 30 seconds. Telnet is retried every 5 minutes. If it ever answers, the
+  receiver commands work again at once; the features removed by **Update** only come back after
+  a new scan and a new **Update**.
 - **Widgets**: the Amplifier card swaps Turn on/Standby for Play/Pause and shows "Power: Not
   controllable (HEOS)"; the Remote and Shortcuts cards keep only what works (Vol −, Vol +, Mute;
   HEOS favorites), the Radio card says there is no tuner.
@@ -145,7 +152,8 @@ dropdown stay those of Gladys' own "Devices" card.
   by about 2 dB on a receiver (2 %, four remote presses) and by 5 % on a HEOS speaker. Quick taps
   add up from the last requested volume, even before the receiver answers, and never go out
   faster than the receiver takes them (one command every 60 ms at most, the last requested
-  volume wins). The Volume up/down buttons of the device list keep one remote press.
+  volume wins). They never go past the "Max Volume" set in the receiver (`MVMAX`), so Vol − acts
+  from the first tap. The Volume up/down buttons of the device list keep one remote press.
 - **Remote** — four keys of your choice (Up, Down, Left, Right, OK, Back, Menu, Info, Vol −,
   Vol +, Mute, Turn on, Standby; the four arrows by default). Place several side by side for a full
   pad (for instance an "arrows" card and an "OK / Back / Menu / Info" card).
@@ -436,8 +444,8 @@ integration's data folder (`/data/ad-breaks.json`, `/data/ad-jingles/`).
   integration, and reloads the widget content after each tap (at most 30 reloads a minute).
   Beyond that, every widget button of this integration is refused until the current minute ends
   (60 s at most), then everything comes back on its own. Since this version a Vol −/+ tap moves
-  2 dB instead of 0.5 dB, so four times fewer taps for the same change; for a big change, use the
-  volume slider of the Gladys "Devices" card, which has no such limit.
+  2 dB instead of 0.5 dB, so four times fewer taps for the same change; for a big change, prefer
+  the volume slider of the Gladys "Devices" card: one setting instead of several taps.
 
 - **The device badge** (device list) tells each receiver's state: _local_ = reachable;
   _unreachable_ = neither the Telnet control nor HEOS answers (receiver unplugged, network standby

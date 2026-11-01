@@ -31,18 +31,20 @@ TuneIn...) — see "Playback controls" below.
   whatsoever (port 23 is actively refused). Power itself has no HEOS equivalent and stays
   Telnet-only — see "v1 scope" below for exactly which features work on that kind of device.
 - **HEOS-only speakers** (`src/devices/speaker.js`, forum topic 10722 post 37): recognized when
-  HEOS matches a player at the device's IP and port 23 is refused (`ECONNREFUSED`) — at the first
-  refusal for a speaker model (HEOS `get_players` `model` or SSDP `modelName`: "Denon Home …",
-  "HEOS …", never an AVR/amp model), after 3 refusals in a row for an unknown model; never once
-  Telnet came up in the session. Then: Discovery offers only the HEOS features
-  (`HEOS_SPEAKER_FEATURES`), Telnet-only commands are refused with "not available on a HEOS
-  speaker … nothing sent", the badge is plain `local`, Telnet is retried every 5 min, and the
-  Telnet client logs a repeating socket error once (`src/denon/telnet.js`).
+  HEOS matches a player at the device's IP, the last Telnet attempt was refused (`ECONNREFUSED`,
+  not a timeout) and the model is a speaker one (HEOS `get_players` `model` or SSDP `modelName`:
+  "Denon Home …", "HEOS …", never an AVR/amp model); a missing or unreadable model is never a
+  speaker; never once Telnet came up in the session. Then: Discovery offers only the HEOS
+  features (`HEOS_SPEAKER_FEATURES`), Telnet-only commands are refused with "not available on a
+  HEOS speaker … nothing sent", the badge follows HEOS only (`local`, or `unreachable` as soon as
+  HEOS is lost), Telnet is retried every 5 min (the retry already scheduled is moved too), and
+  the Telnet client logs a repeating socket error once (`src/denon/telnet.js`).
 - **Widget Vol −/+** (`nudgeVolume()` in `src/devices/control.js`): Gladys core caps widget
   actions and the content re-pull after each one at 30 a minute per integration (fixed window,
   429 for every widget button until it ends). A tap is therefore a real step (2 % ≈ 2 dB on
-  Telnet `MV`, 5 % on HEOS `set_volume`) from the last wanted level (2.5 s), spaced 60 ms per
-  device, the last wanted level winning.
+  Telnet `MV`, 5 % on HEOS `set_volume`) from the last wanted level (2.5 s, per route), never
+  past the receiver's `MVMAX` (state `volume_max`) nor outside 0-100, spaced 60 ms per device,
+  the last wanted level winning; an absolute volume cancels a waiting tap.
 - **Zones**: every per-zone command targets the **main zone by default** (`zone` config key,
   `main`/`zone2`/`zone3`, see `ZONE` in `src/denon/protocol.js`). Power uses `ZMON`/`ZMOFF`, never
   the whole-unit `PWON`/`PWSTANDBY`: `PWON` wakes the receiver up restoring whichever zones were on

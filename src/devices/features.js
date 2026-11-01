@@ -82,6 +82,9 @@ export const STATE = {
   TUNER_PRESET: 'tuner_preset',
   TUNER_BAND: 'tuner_band',
   TUNER_MODE: 'tuner_mode',
+  // The receiver's "Max Volume" (MVMAX), in percent: the ceiling of the
+  // widget Vol + taps (./control.js).
+  VOLUME_MAX: 'volume_max',
 };
 export const STATE_ONLY_KEYS = new Set([
   STATE.QUICK_SELECT,
@@ -89,6 +92,7 @@ export const STATE_ONLY_KEYS = new Set([
   STATE.TUNER_PRESET,
   STATE.TUNER_BAND,
   STATE.TUNER_MODE,
+  STATE.VOLUME_MAX,
 ]);
 
 // The receiver's input for the analog tuner: TF/TP/TM commands only act

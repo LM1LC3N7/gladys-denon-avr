@@ -244,10 +244,12 @@ export function parseLine(rawLine, zone = ZONE.MAIN, powerMode = POWER_MODE.UNKN
     return { feature: 'mute', value: 0 };
   }
 
-  // MVMAX<space><nn> reports the volume ceiling, not the current volume —
-  // must be excluded before the generic MV<digits> match below.
+  // MVMAX<space><nn> reports the volume ceiling ("Max Volume"), not the
+  // current volume — matched before the generic MV<digits> below. Reported
+  // as the widget-only state `volume_max` (percent).
   if (line.startsWith('MVMAX')) {
-    return null;
+    const max = parseVolumeDigits(line.slice(5).trim());
+    return max ? { feature: 'volume_max', value: max.value } : null;
   }
   if (line.startsWith('MV')) {
     return parseVolumeDigits(line.slice(2));

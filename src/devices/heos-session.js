@@ -309,7 +309,7 @@ export function openHeosSession(
     getConfig: () => session.config,
     getVolume: () => session.volume,
     setVolume: (level) => {
-      if (session.pid == null) {
+      if (session.pid == null || !Number.isFinite(Number(level))) {
         return false;
       }
       const sent = session.client.sendCommand(buildSetVolumeCommand(session.pid, level));

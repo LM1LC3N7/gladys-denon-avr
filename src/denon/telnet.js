@@ -87,6 +87,7 @@ export function createTelnetClient({
   let warnedError = null;
 
   function connect() {
+    reconnectTimer = null;
     if (stopped) {
       return;
     }
@@ -159,6 +160,14 @@ export function createTelnetClient({
     },
     isConnected() {
       return connected;
+    },
+    /** Move a reconnect already scheduled to `delayMs` from now (none scheduled: nothing). */
+    retryIn(delayMs) {
+      if (stopped || !reconnectTimer || socket) {
+        return;
+      }
+      clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(connect, delayMs);
     },
     /** Stop reconnecting and close the current socket. */
     stop() {

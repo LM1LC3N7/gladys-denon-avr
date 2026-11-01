@@ -109,14 +109,18 @@ Voici ce qui apparaît par ampli :
 
 ## Enceintes HEOS (Denon Home, HEOS 1/3/5/7...)
 
-Une enceinte HEOS autonome (Denon Home 150/250/350, Denon Home Sound Bar, HEOS 1/3/5/7, HEOS
-Link/Amp/Drive...) répond à HEOS (port 1255) mais n'a pas le contrôle Telnet « AVR Control »
-(port 23 refusé). L'intégration la reconnaît quand HEOS trouve un lecteur à son adresse et que le
-port 23 est refusé, d'après le modèle annoncé (par HEOS ou par le scan) : dès le premier refus
-pour un modèle d'enceinte connu, après trois refus d'affilée (environ une minute) quand le modèle
-est inconnu. Un appareil dont le Telnet a répondu une seule fois depuis le démarrage reste un
-ampli, et un modèle d'ampli connu (par exemple le Marantz PM7000N) n'est jamais pris pour une
-enceinte, même port 23 fermé.
+Une enceinte HEOS autonome (Denon Home 150/250/350, Denon Home Sound Bar, HEOS 1/3/5/7...)
+répond à HEOS (port 1255) mais n'a pas le contrôle Telnet « AVR Control » (port 23 refusé). Pour
+les autres modèles « HEOS » (Link, Amp, Drive...), l'absence de Telnet n'est pas vérifiée : s'ils
+répondent sur le port 23, ils restent traités comme des amplis.
+
+L'intégration la reconnaît quand trois conditions sont réunies : HEOS trouve un lecteur à son
+adresse, le port 23 est refusé, et le modèle annoncé (par HEOS ou par le scan) est un modèle
+d'enceinte (« Denon Home… », « HEOS… »). C'est alors immédiat. Sans modèle lisible, l'appareil
+reste un ampli : il garde marche/veille, entrées et zones, le Telnet est réessayé au rythme
+habituel, et le badge prend le point orange « seul HEOS répond » après trois échecs Telnet. Un
+appareil dont le Telnet a répondu une seule fois depuis le démarrage reste un ampli, et un modèle
+d'ampli connu (par exemple le Marantz PM7000N) n'est jamais pris pour une enceinte.
 
 Ce que fait alors l'intégration :
 
@@ -127,10 +131,13 @@ Ce que fait alors l'intégration :
   cette version, relancez un scan dans l'onglet Découverte et cliquez sur **Mettre à jour** pour
   les retirer. D'ici là, ces commandes sont refusées avec un message clair (« not available on a
   HEOS speaker … nothing sent »), sans rien envoyer.
-- **Badge** : _local_, sans point orange (ce n'est pas un mode dégradé pour une enceinte).
+- **Badge** : _local_, sans point orange (ce n'est pas un mode dégradé pour une enceinte) ;
+  _injoignable_ dès que HEOS ne répond plus (enceinte débranchée).
 - **Logs** : une seule ligne d'information (« … is a HEOS speaker … without AVR Control … ») au
   lieu d'un avertissement Telnet toutes les 10 à 30 secondes. Le Telnet est réessayé toutes les
-  5 minutes : s'il répond un jour, tout redevient comme sur un ampli.
+  5 minutes. S'il répond un jour, les commandes d'ampli repartent aussitôt ; les fonctions retirées
+  par **Mettre à jour** ne reviennent, elles, qu'après un nouveau scan et un nouveau **Mettre à
+  jour**.
 - **Widgets** : la carte Ampli remplace Allumer/Veille par Lecture/Pause et affiche « Alimentation :
   Non pilotable (HEOS) » ; les cartes Télécommande et Raccourcis ne gardent que ce qui marche
   (Vol −, Vol +, Sourdine ; favoris HEOS), la carte Radio indique qu'il n'y a pas de tuner.
@@ -162,7 +169,9 @@ et déclenchent ; le curseur de volume et le menu déroulant des entrées resten
   Vol + change le volume d'environ 2 dB sur un ampli (2 %, quatre crans de télécommande) et de
   5 % sur une enceinte HEOS. Des appuis rapprochés s'additionnent à partir du dernier volume
   demandé, même si l'ampli n'a pas encore répondu, et ne partent pas plus vite que l'ampli ne les
-  accepte (un envoi toutes les 60 ms au plus, le dernier volume demandé gagne). Les boutons
+  accepte (un envoi toutes les 60 ms au plus, le dernier volume demandé gagne). Ils ne dépassent
+  jamais le « Volume max » réglé dans l'ampli (`MVMAX`), pour que Vol − agisse dès le premier
+  appui. Les boutons
   Volume +/- de la liste des appareils gardent un cran de télécommande.
 - **Télécommande** — quatre touches au choix (Haut, Bas, Gauche, Droite, OK, Retour, Menu, Info,
   Vol −, Vol +, Sourdine, Allumer, Veille ; les quatre flèches par défaut). Posez-en plusieurs côte
@@ -473,8 +482,8 @@ dossier de données de l'intégration (`/data/ad-breaks.json`, `/data/ad-jingles
   chaque appui (30 rechargements par minute au plus). Au-delà, tous les boutons des widgets de
   cette intégration sont refusés jusqu'à la fin de la minute en cours (60 s au plus), puis tout
   revient seul. Depuis cette version un appui sur Vol −/+ fait 2 dB au lieu de 0,5 dB, donc
-  quatre fois moins d'appuis pour le même réglage ; pour un grand changement, utilisez le curseur
-  de volume de la carte « Appareils » de Gladys, qui n'a pas cette limite.
+  quatre fois moins d'appuis pour le même réglage ; pour un grand changement, préférez le curseur
+  de volume de la carte « Appareils » de Gladys : un seul réglage au lieu de plusieurs appuis.
 
 - **Le badge de l'appareil** (liste des appareils) dit l'état de chaque ampli : _local_ = joignable ;
   _injoignable_ = ni le contrôle Telnet ni HEOS ne répondent (ampli débranché, veille réseau
