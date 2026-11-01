@@ -10,6 +10,8 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-01
+
 ### Fixed
 
 - HEOS-only speakers (Denon Home, HEOS 1/3/5/7, HEOS Link/Amp/Drive; forum
@@ -88,7 +90,8 @@ the notes of the version's GitHub Release.
 The releases before this file was started are described by their GitHub
 Releases.
 
-[Unreleased]: https://github.com/LM1LC3N7/gladys-denon-avr/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/LM1LC3N7/gladys-denon-avr/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/LM1LC3N7/gladys-denon-avr/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/LM1LC3N7/gladys-denon-avr/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/LM1LC3N7/gladys-denon-avr/compare/v1.0.25...v1.1.0
 [1.0.25]: https://github.com/LM1LC3N7/gladys-denon-avr/compare/v1.0.24...v1.0.25
