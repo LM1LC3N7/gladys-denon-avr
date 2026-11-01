@@ -10,6 +10,27 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+### Fixed
+
+- HEOS-only speakers (Denon Home, HEOS 1/3/5/7, HEOS Link/Amp/Drive; forum
+  topic 10722, post 37): recognized when port 23 is refused while HEOS answers,
+  from the model HEOS or the scan announces. Volume, mute, playback and
+  announcements go through HEOS; power, inputs, sound modes, the Setup menu
+  and the tuner are no longer offered (Discovery, then **Update** on a device
+  added before) and are refused with a clear message, nothing sent. No more
+  orange dot on the badge, one log line instead of a Telnet warning every
+  10-30 s, Telnet retried every 5 minutes. A device whose Telnet answers, or a
+  known receiver/amplifier model, is never treated as a speaker.
+- Widget Vol −/+: several quick taps ended on "The action failed", then every
+  widget button stayed dead up to a minute. Gladys allows 30 widget actions
+  (and 30 content reloads) a minute per integration, and one tap was one
+  0.5 dB step. A tap now moves about 2 dB (5 % on a HEOS speaker) from the last
+  requested volume, quick taps add up and are spaced to the receiver's pace.
+- The Telnet socket error of a receiver that stays unreachable is logged once
+  while it repeats, not at every attempt.
+- The "only HEOS answers" badge of an AV receiver waits for 3 failed Telnet
+  attempts instead of flashing while the receiver starts.
+
 ## [1.1.1] - 2026-10-31
 
 ### Fixed

@@ -16,7 +16,8 @@ These show up per receiver:
 
 - **Power** — on/off, controllable. Only ever the **main zone** (or the zone picked in
   Configuration, see "Zone" below): turning the receiver on from Gladys can no longer wake it up
-  on Zone 2, and turning it off no longer cuts a Zone 2 someone is listening to.
+  on Zone 2, and turning it off no longer cuts a Zone 2 someone is listening to (except in the
+  edge case described below, "Known limit").
   Receivers **without zones** (stereo network amplifiers and systems: for example the Marantz
   PM7000N, M-CR610/611, Denon DRA-100) have no zone power commands, only the whole-unit
   `PWON`/`PWSTANDBY`. The integration reads how many zones the receiver declares in its
@@ -27,7 +28,8 @@ These show up per receiver:
   answer always means zones, whatever the page says. Only "with zones" is remembered in the
   integration's data (for that device and IP address, deleted with the device), so it also
   applies after a restart; "without zones" is decided again at each start. Known limit: an AV
-  receiver without that page, on its very first connection, that loses all three zone answers is
+  receiver without that page that loses all three zone answers on a connection, as long as it has
+  never given one (its very first connection, or a later one before any zone answer was kept), is
   taken for one without zones until it answers one. The choice is
   logged ("power mode is now ...") and shown by "Test connection"; each power command is logged at
   info level with the exact command sent. Checked against the published protocols and simulated
@@ -80,10 +82,7 @@ These show up per receiver:
   before (a radio, a playlist) does not resume on its own. This is also one of the features here that works on a standalone
   HEOS speaker (Denon Home, HEOS 1/3/5/7, Bar...) added through the manual IP fallback in
   Configuration, not just a real AV receiver — alongside Volume, Mute and Play/Pause/Next/Previous
-  (all of which have a real HEOS equivalent, see "HEOS support" below). Power, Source and Sound
-  mode still need the Telnet-based "AVR Control" service those speakers don't have, so this
-  integration is not full HEOS-speaker support — just the features that happen to have a HEOS
-  equivalent already. Triggering this scene action repeatedly in quick succession replaces
+  (all of which have a real HEOS equivalent, see "HEOS speakers" below). Triggering this scene action repeatedly in quick succession replaces
   whatever is currently speaking rather than queuing behind it — the queue is cleared before every
   announcement, confirmed necessary on real hardware (without it, a burst of announcements played
   back one after another instead of just the last one).
@@ -93,6 +92,37 @@ These show up per receiver:
   instead of hunting for the physical remote. Don't want all of them cluttering a dashboard? Hide
   the ones you don't use the same way you'd hide any other device feature — nothing to configure
   on this integration's side.
+
+## HEOS speakers (Denon Home, HEOS 1/3/5/7...)
+
+A standalone HEOS speaker (Denon Home 150/250/350, Denon Home Sound Bar, HEOS 1/3/5/7, HEOS
+Link/Amp/Drive...) answers HEOS (port 1255) but has no Telnet "AVR Control" (port 23 refused).
+The integration recognizes it when HEOS lists a player at its address and port 23 is refused,
+from the model it announces (over HEOS or in the scan): at the first refusal for a known speaker
+model, after three refusals in a row (about a minute) when the model is unknown. A device whose
+Telnet answered even once since the start stays a receiver, and a known receiver or amplifier
+model (for example the Marantz PM7000N) is never taken for a speaker, even with port 23 closed.
+
+What the integration then does:
+
+- **Volume, Volume up/down, Mute, Play/Pause/Next/Previous, Now playing and "Speak on a
+  speaker"** go through HEOS.
+- **Power, Source, Sound mode, the Setup menu, Quick Select and the tuner** do not exist in
+  HEOS: a device discovered as a speaker does not have them; on a speaker added before this
+  version, run a scan in the Discovery tab and click **Update** to remove them. Until then these
+  commands are refused with a clear message ("not available on a HEOS speaker … nothing sent"),
+  and nothing is sent.
+- **Badge**: _local_, with no orange dot (not a degraded mode for a speaker).
+- **Logs**: one info line ("… is a HEOS speaker … without AVR Control …") instead of a Telnet
+  warning every 10 to 30 seconds. Telnet is retried every 5 minutes: if it ever answers,
+  everything works as on a receiver again.
+- **Widgets**: the Amplifier card swaps Turn on/Standby for Play/Pause and shows "Power: Not
+  controllable (HEOS)"; the Remote and Shortcuts cards keep only what works (Vol −, Vol +, Mute;
+  HEOS favorites), the Radio card says there is no tuner.
+- **Test connection** says "HEOS speaker (model) without AVR Control" and what works.
+
+Checked against a simulated HEOS speaker (port 23 refused, HEOS answering with the model "Denon
+Home 150"), not yet on a real Denon Home.
 
 ## Dashboard widgets
 
@@ -111,7 +141,11 @@ dropdown stay those of Gladys' own "Devices" card.
   stored in the receiver) and **HEOS favorites 1-8**. The active shortcut is ticked. Each button
   can get a custom label.
 - **Amplifier** — power, input, sound mode and mute at a glance, the live volume, and Turn
-  on/Standby, Vol −, Vol + and Mute buttons.
+  on/Standby, Vol −, Vol + and Mute buttons. In the cards, a Vol − or Vol + tap moves the volume
+  by about 2 dB on a receiver (2 %, four remote presses) and by 5 % on a HEOS speaker. Quick taps
+  add up from the last requested volume, even before the receiver answers, and never go out
+  faster than the receiver takes them (one command every 60 ms at most, the last requested
+  volume wins). The Volume up/down buttons of the device list keep one remote press.
 - **Remote** — four keys of your choice (Up, Down, Left, Right, OK, Back, Menu, Info, Vol −,
   Vol +, Mute, Turn on, Standby; the four arrows by default). Place several side by side for a full
   pad (for instance an "arrows" card and an "OK / Back / Menu / Info" card).
@@ -397,11 +431,20 @@ integration's data folder (`/data/ad-breaks.json`, `/data/ad-jingles/`).
 
 ## Troubleshooting
 
+- **"The action failed" after several quick taps in a widget, then no button answers for a
+  while**: a Gladys limit, not the receiver's. Gladys takes at most 30 widget taps a minute per
+  integration, and reloads the widget content after each tap (at most 30 reloads a minute).
+  Beyond that, every widget button of this integration is refused until the current minute ends
+  (60 s at most), then everything comes back on its own. Since this version a Vol −/+ tap moves
+  2 dB instead of 0.5 dB, so four times fewer taps for the same change; for a big change, use the
+  volume slider of the Gladys "Devices" card, which has no such limit.
+
 - **The device badge** (device list) tells each receiver's state: _local_ = reachable;
   _unreachable_ = neither the Telnet control nor HEOS answers (receiver unplugged, network standby
   off, wrong IP); an **orange dot** flags a degraded mode, with the reason on hover — HEOS lists
-  no player at the receiver's IP ("Speak on a speaker" will not work), or only HEOS answers (a
-  standalone HEOS speaker, or a receiver whose port 23 is closed), or the receiver did not report
+  no player at the receiver's IP ("Speak on a speaker" will not work), or only HEOS answers on a
+  receiver (port 23 closed or held by another controller, for at least three attempts; a
+  recognized HEOS speaker has no orange dot, see "HEOS speakers"), or the receiver did not report
   its power back within 5 s after an on/off command, even when asked again after 2 s (the command
   is named; the dot goes away as soon as the receiver reports its power again).
 - **On/Off does nothing**: look in the logs for `power on (device command) -> sent ...`. `ZMON`/
@@ -411,6 +454,9 @@ integration's data folder (`/data/ad-breaks.json`, `/data/ad-jingles/`).
   `node scripts/debug-telnet.js <ip>` and type `ZM?` then `PW?`). "Test connection" also shows
   which power commands are used.
 
+- **Receiver swapped for another at the same IP address** (for instance an AV receiver for a
+  stereo amplifier): delete the device in Gladys and add it again from the Discovery tab. The
+  "with zones" verdict kept for the old one does not carry over to the new one.
 - **Nothing found by the scan**: check that Gladys and the receiver are on the same network
   segment and that multicast/UPnP is not filtered by your router or switches, then use the
   manual IP fallback (see above).

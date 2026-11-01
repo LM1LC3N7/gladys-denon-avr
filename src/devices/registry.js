@@ -62,6 +62,11 @@ const DEFAULT_TIMING = Object.freeze({
   // HEOS is asked again (./qobuz.js): a scene must not browse the whole
   // library every time it runs.
   qobuzCacheMs: 5 * 60_000,
+  // Widget Vol −/+ (./control.js): how long the last wanted volume stays
+  // the base of the next tap, and the pause between two volume commands to
+  // one receiver (Denon asks ~50 ms between commands).
+  volumeWantedMs: 2_500,
+  volumeGapMs: 60,
 });
 
 export const timing = { ...DEFAULT_TIMING };
@@ -177,6 +182,8 @@ export function getDeviceSnapshot(externalId) {
     name: session?.device?.name ?? externalId,
     telnetConnected: isTelnetConnected(externalId),
     heosConnected: isHeosConnected(externalId),
+    // A HEOS-only speaker (./speaker.js): no power, input or sound mode.
+    heosOnly: session?.heosOnly === true,
     state: getState(externalId),
   };
 }

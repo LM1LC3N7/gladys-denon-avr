@@ -36,7 +36,17 @@ test('computeTransport: HEOS answering with no player at our IP is a degraded lo
   assert.ok(entry.message.fr);
 });
 
-test('computeTransport: Telnet down but HEOS matched (HEOS-only speaker) is degraded, not unreachable', () => {
+test('computeTransport: an AVR with Telnet down but HEOS matched is degraded, not unreachable', () => {
+  assert.equal(
+    computeTransport(ID, {
+      ...BASE,
+      telnetUp: false,
+      telnetFailures: CONNECTION_FAILURE_THRESHOLD - 1,
+      heosMatch: HEOS_MATCH.MATCHED,
+    }),
+    null,
+    'not before the failure threshold: HEOS often answers before Telnet',
+  );
   const entry = computeTransport(ID, {
     ...BASE,
     telnetUp: false,

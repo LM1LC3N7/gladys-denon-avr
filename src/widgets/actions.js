@@ -14,6 +14,7 @@ import {
   FEATURE,
   STATE,
   getDeviceSnapshot,
+  nudgeVolume,
   playHeosFavorite,
   runFeatureCommand,
   selectQuickSelect,
@@ -51,6 +52,13 @@ export async function runWidgetAction(gladys, actionKey, params, config) {
   }
   const { externalId, state } = snapshot;
   const zone = normalizeZone(config.zone);
+
+  // A real step from the last wanted level, spaced (src/devices/control.js):
+  // the core caps widget taps at 30 a minute (forum topic 10722, post 37).
+  if (actionKey === 'volume_up' || actionKey === 'volume_down') {
+    nudgeVolume(externalId, actionKey === 'volume_up' ? 1 : -1, zone);
+    return undefined;
+  }
 
   if (FEATURE_BUTTONS[actionKey]) {
     const { feature, value } = FEATURE_BUTTONS[actionKey];

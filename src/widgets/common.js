@@ -217,6 +217,19 @@ export const TEXTS = {
     en: 'Other — a button selects the tuner',
     fr: 'Autre : un bouton choisit le tuner',
   },
+  notControllable: { en: 'Not controllable (HEOS)', fr: 'Non pilotable (HEOS)' },
+  heosOnlyKeys: {
+    en: 'HEOS speaker: only Vol −, Vol + and Mute work here.',
+    fr: 'Enceinte HEOS : seuls Vol −, Vol + et Sourdine fonctionnent ici.',
+  },
+  heosOnlyShortcuts: {
+    en: 'HEOS speaker: only HEOS favorites work here.',
+    fr: 'Enceinte HEOS : seuls les favoris HEOS fonctionnent ici.',
+  },
+  heosOnlyTuner: {
+    en: 'HEOS speaker: no FM/AM tuner.',
+    fr: 'Enceinte HEOS : pas de tuner FM/AM.',
+  },
   menuOpen: {
     en: 'The Setup menu is open on the TV screen',
     fr: "Le menu de configuration est ouvert sur l'écran de la TV",
@@ -272,6 +285,10 @@ export function isReachable(view) {
 export function powerStatus(view) {
   if (!isReachable(view)) {
     return { label: TEXTS.power, value: TEXTS.unreachable, color: WIDGET_COLORS.WARNING };
+  }
+  if (view.heosOnly) {
+    // HEOS CLI has no power command (src/devices/speaker.js).
+    return { label: TEXTS.power, value: TEXTS.notControllable, color: WIDGET_COLORS.NEUTRAL };
   }
   if (view.state.power === 1) {
     return { label: TEXTS.power, value: TEXTS.on, color: WIDGET_COLORS.SUCCESS };

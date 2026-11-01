@@ -46,6 +46,9 @@ import {
 } from './registry.js';
 import { openHeosSession } from './heos-session.js';
 import { forgetHealth, reportHealth } from './transport.js';
+import { HEOS_MATCH } from './heos-session.js';
+import { decideHeosOnly, HEOS_ONLY_TELNET_RETRY_MS } from './speaker.js';
+import { forgetVolume } from './control.js';
 import { cancelAnnouncement } from './announcements.js';
 import {
   createPowerDetector,
@@ -110,6 +113,37 @@ export function connectDevice(gladys, device, config) {
   // reported itself up — and must never move the badge of its successor.
   const isCurrent = (field, client) => getSession(externalId)?.[field] === client;
 
+  // HEOS-only speaker (./speaker.js): what the two sessions told so far.
+  const speaker = { telnetEverUp: false, refusals: 0, heosOnly: false, announced: false };
+  function updateSpeakerMode() {
+    // Sticky for the session once seen (a speaker unplugged is still a
+    // speaker); only Telnet answering makes it an AVR again.
+    const heosOnly =
+      !speaker.telnetEverUp &&
+      (speaker.heosOnly ||
+        decideHeosOnly({
+          telnetEverUp: speaker.telnetEverUp,
+          refusals: speaker.refusals,
+          heosMatched: heos?.match === HEOS_MATCH.MATCHED,
+          model: heos?.model ?? null,
+        }));
+    if (heosOnly === speaker.heosOnly || !isCurrent('telnet', telnet)) {
+      return;
+    }
+    speaker.heosOnly = heosOnly;
+    setSession(externalId, { heosOnly });
+    if (heosOnly && !speaker.announced) {
+      speaker.announced = true;
+      logger.info(
+        `${externalId}: ${host} is a HEOS speaker${heos?.model ? ` (${heos.model})` : ''} without ` +
+          `AVR Control (Telnet ${host}:${port} refused): volume, mute, playback and announcements ` +
+          'go through HEOS; power, inputs, sound modes and the Setup menu are not available. ' +
+          `Telnet is retried every ${HEOS_ONLY_TELNET_RETRY_MS / 60_000} min.`,
+      );
+    }
+    reportHealth(gladys, externalId, { heosOnly, host, port });
+  }
+
   // Zones or not (./power.js): Deviceinfo.xml, /data, then what the
   // receiver answers on each connect. `telnet` is declared just below; the
   // detector only sends once the session is up.
@@ -124,8 +158,15 @@ export function connectDevice(gladys, device, config) {
     host,
     port,
     reconnectIntervalSeconds: config.reconnect_interval_seconds,
+    reconnectDelayMs: () => (speaker.heosOnly ? HEOS_ONLY_TELNET_RETRY_MS : undefined),
     onConnect: () => {
       logger.info(`${externalId}: connected (${zone} zone), seeding initial state`);
+      if (speaker.heosOnly) {
+        logger.info(`${externalId}: AVR Control (Telnet) answers now: every feature is back`);
+      }
+      speaker.telnetEverUp = true;
+      speaker.refusals = 0;
+      updateSpeakerMode();
       for (const query of initialQueries(zone)) {
         telnet.send(query);
       }
@@ -213,11 +254,13 @@ export function connectDevice(gladys, device, config) {
         }
       }
     },
-    onDisconnect: (consecutiveFailures) => {
+    onDisconnect: (consecutiveFailures, { refused = false } = {}) => {
       power.onDisconnect();
       if (!isCurrent('telnet', telnet)) {
         return;
       }
+      speaker.refusals = refused ? speaker.refusals + 1 : 0;
+      updateSpeakerMode();
       reportHealth(gladys, externalId, {
         telnetUp: false,
         telnetFailures: consecutiveFailures,
@@ -242,14 +285,22 @@ export function connectDevice(gladys, device, config) {
     host,
     zone,
     config,
+    port: heosPortOverride(),
     isTelnetConnected: () => telnet.isConnected(),
     onMatchChange: (heosMatch) => {
       if (isCurrent('heos', heos)) {
         reportHealth(gladys, externalId, { heosMatch, host, port });
+        updateSpeakerMode();
       }
     },
   });
   setSession(externalId, { heos });
+}
+
+/** The HEOS CLI port of the tests (a local fake speaker), else the real one. */
+function heosPortOverride() {
+  const port = Number(process.env.DENON_HEOS_PORT);
+  return Number.isInteger(port) && port > 0 && port < 65536 ? port : undefined;
 }
 
 /** Publish one legacy-Telnet-sourced state, dropping HEOS' dedup record for it. */
@@ -293,6 +344,7 @@ export function disconnectDevice(externalId, { keepSaved = false } = {}) {
   session?.power?.stop?.();
   session?.heos?.stop?.();
   cancelAnnouncement(externalId);
+  forgetVolume(externalId);
   forgetPower(externalId);
   if (!keepSaved) {
     forgetSavedPower(externalId);

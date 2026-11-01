@@ -9,7 +9,7 @@ import { adBreakReport } from '../adbreak/index.js';
 import { reportText } from '../adbreak/insights.js';
 import { POWER_MODE, ZONE, buildSourceCommand, normalizeZone } from '../denon/protocol.js';
 import { visibleSourceCodes } from './features.js';
-import { getHeos, getState, getTelnet } from './registry.js';
+import { getHeos, getSession, getState, getTelnet } from './registry.js';
 import { initialQueries } from './session.js';
 import { describePowerMode, getPowerMode } from './power.js';
 import { QobuzUnavailableError, listQobuzPlaylists } from './qobuz.js';
@@ -35,6 +35,22 @@ const SHOWN_PLAYLISTS = 30;
 export async function runTestConnectionAction(gladys, { fields, config }) {
   const externalId = fields.device;
   const telnet = getTelnet(externalId);
+  if ((!telnet || !telnet.isConnected()) && getSession(externalId)?.heosOnly) {
+    // A HEOS-only speaker (./speaker.js): no Telnet to test.
+    const heos = getHeos(externalId);
+    const state = getState(externalId);
+    const linked = heos?.pid != null && heos.client?.isConnected();
+    return {
+      en:
+        `HEOS speaker${heos?.model ? ` (${heos.model})` : ''} without AVR Control (Telnet port 23 refused). ` +
+        `HEOS: ${linked ? `player id ${heos.pid}` : 'not connected right now'}. Volume ${state.volume ?? '?'} %. ` +
+        'Volume, mute, playback and announcements work; power, inputs and sound modes are not available.',
+      fr:
+        `Enceinte HEOS${heos?.model ? ` (${heos.model})` : ''} sans contrôle AVR (Telnet port 23 refusé). ` +
+        `HEOS : ${linked ? `lecteur ${heos.pid}` : 'non connecté pour le moment'}. Volume ${state.volume ?? '?'} %. ` +
+        'Volume, sourdine, lecture et annonces fonctionnent ; marche/veille, entrées et modes son ne sont pas disponibles.',
+    };
+  }
   if (!telnet || !telnet.isConnected()) {
     return {
       en: 'Not connected to this AVR. Check the host/network and the integration logs.',

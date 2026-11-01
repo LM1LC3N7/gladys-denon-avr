@@ -144,6 +144,7 @@ export function shortcutsContent(view, settings = {}) {
   if (items.length > 0) {
     components.push({ type: 'status', items });
   }
+  let dropped = false;
   for (const { value, slot } of chosenSlots(
     settings,
     'slot',
@@ -151,6 +152,10 @@ export function shortcutsContent(view, settings = {}) {
     SHORTCUT_DEFAULTS,
   )) {
     const target = parseShortcutTarget(value);
+    if (view.heosOnly && target.kind !== 'favorite') {
+      dropped = true; // Inputs and Quick Selects need AVR Control (Telnet).
+      continue;
+    }
     components.push(
       actionButton(
         shortcutLabel(target, view, settings[`label_${slot}`]),
@@ -160,10 +165,35 @@ export function shortcutsContent(view, settings = {}) {
       ),
     );
   }
+  if (dropped) {
+    components.push(caption(TEXTS.heosOnlyShortcuts));
+  }
   return { version: 1, ttl_seconds: WIDGET_TTL_SECONDS[WIDGET.SHORTCUTS], components };
 }
 
-/** C — "Amplifier": the daily remote and its state at a glance. */
+function powerButton(view, on) {
+  return on
+    ? actionButton(TEXTS.turnOff, 'power_off', paramsOf(view), 'power')
+    : actionButton(TEXTS.turnOn, 'power_on', paramsOf(view), 'power');
+}
+
+function playPauseButton(view) {
+  return view.state[FEATURE.PLAYBACK_STATE] === 1
+    ? actionButton(TEXTS.pause, 'pause', paramsOf(view), 'pause')
+    : actionButton(TEXTS.play, 'play', paramsOf(view), 'play');
+}
+
+// What a HEOS-only speaker can take from the Remote widget (HEOS volume/mute).
+const HEOS_SPEAKER_KEYS = new Set(['volume_down', 'volume_up', 'mute']);
+
+function caption(text) {
+  return { type: 'text', variant: 'caption', text: fit(text, 80) };
+}
+
+/**
+ * C — "Amplifier": the daily remote and its state at a glance. A HEOS-only
+ * speaker has no power control: Play/Pause takes the power button's place.
+ */
 export function amplifierContent(view) {
   const on = view.state[FEATURE.POWER] === 1;
   const items = [powerStatus(view), ...sourceAndModeItems(view)];
@@ -181,9 +211,7 @@ export function amplifierContent(view) {
       heading(view.name),
       volumeTile(view),
       { type: 'status', items },
-      on
-        ? actionButton(TEXTS.turnOff, 'power_off', params, 'power')
-        : actionButton(TEXTS.turnOn, 'power_on', params, 'power'),
+      view.heosOnly ? playPauseButton(view) : powerButton(view, on),
       actionButton(TEXTS.volumeDown, 'volume_down', params, 'volume-1'),
       actionButton(TEXTS.volumeUp, 'volume_up', params, 'volume-2'),
       muteButton(view),
@@ -199,9 +227,17 @@ export function remoteContent(view, settings = {}) {
   } else if (view.state.menu === 1) {
     components.push({ type: 'text', variant: 'caption', text: fit(TEXTS.menuOpen, 80) });
   }
+  let dropped = false;
   for (const { value } of chosenSlots(settings, 'key', REMOTE_BUTTONS, REMOTE_DEFAULTS)) {
+    if (view.heosOnly && !HEOS_SPEAKER_KEYS.has(value)) {
+      dropped = true; // Never offered: HEOS has no such key.
+      continue;
+    }
     const key = REMOTE_BUTTONS.find((button) => button.value === value);
     components.push(actionButton(key.label, key.value, paramsOf(view), key.icon));
+  }
+  if (dropped) {
+    components.push(caption(TEXTS.heosOnlyKeys));
   }
   return { version: 1, ttl_seconds: WIDGET_TTL_SECONDS[WIDGET.REMOTE], components };
 }
@@ -210,6 +246,10 @@ export function remoteContent(view, settings = {}) {
 export function radioContent(view, settings = {}) {
   const { state } = view;
   const components = [heading(view.name)];
+  if (view.heosOnly) {
+    components.push(caption(TEXTS.heosOnlyTuner));
+    return { version: 1, ttl_seconds: WIDGET_TTL_SECONDS[WIDGET.RADIO], components };
+  }
   const frequency = describeTunerFrequency(state[STATE.TUNER_FREQUENCY]);
   components.push(
     frequency

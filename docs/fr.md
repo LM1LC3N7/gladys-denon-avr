@@ -18,7 +18,8 @@ Voici ce qui apparaît par ampli :
 
 - **Alimentation** — marche/arrêt, contrôlable. Uniquement la **zone principale** (ou la zone
   choisie dans la Configuration, voir « Zone » ci-dessous) : allumer l'ampli depuis Gladys ne peut
-  plus le réveiller sur la Zone 2, et l'éteindre ne coupe plus une Zone 2 en cours d'écoute.
+  plus le réveiller sur la Zone 2, et l'éteindre ne coupe plus une Zone 2 en cours d'écoute (sauf
+  dans le cas limite décrit plus bas, « Limite connue »).
   Les amplis **sans zones** (amplis et chaînes stéréo réseau : par exemple le Marantz PM7000N,
   les M-CR610/611, le Denon DRA-100) n'ont pas de commandes d'alimentation de zone, seulement
   `PWON`/`PWSTANDBY` pour l'appareil entier. L'intégration lit le nombre de zones que l'ampli
@@ -30,8 +31,9 @@ Voici ce qui apparaît par ampli :
   Zone 3 veut toujours dire « avec zones », quoi que dise la page. Seul « avec zones » est retenu
   dans les données de l'intégration (pour cet appareil et cette adresse IP, effacé avec
   l'appareil), donc aussi après un redémarrage ; « sans zones » est redécidé à chaque démarrage.
-  Limite connue : un ampli home-cinéma sans cette page qui, à sa toute première connexion, perd
-  les trois réponses de zone est pris pour un ampli sans zones jusqu'à ce qu'il en donne une. Le
+  Limite connue : un ampli home-cinéma sans cette page qui perd les trois réponses de zone à une
+  connexion, tant qu'il n'en a jamais donné aucune (sa toute première connexion, ou une suivante
+  avant qu'une réponse de zone ait été retenue), est pris pour un ampli sans zones jusqu'à ce qu'il en donne une. Le
   choix est
   noté dans les logs (« power mode is now … ») et affiché par « Tester la connexion » ; chaque
   commande d'alimentation est notée (niveau info) avec la commande exacte envoyée. Vérifié sur les
@@ -92,9 +94,7 @@ Voici ce qui apparaît par ampli :
   de cette page qui fonctionne sur une enceinte HEOS autonome (Denon Home, HEOS 1/3/5/7, Bar...)
   ajoutée via l'IP manuelle dans la Configuration, et pas seulement sur un vrai ampli-tuner — aux
   côtés de Volume, Muet et Lecture/Pause/Suivant/Précédent (qui ont tous un équivalent HEOS réel,
-  voir « Support HEOS » ci-dessous). Alimentation, Source et Mode sonore nécessitent encore le
-  service Telnet « AVR Control » que ces enceintes n'ont pas — cette intégration n'est donc pas un
-  vrai support des enceintes HEOS, juste les fonctionnalités qui ont déjà un équivalent HEOS.
+  voir « Enceintes HEOS » ci-dessous).
   Déclencher cette action de scène plusieurs fois rapidement remplace ce qui est en train d'être
   dit au lieu de s'accumuler derrière — la file d'attente est vidée avant chaque annonce, confirmé
   nécessaire sur du matériel réel (sans ça, une rafale d'annonces se relisait l'une après l'autre
@@ -106,6 +106,38 @@ Voici ce qui apparaît par ampli :
   physique. Vous ne voulez pas de tous ces boutons sur votre tableau de bord ? Masquez ceux dont
   vous ne vous servez pas comme n'importe quelle autre fonctionnalité d'appareil — rien à
   configurer du côté de cette intégration.
+
+## Enceintes HEOS (Denon Home, HEOS 1/3/5/7...)
+
+Une enceinte HEOS autonome (Denon Home 150/250/350, Denon Home Sound Bar, HEOS 1/3/5/7, HEOS
+Link/Amp/Drive...) répond à HEOS (port 1255) mais n'a pas le contrôle Telnet « AVR Control »
+(port 23 refusé). L'intégration la reconnaît quand HEOS trouve un lecteur à son adresse et que le
+port 23 est refusé, d'après le modèle annoncé (par HEOS ou par le scan) : dès le premier refus
+pour un modèle d'enceinte connu, après trois refus d'affilée (environ une minute) quand le modèle
+est inconnu. Un appareil dont le Telnet a répondu une seule fois depuis le démarrage reste un
+ampli, et un modèle d'ampli connu (par exemple le Marantz PM7000N) n'est jamais pris pour une
+enceinte, même port 23 fermé.
+
+Ce que fait alors l'intégration :
+
+- **Volume, Volume +/-, Sourdine, Lecture/Pause/Suivant/Précédent, En cours de lecture et
+  « Parler sur une enceinte »** passent par HEOS.
+- **Marche/veille, Source, Mode son, menu de configuration, Quick Select et tuner** n'existent pas
+  en HEOS : un appareil découvert comme enceinte ne les a pas ; sur une enceinte ajoutée avant
+  cette version, relancez un scan dans l'onglet Découverte et cliquez sur **Mettre à jour** pour
+  les retirer. D'ici là, ces commandes sont refusées avec un message clair (« not available on a
+  HEOS speaker … nothing sent »), sans rien envoyer.
+- **Badge** : _local_, sans point orange (ce n'est pas un mode dégradé pour une enceinte).
+- **Logs** : une seule ligne d'information (« … is a HEOS speaker … without AVR Control … ») au
+  lieu d'un avertissement Telnet toutes les 10 à 30 secondes. Le Telnet est réessayé toutes les
+  5 minutes : s'il répond un jour, tout redevient comme sur un ampli.
+- **Widgets** : la carte Ampli remplace Allumer/Veille par Lecture/Pause et affiche « Alimentation :
+  Non pilotable (HEOS) » ; les cartes Télécommande et Raccourcis ne gardent que ce qui marche
+  (Vol −, Vol +, Sourdine ; favoris HEOS), la carte Radio indique qu'il n'y a pas de tuner.
+- **Tester la connexion** dit « Enceinte HEOS (modèle) sans contrôle AVR » et ce qui fonctionne.
+
+Vérifié sur une enceinte HEOS simulée (port 23 refusé, HEOS répondant avec le modèle « Denon Home
+150 »), pas encore sur une vraie Denon Home.
 
 ## Widgets du tableau de bord
 
@@ -126,7 +158,12 @@ et déclenchent ; le curseur de volume et le menu déroulant des entrées resten
   volume et mode son mémorisés dans l'ampli) et les **favoris HEOS 1 à 8**. Le raccourci actif est
   coché. Un libellé personnalisé est possible pour chaque bouton.
 - **Ampli** — alimentation, entrée, mode son et sourdine d'un coup d'œil, le volume en direct, et
-  les boutons Allumer/Veille, Vol −, Vol + et Sourdine.
+  les boutons Allumer/Veille, Vol −, Vol + et Sourdine. Dans les cartes, un appui sur Vol − ou
+  Vol + change le volume d'environ 2 dB sur un ampli (2 %, quatre crans de télécommande) et de
+  5 % sur une enceinte HEOS. Des appuis rapprochés s'additionnent à partir du dernier volume
+  demandé, même si l'ampli n'a pas encore répondu, et ne partent pas plus vite que l'ampli ne les
+  accepte (un envoi toutes les 60 ms au plus, le dernier volume demandé gagne). Les boutons
+  Volume +/- de la liste des appareils gardent un cran de télécommande.
 - **Télécommande** — quatre touches au choix (Haut, Bas, Gauche, Droite, OK, Retour, Menu, Info,
   Vol −, Vol +, Sourdine, Allumer, Veille ; les quatre flèches par défaut). Posez-en plusieurs côte
   à côte pour un pavé complet (par exemple une carte « flèches » et une carte « OK / Retour /
@@ -430,12 +467,22 @@ dossier de données de l'intégration (`/data/ad-breaks.json`, `/data/ad-jingles
 
 ## Dépannage
 
+- **« L'action a échoué » après plusieurs appuis rapides sur un widget, puis plus aucun bouton ne
+  répond pendant un moment** : c'est une limite de Gladys, pas de l'ampli. Gladys accepte au plus
+  30 appuis de widget par minute pour une intégration, et recharge le contenu du widget après
+  chaque appui (30 rechargements par minute au plus). Au-delà, tous les boutons des widgets de
+  cette intégration sont refusés jusqu'à la fin de la minute en cours (60 s au plus), puis tout
+  revient seul. Depuis cette version un appui sur Vol −/+ fait 2 dB au lieu de 0,5 dB, donc
+  quatre fois moins d'appuis pour le même réglage ; pour un grand changement, utilisez le curseur
+  de volume de la carte « Appareils » de Gladys, qui n'a pas cette limite.
+
 - **Le badge de l'appareil** (liste des appareils) dit l'état de chaque ampli : _local_ = joignable ;
   _injoignable_ = ni le contrôle Telnet ni HEOS ne répondent (ampli débranché, veille réseau
   désactivée, mauvaise IP) ; un **point orange** signale un fonctionnement dégradé, avec la raison
   au survol — HEOS ne connaît aucun lecteur à l'IP de l'ampli (« Parler sur une enceinte » ne
-  fonctionnera pas), ou seul HEOS répond (une enceinte HEOS autonome, ou un ampli dont le port 23
-  est fermé), ou l'ampli n'a pas renvoyé son état d'alimentation dans les 5 s après une commande
+  fonctionnera pas), ou seul HEOS répond sur un ampli (port 23 fermé ou pris par un autre
+  contrôleur, depuis au moins trois essais ; une enceinte HEOS reconnue n'a pas de point orange,
+  voir « Enceintes HEOS »), ou l'ampli n'a pas renvoyé son état d'alimentation dans les 5 s après une commande
   marche/arrêt, même redemandé au bout de 2 s (la commande est citée ; le point disparaît dès que
   l'ampli renvoie son état).
 - **Marche/arrêt sans effet** : cherchez dans les logs `power on (device command) -> sent ...`.
@@ -445,6 +492,9 @@ dossier de données de l'intégration (`/data/ad-breaks.json`, `/data/ad-jingles
   `node scripts/debug-telnet.js <ip>` et tapez `ZM?` puis `PW?`). « Tester la connexion » indique
   aussi les commandes d'alimentation utilisées.
 
+- **Ampli remplacé par un autre à la même adresse IP** (par exemple un ampli home-cinéma par un
+  ampli stéréo) : supprimez l'appareil dans Gladys et ajoutez-le de nouveau depuis l'onglet
+  Découverte. Le choix « ampli à zones » retenu pour l'ancien ne passe pas au nouveau.
 - **Le scan ne trouve rien** : vérifiez que Gladys et l'ampli sont sur le même segment réseau et
   que le multicast/UPnP n'est pas filtré par votre routeur ou vos switchs, puis utilisez l'IP
   manuelle de secours (voir ci-dessus).

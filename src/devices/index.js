@@ -12,7 +12,8 @@
 
 import { createLogger } from '@gladysassistant/integration-sdk';
 import { discoverDenonAvrs } from '../denon/discovery.js';
-import { buildDiscoveredDevice, buildManualDevice } from './avr.js';
+import { DEVICE_TYPE, buildDiscoveredDevice, buildManualDevice } from './avr.js';
+import { getSession } from './registry.js';
 
 const logger = createLogger({ name: 'discovery' });
 
@@ -30,12 +31,29 @@ export async function buildDiscoveredDevices(gladys, config) {
     logger.error(`SSDP scan failed: ${err.message}`);
   }
 
-  const devices = discovered.map((d) => buildDiscoveredDevice(gladys, d, config.sourceOverrides));
+  // A device whose open session found a HEOS-only speaker (./speaker.js)
+  // is offered with the speaker features: "Update" drops power, input...
+  const heosOnly = (externalId) => ({ heosOnly: getSession(externalId)?.heosOnly === true });
+  const devices = discovered.map((d) =>
+    buildDiscoveredDevice(
+      gladys,
+      d,
+      config.sourceOverrides,
+      heosOnly(gladys.externalIds(DEVICE_TYPE, d.udn).device),
+    ),
+  );
 
   const discoveredHosts = new Set(discovered.map((d) => d.host));
   for (const host of config.hosts) {
     if (!discoveredHosts.has(host)) {
-      devices.push(buildManualDevice(gladys, host, config.sourceOverrides));
+      devices.push(
+        buildManualDevice(
+          gladys,
+          host,
+          config.sourceOverrides,
+          heosOnly(gladys.externalIds(DEVICE_TYPE, `manual:${host}`).device),
+        ),
+      );
     }
   }
 

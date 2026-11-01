@@ -25,6 +25,7 @@ import {
   SOURCE_CODES,
   SOUND_MODE_CODES,
 } from '../denon/protocol.js';
+import { isHeosOnlyModel } from './speaker.js';
 
 export const DEVICE_TYPE = 'avr';
 
@@ -205,7 +206,39 @@ export const REMOTE_KEY_COMMAND_BY_FEATURE = Object.fromEntries(
   REMOTE_KEYS.map((remoteKey) => [remoteKey.feature, remoteKey.command]),
 );
 
-export function buildFeatures(deviceExternalId, sourceOverrides = {}) {
+// What a HEOS-only speaker (./speaker.js) is offered: what HEOS CLI can do.
+// No power (HEOS has no power command), input, sound mode or Setup menu.
+export const HEOS_SPEAKER_FEATURES = new Set([
+  FEATURE.VOLUME,
+  FEATURE.MUTE,
+  FEATURE.VOLUME_UP,
+  FEATURE.VOLUME_DOWN,
+  FEATURE.PLAY,
+  FEATURE.PAUSE,
+  FEATURE.PREVIOUS,
+  FEATURE.NEXT,
+  FEATURE.PLAYBACK_STATE,
+  FEATURE.NOW_PLAYING,
+  FEATURE.PLAY_NOTIFICATION,
+  FEATURE.AD_BREAK,
+  FEATURE.AD_WINDOW,
+]);
+
+/**
+ * The features of one device: every AVR feature, or only those of
+ * HEOS_SPEAKER_FEATURES for a HEOS-only speaker.
+ */
+export function buildFeatures(deviceExternalId, sourceOverrides = {}, { heosOnly = false } = {}) {
+  const features = buildAvrFeatures(deviceExternalId, sourceOverrides);
+  if (!heosOnly) {
+    return features;
+  }
+  return features.filter((feature) =>
+    HEOS_SPEAKER_FEATURES.has(feature.external_id.slice(deviceExternalId.length + 1)),
+  );
+}
+
+function buildAvrFeatures(deviceExternalId, sourceOverrides) {
   const visibleSources = visibleSourceCodes(sourceOverrides);
   return [
     {
@@ -509,8 +542,17 @@ export function buildFeatures(deviceExternalId, sourceOverrides = {}) {
   ];
 }
 
-/** Build the discovery payload for one SSDP-discovered receiver. */
-export function buildDiscoveredDevice(gladys, discovered, sourceOverrides = {}) {
+/**
+ * Build the discovery payload for one SSDP-discovered receiver. A HEOS-only
+ * speaker is told by its SSDP model ("Denon Home 150"), or by `heosOnly`
+ * when its open session already found it out (./speaker.js).
+ */
+export function buildDiscoveredDevice(
+  gladys,
+  discovered,
+  sourceOverrides = {},
+  { heosOnly = false } = {},
+) {
   const ids = gladys.externalIds(DEVICE_TYPE, discovered.udn);
   const name = discovered.modelName
     ? `${discovered.friendlyName} (${discovered.modelName})`
@@ -519,17 +561,22 @@ export function buildDiscoveredDevice(gladys, discovered, sourceOverrides = {}) 
     name,
     external_id: ids.device,
     params: [{ name: 'IP_ADDRESS', value: discovered.host }],
-    features: buildFeatures(ids.device, sourceOverrides),
+    features: buildFeatures(ids.device, sourceOverrides, {
+      heosOnly: heosOnly || isHeosOnlyModel(discovered.modelName),
+    }),
   };
 }
 
-/** Build the discovery payload for a manually-configured host (SSDP fallback). */
-export function buildManualDevice(gladys, host, sourceOverrides = {}) {
+/**
+ * Build the discovery payload for a manually-configured host (SSDP
+ * fallback); `heosOnly` when its open session found a HEOS-only speaker.
+ */
+export function buildManualDevice(gladys, host, sourceOverrides = {}, { heosOnly = false } = {}) {
   const ids = gladys.externalIds(DEVICE_TYPE, `manual:${host}`);
   return {
     name: `Denon/Marantz AVR (${host})`,
     external_id: ids.device,
     params: [{ name: 'IP_ADDRESS', value: host }],
-    features: buildFeatures(ids.device, sourceOverrides),
+    features: buildFeatures(ids.device, sourceOverrides, { heosOnly }),
   };
 }

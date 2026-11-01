@@ -48,10 +48,14 @@ export function computeReconnectDelayMs(attempt, baseIntervalSeconds) {
  *   told apart from the Denon Telnet client in the logs.
  * @param {(line: string) => void} [opts.onLine] one parsed line (no CR/LF)
  * @param {() => void} [opts.onConnect]
- * @param {(consecutiveFailures: number) => void} [opts.onDisconnect] called
- *   on every socket close, whether it was ever connected or not, with the
- *   number of consecutive failed/dropped attempts so far (reset to 0 on a
- *   successful connect).
+ * @param {(consecutiveFailures: number, info: { refused: boolean }) => void} [opts.onDisconnect]
+ *   called on every socket close, whether it was ever connected or not, with
+ *   the number of consecutive failed/dropped attempts so far (reset to 0 on a
+ *   successful connect) and whether this attempt was actively refused
+ *   (ECONNREFUSED: nothing listens on the port).
+ * @param {(consecutiveFailures: number) => number | undefined} [opts.reconnectDelayMs]
+ *   overrides the backoff delay when it returns a number (a HEOS-only
+ *   speaker: Telnet retried rarely, see src/devices/session.js).
  * @returns {{ send(command: string): boolean, isConnected(): boolean, stop(): void }}
  */
 export function createTelnetClient({
@@ -63,6 +67,7 @@ export function createTelnetClient({
   onLine,
   onConnect,
   onDisconnect,
+  reconnectDelayMs,
 }) {
   const logger = createLogger({ name: loggerName });
   let socket = null;
@@ -75,6 +80,11 @@ export function createTelnetClient({
   // socket object alone would make send()/isConnected() falsely report
   // "connected" for a socket still in the middle of the TCP handshake.
   let connected = false;
+  // The error of the current attempt, and the last one logged at warn
+  // level: a port refused every few seconds logs one warning, not one per
+  // attempt (forum topic 10722, post 37); a new error or a reconnect logs again.
+  let attemptError = null;
+  let warnedError = null;
 
   function connect() {
     if (stopped) {
@@ -88,6 +98,7 @@ export function createTelnetClient({
     socket.on('connect', () => {
       connected = true;
       consecutiveFailures = 0;
+      warnedError = null;
       logger.info(`Connected to ${host}:${port}`);
       onConnect?.();
     });
@@ -104,7 +115,14 @@ export function createTelnetClient({
     });
 
     socket.on('error', (err) => {
-      logger.warn(`Telnet socket error on ${host}:${port}: ${err.message}`);
+      attemptError = err;
+      const message = `Telnet socket error on ${host}:${port}: ${err.message}`;
+      if (warnedError === err.message) {
+        logger.debug(message);
+      } else {
+        warnedError = err.message;
+        logger.warn(`${message} (logged once while it repeats)`);
+      }
     });
 
     socket.on('close', () => {
@@ -112,9 +130,13 @@ export function createTelnetClient({
       connected = false;
       buffer = '';
       consecutiveFailures += 1;
-      onDisconnect?.(consecutiveFailures);
+      const refused = attemptError?.code === 'ECONNREFUSED';
+      attemptError = null;
+      onDisconnect?.(consecutiveFailures, { refused });
       if (!stopped) {
-        const delayMs = computeReconnectDelayMs(consecutiveFailures, reconnectIntervalSeconds);
+        const delayMs =
+          reconnectDelayMs?.(consecutiveFailures) ??
+          computeReconnectDelayMs(consecutiveFailures, reconnectIntervalSeconds);
         logger.debug(
           `Reconnecting to ${host}:${port} in ${delayMs / 1000}s (attempt ${consecutiveFailures + 1})`,
         );

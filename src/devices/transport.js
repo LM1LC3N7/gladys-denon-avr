@@ -16,8 +16,13 @@
 //   - Telnet up, HEOS answering but no player at this IP
 //                                     -> local, degraded ("Speak on a speaker"
 //                                        cannot work: multi-NIC / IP mismatch);
-//   - Telnet down, HEOS matched       -> local, degraded (HEOS-only: a Denon
-//                                        Home, or an AVR whose port 23 is off);
+//   - HEOS-only speaker (./speaker.js), HEOS matched
+//                                     -> local (nominal: a Denon Home has no
+//                                        Telnet to miss, forum topic 10722,
+//                                        post 37);
+//   - Telnet down (past the failure threshold), HEOS matched
+//                                     -> local, degraded (an AVR whose port
+//                                        23 is off or held elsewhere);
 //   - Telnet and HEOS both down       -> unreachable.
 // A Telnet session still within its first failed attempts publishes nothing
 // yet (a receiver waking up is not "unreachable").
@@ -33,7 +38,7 @@ const logger = createLogger({ name: 'avr' });
 // as not reachable over Telnet (the backoff makes 3 attempts ~1 min).
 export const CONNECTION_FAILURE_THRESHOLD = 3;
 
-// external_id -> { telnetUp, telnetFailures, heosMatch, powerUnconfirmed, host, port, published }
+// external_id -> { telnetUp, telnetFailures, heosMatch, heosOnly, powerUnconfirmed, host, port, published }
 const health = new Map();
 registerResetHook(() => health.clear());
 
@@ -50,6 +55,10 @@ const MESSAGES = {
     en: `AVR Control (Telnet ${host}:${port}) unreachable: only volume, mute, playback and announcements (HEOS) work.`,
     fr: `Contrôle AVR (Telnet ${host}:${port}) injoignable : seuls le volume, la sourdine, la lecture et les annonces (HEOS) fonctionnent.`,
   }),
+  speakerUnreachable: (host) => ({
+    en: `Cannot reach the HEOS speaker at ${host} (port 1255). Check that it is powered and on the network.`,
+    fr: `Impossible de joindre l'enceinte HEOS ${host} (port 1255). Vérifiez qu'elle est alimentée et sur le réseau.`,
+  }),
   unreachable: (host, port) => ({
     en: `Cannot reach ${host}:${port}. Check that the receiver is powered and its network standby is on.`,
     fr: `Impossible de joindre ${host}:${port}. Vérifiez que l'ampli est alimenté et que sa veille réseau est active.`,
@@ -59,7 +68,7 @@ const MESSAGES = {
 /** The badge entry of one receiver, or null when it is too early to say. Pure. */
 export function computeTransport(
   externalId,
-  { telnetUp, telnetFailures, heosMatch, powerUnconfirmed, host, port },
+  { telnetUp, telnetFailures, heosMatch, heosOnly, powerUnconfirmed, host, port },
 ) {
   if (telnetUp) {
     if (powerUnconfirmed) {
@@ -80,7 +89,13 @@ export function computeTransport(
     }
     return { external_id: externalId, transport: DEVICE_TRANSPORTS.LOCAL };
   }
-  if (heosMatch === HEOS_MATCH.MATCHED) {
+  if (heosMatch === HEOS_MATCH.MATCHED && heosOnly) {
+    return { external_id: externalId, transport: DEVICE_TRANSPORTS.LOCAL };
+  }
+  // An AVR whose Telnet is still in its first failed attempts is not
+  // reported yet: HEOS often answers first, and a receiver that is waking
+  // up, or a HEOS speaker not recognized yet, must not flash the orange dot.
+  if (heosMatch === HEOS_MATCH.MATCHED && telnetFailures >= CONNECTION_FAILURE_THRESHOLD) {
     return {
       external_id: externalId,
       transport: DEVICE_TRANSPORTS.LOCAL,
@@ -92,7 +107,7 @@ export function computeTransport(
     return {
       external_id: externalId,
       transport: DEVICE_TRANSPORTS.UNREACHABLE,
-      message: MESSAGES.unreachable(host, port),
+      message: heosOnly ? MESSAGES.speakerUnreachable(host) : MESSAGES.unreachable(host, port),
     };
   }
   return null;

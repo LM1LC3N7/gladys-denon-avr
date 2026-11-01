@@ -8,7 +8,10 @@
 // action, widget toast).
 // -----------------------------------------------------------------------------
 
+import { createLogger } from '@gladysassistant/integration-sdk';
 import {
+  buildVolumeUpCommand,
+  buildVolumeDownCommand,
   buildSourceCommand,
   buildSoundModeCommand,
   buildVolumeCommand,
@@ -20,6 +23,8 @@ import {
 import {
   buildPlayPresetCommand,
   buildSetVolumeCommand as buildHeosSetVolumeCommand,
+  buildVolumeUpCommand as buildHeosVolumeUpCommand,
+  buildVolumeDownCommand as buildHeosVolumeDownCommand,
 } from '../heos/protocol.js';
 import { HEOS_SOURCE_CODE, TUNER_SOURCE_CODE } from './features.js';
 import { sendPower } from './power.js';
@@ -27,16 +32,39 @@ import {
   getHeos,
   getState,
   getTelnet,
+  getSession,
   isHeosConnected,
   isTelnetConnected,
+  registerResetHook,
   settle,
   timing,
 } from './registry.js';
 
+const logger = createLogger({ name: 'avr' });
+
+/** Whether this device is driven as a HEOS-only speaker (./speaker.js). */
+export function isHeosOnly(externalId) {
+  return getSession(externalId)?.heosOnly === true;
+}
+
+/**
+ * The error for a command a HEOS-only speaker cannot take (power, input,
+ * sound mode, Setup menu, tuner...): HEOS CLI has no such command, and
+ * nothing is sent.
+ */
+export function heosOnlyError(externalId, what = 'this command') {
+  return new Error(
+    `${externalId}: ${what} is not available on a HEOS speaker without AVR Control (Telnet); nothing sent`,
+  );
+}
+
 /** The open Telnet session of one AVR, or a thrown "not connected". */
-export function requireTelnet(externalId) {
+export function requireTelnet(externalId, what) {
   const telnet = getTelnet(externalId);
   if (!telnet?.isConnected()) {
+    if (isHeosOnly(externalId)) {
+      throw heosOnlyError(externalId, what);
+    }
     throw new Error(`${externalId} is not connected`);
   }
   return telnet;
@@ -106,7 +134,15 @@ async function ensureZoneOn(externalId, zone, sourceCode) {
 
 /** Turn the configured zone on (pausing for it to wake up) or off. */
 export async function setPower(externalId, on, zone, origin = 'scene or widget') {
-  if (!sendPower(requireTelnet(externalId), externalId, on, normalizeZone(zone), origin)) {
+  if (
+    !sendPower(
+      requireTelnet(externalId, 'power on/off'),
+      externalId,
+      on,
+      normalizeZone(zone),
+      origin,
+    )
+  ) {
     throw new Error(`Failed to send command to ${externalId}`);
   }
   if (on && getState(externalId).power !== 1) {
@@ -119,6 +155,7 @@ export function setSource(externalId, code, zone) {
   if (!SOURCE_CODES.some((source) => source.value === code)) {
     throw new Error(`Unknown input source "${code}"`);
   }
+  requireTelnet(externalId, 'choosing an input');
   sendTelnet(externalId, buildSourceCommand(code, normalizeZone(zone)));
 }
 
@@ -127,6 +164,7 @@ export function setSoundMode(externalId, mode) {
   if (typeof mode !== 'string' || mode.trim() === '') {
     throw new Error('A sound mode is required');
   }
+  requireTelnet(externalId, 'choosing a sound mode');
   sendTelnet(externalId, buildSoundModeCommand(mode.trim()));
 }
 
@@ -141,6 +179,7 @@ export function setVolume(externalId, percent, zone) {
     throw new Error(`Invalid volume "${percent}"`);
   }
   const clamped = Math.round(Math.max(0, Math.min(100, level)));
+  forgetVolume(externalId);
   if (isTelnetConnected(externalId)) {
     sendTelnet(externalId, buildVolumeCommand(clamped, normalizeZone(zone)));
     return;
@@ -149,8 +188,131 @@ export function setVolume(externalId, percent, zone) {
   sendHeos(externalId, buildHeosSetVolumeCommand(heos.pid, clamped), 'set the volume');
 }
 
+// --- Widget Vol −/+ ----------------------------------------------------------
+//
+// Forum topic 10722, post 37: quick Vol −/+ taps in a widget ended on
+// "L'action a échoué", then every widget button of the integration stayed
+// dead for up to a minute. Gladys core caps widget actions at 30 a minute
+// per integration, and the content re-pull each successful action triggers
+// at 30 a minute too (fixed window, refused calls counted): past either,
+// every widget action answers 429 until the window ends. One tap was one
+// remote step (MVUP, 0.5 dB), so a usual change took 20 taps or more.
+//
+// A widget tap now moves the volume by a real step, from the last WANTED
+// level while taps follow each other (the receiver may not have reported
+// the previous one yet), and the commands to one device are spaced by the
+// receiver's own pace (~50 ms): taps that come faster collapse into one
+// command carrying the last wanted level. The device feature Volume up/down
+// (a Gladys remote control) keeps its one-step behavior.
+
+// Telnet: 2 % of the 0-98 scale, about 2 dB (4 presses of the remote).
+// HEOS: 5 %, the step its own volume_up uses by default.
+export const WIDGET_VOLUME_STEP = Object.freeze({ telnet: 2, heos: 5 });
+
+// external_id -> { level, route, at } the last wanted level, and
+// external_id -> { lastSentAt, timer, send } the spaced sender.
+const wantedVolumes = new Map();
+const volumeSenders = new Map();
+
+function forgetVolumeSender(externalId) {
+  const sender = volumeSenders.get(externalId);
+  if (sender?.timer) {
+    clearTimeout(sender.timer);
+  }
+  volumeSenders.delete(externalId);
+}
+
+/** Drop the wanted volume and any spaced send of one device (disconnect, absolute set). */
+export function forgetVolume(externalId) {
+  wantedVolumes.delete(externalId);
+  forgetVolumeSender(externalId);
+}
+
+registerResetHook(() => {
+  for (const externalId of [...volumeSenders.keys()]) {
+    forgetVolumeSender(externalId);
+  }
+  wantedVolumes.clear();
+});
+
+/**
+ * Send `send` now, or after the pause the receiver needs since the last
+ * volume command — a later call replaces a send still waiting. Throws when
+ * an immediate send fails; a delayed one that fails is logged.
+ */
+function sendVolumeSpaced(externalId, send) {
+  const now = performance.now();
+  const sender = volumeSenders.get(externalId) ?? { lastSentAt: -Infinity, timer: null };
+  volumeSenders.set(externalId, sender);
+  sender.send = send;
+  if (sender.timer) {
+    return; // The waiting send now carries this level.
+  }
+  const wait = sender.lastSentAt + timing.volumeGapMs - now;
+  if (wait <= 0) {
+    sender.lastSentAt = now;
+    send();
+    return;
+  }
+  sender.timer = setTimeout(() => {
+    sender.timer = null;
+    if (volumeSenders.get(externalId) !== sender) {
+      return; // Forgotten meanwhile (disconnect): nothing goes out.
+    }
+    sender.lastSentAt = performance.now();
+    try {
+      sender.send();
+    } catch (err) {
+      wantedVolumes.delete(externalId);
+      logger.warn(`${externalId}: volume not sent: ${err.message}`);
+    }
+  }, wait);
+}
+
+/**
+ * One widget Vol −/+ tap (`direction` +1 or -1): see the block comment
+ * above. Without any known volume, one relative step as before.
+ */
+export function nudgeVolume(externalId, direction, zone) {
+  const sign = direction < 0 ? -1 : 1;
+  const route = isTelnetConnected(externalId) ? 'telnet' : 'heos';
+  const heos = route === 'heos' ? requireHeos(externalId, 'change the volume') : null;
+  const now = performance.now();
+  const wanted = wantedVolumes.get(externalId);
+  const reported = getState(externalId).volume;
+  const base =
+    wanted && wanted.route === route && now - wanted.at < timing.volumeWantedMs
+      ? wanted.level
+      : reported;
+  const normalizedZone = normalizeZone(zone);
+  if (typeof base !== 'number' || !Number.isFinite(base)) {
+    if (route === 'telnet') {
+      const build = sign > 0 ? buildVolumeUpCommand : buildVolumeDownCommand;
+      sendTelnet(externalId, build(normalizedZone));
+    } else {
+      const build = sign > 0 ? buildHeosVolumeUpCommand : buildHeosVolumeDownCommand;
+      sendHeos(externalId, build(heos.pid), 'change the volume');
+    }
+    return;
+  }
+  const level = Math.round(Math.max(0, Math.min(100, base + sign * WIDGET_VOLUME_STEP[route])));
+  wantedVolumes.set(externalId, { level, route, at: now });
+  try {
+    sendVolumeSpaced(externalId, () =>
+      route === 'telnet'
+        ? sendTelnet(externalId, buildVolumeCommand(level, normalizedZone))
+        : sendHeos(externalId, buildHeosSetVolumeCommand(heos.pid, level), 'change the volume'),
+    );
+  } catch (err) {
+    // Nothing went out: the next tap starts again from the reported level.
+    wantedVolumes.delete(externalId);
+    throw err;
+  }
+}
+
 /** Recall one of the receiver's Quick Select (Marantz: Smart Select) presets, 1-5. */
 export function selectQuickSelect(externalId, number, zone) {
+  requireTelnet(externalId, 'Quick Select');
   sendTelnet(externalId, buildQuickSelectCommand(number, normalizeZone(zone)));
 }
 
@@ -166,14 +328,14 @@ export async function sendTunerCommand(externalId, key, zone) {
   if (!command) {
     throw new Error(`Unknown tuner command "${key}"`);
   }
-  requireTelnet(externalId);
+  requireTelnet(externalId, 'the tuner');
   await ensureZoneOn(externalId, normalizeZone(zone), TUNER_SOURCE_CODE);
   sendTelnet(externalId, command);
 }
 
 /** Switch the configured zone on and to the tuner input. */
 export async function selectTuner(externalId, zone) {
-  requireTelnet(externalId);
+  requireTelnet(externalId, 'the tuner');
   await ensureZoneOn(externalId, normalizeZone(zone), TUNER_SOURCE_CODE);
 }
 

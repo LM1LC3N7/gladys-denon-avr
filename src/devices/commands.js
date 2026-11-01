@@ -36,6 +36,7 @@ import {
 import { getHeos, getState, getTelnet } from './registry.js';
 import { playAnnouncement } from './announcements.js';
 import { sendPower } from './power.js';
+import { heosOnlyError, isHeosOnly } from './control.js';
 
 /**
  * Dispatch a user command (`onSetValue`) to the right device's Telnet
@@ -150,6 +151,15 @@ export async function onSetValue(gladys, { device, feature, value, config }) {
   }
 
   if (!telnet || !telnetConnected) {
+    // A HEOS-only speaker (./speaker.js): power, input, sound mode, menu
+    // keys have no HEOS command. Refused at once, nothing sent, the badge
+    // untouched (forum topic 10722, post 37).
+    const heosRoutable = [FEATURE.PLAY, FEATURE.PAUSE, FEATURE.NEXT, FEATURE.PREVIOUS].includes(
+      key,
+    );
+    if (isHeosOnly(device.external_id) && !heosRoutable) {
+      throw heosOnlyError(device.external_id, key === FEATURE.POWER ? 'power on/off' : `"${key}"`);
+    }
     throw new Error(`${device.external_id} is not connected`);
   }
 

@@ -116,6 +116,9 @@ export function openHeosSession(
   const session = {
     client: null,
     pid: null,
+    // The `model` HEOS lists for that player ("Denon Home 150"), or null:
+    // tells a HEOS-only speaker from an AVR (./speaker.js).
+    model: null,
     match: HEOS_MATCH.NONE,
     pollTimer: null,
     // Last HEOS volume level heard (whatever the transport): the ad-break
@@ -363,7 +366,21 @@ export function openHeosSession(
         const pid = findPlayerIdByIp(parsed.payload, host, zone);
         if (pid != null) {
           session.pid = pid;
-          logger.info(`${externalId}: HEOS player id ${pid} matched to ${host} (${zone} zone)`);
+          const player = (Array.isArray(parsed.payload) ? parsed.payload : []).find(
+            (entry) => Number(entry?.pid) === pid,
+          );
+          session.model =
+            typeof player?.model === 'string'
+              ? [...player.model.slice(0, 256)]
+                  .filter((char) => char >= ' ' && char !== '\u007f')
+                  .join('')
+                  .trim()
+                  .slice(0, 64) || null
+              : null;
+          logger.info(
+            `${externalId}: HEOS player id ${pid} matched to ${host} (${zone} zone)` +
+              (session.model ? `, model ${session.model}` : ''),
+          );
           setMatch(HEOS_MATCH.MATCHED);
           refreshAll(pid);
         } else {

@@ -60,6 +60,7 @@ export {
   setSource,
   setSoundMode,
   setVolume,
+  nudgeVolume,
   selectQuickSelect,
   selectTuner,
   sendTunerCommand,
