@@ -56,3 +56,13 @@
 - m1: delete the /data power-mode entry only in onDeviceDeleted; keep the "with zones" verdict across IP changes for devices identified by UDN (H12, H13).
 - m2: when DeviceZones=1 arrives after a ZM line was seen, send `Z2?` alone again.
 - m3: tests for T5 (a saved ZM verdict never beats a DeviceZones=1 read) and T9 (deletion never writes over an unreadable /data).
+
+## Next patch (review denon-heos r2, 5896845)
+
+- m1: no test for "speaker turned back into a receiver whose Telnet drops again keeps the receiver backoff", nor for "`retryIn` during an attempt opens no second socket".
+- m2: surviving mutant V1b: capping a reported volume above the ceiling (`src/control.js:~347`).
+- m3: surviving mutants V20, V24, V25, V15b, B3, S13 have no test (details in `_lots/hors-lot/denon-heos-r2.md`).
+- m4: a receiver that never announces MVMAX gets the r1 behaviour back (presses past its ceiling are dead); the docs' "never above" needs "when the receiver announces its maximum".
+- m5: README, docs and TODO say the SSDP model decides too; in a session only the HEOS model decides. Align one with the other.
+- m6: speaker mode with HEOS "not paired" shows "Cannot reach the speaker": say what is really wrong.
+- m7: malformed bullet in this file.
