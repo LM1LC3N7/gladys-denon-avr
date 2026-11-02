@@ -144,9 +144,11 @@ function forgetAnnouncementStream(externalId, entry) {
   if (!entry.streamSent || getState(externalId).playback_state === 1) {
     return;
   }
-  // HEOS last named other media (a queue started from the HEOS app during
-  // the announcement, review r3 m3): that queue is not ours to clear.
-  if (entry.lastMid && !isAnnouncementMedia(entry.lastMid, entry.url)) {
+  // HEOS named the announcement, then other media (a queue started from the
+  // HEOS app during it, review r3 m3): that queue is not ours to clear. A mid
+  // never seen as the URL (internal id, or only the music's from before)
+  // proves nothing: the queue is cleared (review r4 I1).
+  if (entry.mediaSeen && entry.lastMid && !isAnnouncementMedia(entry.lastMid, entry.url)) {
     return;
   }
   const heos = getHeos(externalId);

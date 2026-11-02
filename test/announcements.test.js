@@ -215,17 +215,43 @@ test('the fast poll also asks HEOS what it plays', async () => {
   assert.ok(heos.sent.includes('player/get_now_playing_media?pid=9'));
 });
 
-test('another media named during the announcement: its queue is never cleared (r3 m3)', async () => {
+const clearsAfterStream = (heos) => {
+  const stream = heos.sent.indexOf(`browse/play_stream?pid=9&url=${URL}`);
+  return heos.sent.slice(stream + 1).filter((path) => path.startsWith('player/clear_queue')).length;
+};
+
+test('the announcement named, then other media: that queue is never cleared (r3 m3)', async () => {
   const { heos } = setup({ power: 1, source: 'NET', volume: 40 });
   await playAnnouncement(ID, URL, normalizeConfig());
-  updateState(ID, { playback_state: 1 });
-  // A queue started from the HEOS app; HEOS passes through "stop" before playing it.
+  notifyStateChange(ID, NOW_PLAYING_MID_KEY, URL);
+  // A queue started from the HEOS app: HEOS names it while stopped, before it plays.
   notifyStateChange(ID, NOW_PLAYING_MID_KEY, 'queue-item-from-the-heos-app');
   updateState(ID, { playback_state: 0 });
   await tick();
   assert.ok(!isAnnouncing(ID));
-  const stream = heos.sent.indexOf(`browse/play_stream?pid=9&url=${URL}`);
-  assert.ok(!heos.sent.slice(stream + 1).some((path) => path.startsWith('player/clear_queue')));
+  assert.equal(clearsAfterStream(heos), 0);
+});
+
+test('a mid that is never the URL (internal id): the queue is still cleared (r4 I1)', async () => {
+  const { heos } = setup({ power: 1, source: 'NET', volume: 40 });
+  await playAnnouncement(ID, URL, normalizeConfig());
+  notifyStateChange(ID, NOW_PLAYING_MID_KEY, 'heos-internal-id-42');
+  updateState(ID, { playback_state: 1 });
+  updateState(ID, { playback_state: 0 });
+  await tick();
+  assert.ok(!isAnnouncing(ID));
+  assert.equal(clearsAfterStream(heos), 1);
+});
+
+test('only the mid of the music before seen: the queue is still cleared (r4 I1)', async () => {
+  const { heos } = setup({ power: 1, source: 'NET', volume: 40 });
+  await playAnnouncement(ID, URL, normalizeConfig());
+  notifyStateChange(ID, NOW_PLAYING_MID_KEY, 'http://lyrion.lan:9000/stream.mp3');
+  updateState(ID, { playback_state: 1 });
+  updateState(ID, { playback_state: 0 });
+  await tick();
+  assert.ok(!isAnnouncing(ID));
+  assert.equal(clearsAfterStream(heos), 1);
 });
 
 test('announcement at 100 % over Telnet: read back as 98, still ours, volume restored (r3 m7, M12)', async () => {

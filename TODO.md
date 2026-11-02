@@ -75,3 +75,7 @@
   playback" would end the announcement mid-message and give the old volume back while it speaks.
   Ask the reporter for the `get_now_playing_media` lines during an announcement before changing
   anything (a fix without that log would be a guess).
+- m1 (review r4, 0aafb10): narrow window left. A queue started from the HEOS app during an
+  announcement BEFORE HEOS named the announcement's own `mid` is still cleared at its end (the
+  guard only keeps a queue when the announcement was seen, then replaced). Accepted: the other
+  way round would stop clearing whenever `mid` is not the URL.
