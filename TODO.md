@@ -21,7 +21,7 @@
   power/zones on a guess (r1 I3). Never once Telnet came up in the session (sticky otherwise until
   then). Telnet retried every 5 min. No power feature (HEOS CLI has none). Badge follows HEOS only
   (r1 I2); "only HEOS answers" on an AVR waits for 3 Telnet failures.
-- 2026-11-01, widget Vol −/+ (`nudgeVolume()`): 2 % (Telnet, ~2 dB) / 5 % (HEOS) from the last
+- 2026-11-01, widget Vol −/+ (`nudgeVolume()`): 2 (Telnet, 2 dB on the 0-98 scale since 1.2.1) / 5 % (HEOS) from the last
   wanted level (kept 2.5 s), 60 ms between volume commands per device; the device features
   Volume up/down keep one remote step (MVUP/MVDOWN).
   Wanted level capped by `MVMAX` (main zone) and 0-100 (r1 I4); `buildSetVolumeCommand` clamps
@@ -67,3 +67,11 @@
 - Widget actions: the core re-pulls after every successful tap (30 a minute shared with the
   nudges). To ask upstream: not counting that re-pull, or a device-feature slider in widgets.
 - A receiver that never announces MVMAX: taps above its Max Volume are dead (r2 m4), documented.
+
+## Next patch (review denon-heos r3, 1e611b4)
+
+- m4: the announcement `mid` is assumed to be its URL (not checked on hardware). If HEOS names
+  the URL, then changes `mid` for the same stream (internal id, ICY metadata), "replaced by other
+  playback" would end the announcement mid-message and give the old volume back while it speaks.
+  Ask the reporter for the `get_now_playing_media` lines during an announcement before changing
+  anything (a fix without that log would be a guess).

@@ -38,8 +38,12 @@ These show up per receiver:
   (1 = 1 dB, 80 = 0 dB; half steps such as 40.5 show as is): Gladys shows what the receiver
   displays (with its volume display set to absolute "0-98"; the dB display is that number minus
   80). 99 and 100 are sent as 98. Up to 1.2.0 the 0-98 scale was stretched to 0-100, so from 25 up
-  Gladys showed one more than the receiver (forum, Marantz PM7000N). A scene or a saved volume now
-  lands up to 1 dB higher than before for the same number. The HEOS fallback below keeps HEOS'
+  Gladys showed one more than the receiver (forum, Marantz PM7000N). **A scene, an announcement
+  volume or a saved volume now plays louder for the same number: +1 dB from 26 to 75 and 99,
+  +2 dB from 76 to 98** (for example 90 sent `MV88` before 1.2.1, `MV90` now); 0 to 25 and 100
+  are unchanged. To get the old level back, lower the number by 1 (26-75) or 2 (76-98). A half
+  step (25.5) is rounded when Gladys sets it (`MV26`). The Gladys slider still goes to 100, but
+  over Telnet anything above 98 is 98. The HEOS fallback below keeps HEOS'
   own 0-100 scale. On a HEOS-equipped
   device, if the classic Telnet control isn't reachable at all (see "HEOS support" below — this is
   the case for a standalone HEOS speaker, not a real AV receiver), Volume/Volume up/Volume down
@@ -83,7 +87,9 @@ These show up per receiver:
   volume is left alone if someone changed it during the announcement). Whatever HEOS was playing
   before (a radio, a playlist, a stream sent by another app over UPnP or AirPlay, Lyrion for
   instance) does not resume on its own: that app has to play again. Once the announcement is
-  over and nothing plays, the HEOS queue is emptied, so a later Play cannot speak it again. The
+  over and nothing else plays, the HEOS queue is emptied, so a later Play cannot speak it again.
+  This needs **Restore the receiver after an announcement** on: with it off, nothing follows the
+  announcement, and a later Play may speak it again. The
   end is noticed as soon as HEOS stops, or as soon as it plays something else. This is also one of the features here that works on a standalone
   HEOS speaker (Denon Home, HEOS 1/3/5/7, Bar...) added through the manual IP fallback in
   Configuration, not just a real AV receiver — alongside Volume, Mute and Play/Pause/Next/Previous
@@ -128,12 +134,15 @@ What the integration then does:
 - **Logs**: one info line ("… is a HEOS speaker … without AVR Control …") instead of a Telnet
   warning every 10 to 30 seconds. On a speaker already updated from Discovery, the first refusal
   of port 23 at start is an info line too (`Telnet socket error … ECONNREFUSED`), never a
-  warning.
+  warning. Telnet is retried every 5 minutes. If it ever answers, the receiver commands work
+  again at once; the features removed by **Update** only come back after a new scan and a new
+  **Update**.
 - **Address**: a speaker added through the manual IP (Configuration) is tied to that IP. If your
   router gives it a new one, add the new IP in Configuration, run Discovery and add it again (or
-  give the speaker a fixed DHCP lease): the old device then says "Cannot reach the HEOS speaker". Telnet is retried every 5 minutes. If it ever answers, the
-  receiver commands work again at once; the features removed by **Update** only come back after
-  a new scan and a new **Update**.
+  give the speaker a fixed DHCP lease). The old device then says "Cannot reach the HEOS speaker"
+  until the integration restarts, and after a restart "Cannot reach <old IP>:23… Check that the
+  receiver is powered": at its old address nothing answers any more, so it can no longer be told
+  apart from a receiver that is off.
 - **Widgets**: the Amplifier card swaps Turn on/Standby for Play/Pause and shows "Power: Not
   controllable (HEOS)"; the Remote and Shortcuts cards keep only what works (Vol −, Vol +, Mute;
   HEOS favorites), the Radio card says there is no tuner.

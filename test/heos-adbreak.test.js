@@ -168,6 +168,12 @@ test('a garbled HEOS volume is unknown: not published, no ad-break duck to NaN (
     heos.push('player/get_volume', 'pid=5&level=loud');
     await tick(50);
     assert.equal(session.volume, null);
+    heos.push('player/get_volume', 'pid=5&level=');
+    await tick(50);
+    assert.equal(session.volume, null, 'an empty level is unknown too, not 0 (r3 m6)');
+    assert.ok(
+      !gladys.published.some((p) => p.state === 0 && p.featureExternalId.endsWith(':volume')),
+    );
     assert.ok(!gladys.published.some((p) => Number.isNaN(p.state)), 'never a NaN state');
     await onSetValue(gladys, {
       device,

@@ -82,7 +82,8 @@ export const STATE = {
   TUNER_PRESET: 'tuner_preset',
   TUNER_BAND: 'tuner_band',
   TUNER_MODE: 'tuner_mode',
-  // The receiver's "Max Volume" (MVMAX), in percent: the ceiling of the
+  // The receiver's "Max Volume" (MVMAX), on the same 0-98 scale as the
+  // Telnet volume (src/denon/protocol.js, DENON_VOLUME_MAX): the ceiling of the
   // widget Vol + taps (./control.js).
   VOLUME_MAX: 'volume_max',
 };

@@ -43,8 +43,12 @@ Voici ce qui apparaît par ampli :
   qu'affiche l'ampli (avec l'affichage du volume en absolu « 0-98 » ; l'affichage en dB vaut ce
   nombre moins 80). 99 et 100 sont envoyés comme 98. Jusqu'à la 1.2.0, l'échelle 0-98 était
   étirée sur 0-100, donc à partir de 25 Gladys affichait un de plus que l'ampli (forum, Marantz
-  PM7000N). Une scène ou un volume enregistré tombe maintenant jusqu'à 1 dB plus haut qu'avant pour
-  le même nombre. La bascule HEOS ci-dessous garde l'échelle 0-100 de HEOS. Sur un appareil équipé HEOS, si le contrôle Telnet
+  PM7000N). **Une scène, un volume d'annonce ou un volume enregistré joue maintenant plus fort
+  pour le même nombre : +1 dB de 26 à 75 et à 99, +2 dB de 76 à 98** (par exemple 90 envoyait
+  `MV88` avant la 1.2.1, `MV90` maintenant) ; 0 à 25 et 100 ne changent pas. Pour retrouver
+  l'ancien niveau, baissez le nombre de 1 (26-75) ou de 2 (76-98). Un demi-cran (25,5) est arrondi
+  quand Gladys le règle (`MV26`). Le curseur de Gladys va toujours jusqu'à 100, mais en Telnet
+  tout ce qui dépasse 98 vaut 98. La bascule HEOS ci-dessous garde l'échelle 0-100 de HEOS. Sur un appareil équipé HEOS, si le contrôle Telnet
   classique n'est pas joignable du tout (voir « Support HEOS » ci-dessous — c'est le cas d'une
   enceinte HEOS autonome, pas d'un vrai ampli-tuner), Volume/Volume +/Volume - basculent
   automatiquement sur les commandes HEOS.
@@ -93,8 +97,9 @@ Voici ce qui apparaît par ampli :
   d'avant (le volume n'est pas touché si quelqu'un l'a changé pendant l'annonce). Ce que HEOS
   jouait avant l'annonce (une radio, une playlist, un flux envoyé par une autre application en UPnP
   ou AirPlay, Lyrion par exemple) ne reprend pas tout seul : cette application doit relancer la
-  lecture. Une fois l'annonce finie et si rien ne joue, la file d'attente HEOS est vidée, pour
-  qu'une lecture plus tard ne la répète pas. La fin est vue dès que HEOS s'arrête, ou dès qu'il
+  lecture. Une fois l'annonce finie et si rien d'autre ne joue, la file d'attente HEOS est vidée,
+  pour qu'une lecture plus tard ne la répète pas. Il faut pour cela **Rétablir l'ampli après une
+  annonce** activé : désactivé, rien ne suit l'annonce, et une lecture plus tard peut la répéter. La fin est vue dès que HEOS s'arrête, ou dès qu'il
   joue autre chose. C'est aussi une des fonctionnalités
   de cette page qui fonctionne sur une enceinte HEOS autonome (Denon Home, HEOS 1/3/5/7, Bar...)
   ajoutée via l'IP manuelle dans la Configuration, et pas seulement sur un vrai ampli-tuner — aux
@@ -143,14 +148,16 @@ Ce que fait alors l'intégration :
 - **Logs** : une seule ligne d'information (« … is a HEOS speaker … without AVR Control … ») au
   lieu d'un avertissement Telnet toutes les 10 à 30 secondes. Sur une enceinte déjà mise à jour
   depuis la Découverte, le premier refus du port 23 au démarrage est aussi une ligne
-  d'information (`Telnet socket error … ECONNREFUSED`), jamais un avertissement.
+  d'information (`Telnet socket error … ECONNREFUSED`), jamais un avertissement. Le Telnet est
+  réessayé toutes les 5 minutes. S'il répond un jour, les commandes d'ampli repartent aussitôt ;
+  les fonctions retirées par **Mettre à jour** ne reviennent, elles, qu'après un nouveau scan et
+  un nouveau **Mettre à jour**.
 - **Adresse** : une enceinte ajoutée par l'IP manuelle (Configuration) est liée à cette IP. Si la
   box lui en donne une nouvelle, ajoutez la nouvelle IP dans la Configuration, lancez la
-  Découverte et ajoutez-la de nouveau (ou réservez-lui une IP fixe dans la box) : l'ancien
-  appareil affiche alors « Impossible de joindre l'enceinte HEOS ». Le Telnet est réessayé toutes les
-  5 minutes. S'il répond un jour, les commandes d'ampli repartent aussitôt ; les fonctions retirées
-  par **Mettre à jour** ne reviennent, elles, qu'après un nouveau scan et un nouveau **Mettre à
-  jour**.
+  Découverte et ajoutez-la de nouveau (ou réservez-lui une IP fixe dans la box). L'ancien appareil
+  affiche alors « Impossible de joindre l'enceinte HEOS » jusqu'au redémarrage de l'intégration,
+  puis « Impossible de joindre <ancienne IP>:23… Vérifiez que l'ampli est alimenté » : à son
+  ancienne adresse plus rien ne répond, on ne peut plus le distinguer d'un ampli éteint.
 - **Widgets** : la carte Ampli remplace Allumer/Veille par Lecture/Pause et affiche « Alimentation :
   Non pilotable (HEOS) » ; les cartes Télécommande et Raccourcis ne gardent que ce qui marche
   (Vol −, Vol +, Sourdine ; favoris HEOS), la carte Radio indique qu'il n'y a pas de tuner.

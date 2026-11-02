@@ -214,3 +214,41 @@ test('the fast poll also asks HEOS what it plays', async () => {
   await tick(45);
   assert.ok(heos.sent.includes('player/get_now_playing_media?pid=9'));
 });
+
+test('another media named during the announcement: its queue is never cleared (r3 m3)', async () => {
+  const { heos } = setup({ power: 1, source: 'NET', volume: 40 });
+  await playAnnouncement(ID, URL, normalizeConfig());
+  updateState(ID, { playback_state: 1 });
+  // A queue started from the HEOS app; HEOS passes through "stop" before playing it.
+  notifyStateChange(ID, NOW_PLAYING_MID_KEY, 'queue-item-from-the-heos-app');
+  updateState(ID, { playback_state: 0 });
+  await tick();
+  assert.ok(!isAnnouncing(ID));
+  const stream = heos.sent.indexOf(`browse/play_stream?pid=9&url=${URL}`);
+  assert.ok(!heos.sent.slice(stream + 1).some((path) => path.startsWith('player/clear_queue')));
+});
+
+test('announcement at 100 % over Telnet: read back as 98, still ours, volume restored (r3 m7, M12)', async () => {
+  const { telnet } = setup({ power: 1, source: 'NET', volume: 40 });
+  await playAnnouncement(ID, URL, normalizeConfig({ announcement_volume: 100 }));
+  updateState(ID, { volume: 98, playback_state: 1 });
+  updateState(ID, { playback_state: 0 });
+  await tick();
+  assert.deepEqual(telnet.sent, ['MV98', 'MV40']);
+});
+
+test('one unit off the announcement volume is still ours, two is the user (r3 m7, M21)', async () => {
+  let { telnet } = setup({ power: 1, source: 'NET', volume: 40 });
+  await playAnnouncement(ID, URL, normalizeConfig({ announcement_volume: 30 }));
+  updateState(ID, { volume: 31, playback_state: 1 });
+  updateState(ID, { playback_state: 0 });
+  await tick();
+  assert.deepEqual(telnet.sent, ['MV30', 'MV40']);
+  __clearConnectionsForTesting();
+  ({ telnet } = setup({ power: 1, source: 'NET', volume: 40 }));
+  await playAnnouncement(ID, URL, normalizeConfig({ announcement_volume: 30 }));
+  updateState(ID, { volume: 32, playback_state: 1 });
+  updateState(ID, { playback_state: 0 });
+  await tick();
+  assert.deepEqual(telnet.sent, ['MV30']);
+});

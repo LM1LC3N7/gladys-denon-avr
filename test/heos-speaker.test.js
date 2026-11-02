@@ -367,6 +367,25 @@ test('a device saved as a receiver: port 23 refused at start is still a warning'
   assert.match(logs.warn[0], /ECONNREFUSED/);
 });
 
+test('a device saved as a speaker whose Telnet came up: a later refusal is a warning (r3 m7, M14)', async (t) => {
+  const port = await refusedPort();
+  const sockets = new Set();
+  const server = net.createServer((socket) => {
+    sockets.add(socket);
+    socket.resume();
+  });
+  await listen(server, port);
+  const logs = captureLogs(t, port);
+  const { device } = await openSpeaker(t, { telnetPort: port, saved: true });
+  await until(() => getDeviceSnapshot(device.external_id).telnetConnected, 3_000, 'Telnet up');
+  for (const socket of sockets) {
+    socket.destroy();
+  }
+  await new Promise((resolve) => server.close(() => resolve()));
+  await until(() => logs.warn.length >= 1, 5_000, 'the warning');
+  assert.match(logs.warn[0], /ECONNREFUSED/);
+});
+
 test('telnet client: only ECONNREFUSED is a refusal (timeout, accept-then-close are not)', async (t) => {
   const timedOutPort = await refusedPort();
   watchConnections(t, timedOutPort, { fail: 'ETIMEDOUT' });

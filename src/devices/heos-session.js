@@ -277,9 +277,10 @@ export function openHeosSession(
     if (level === undefined) {
       return;
     }
-    // A level HEOS sent garbled is unknown, never NaN (r2 m3, B3): the ad
-    // break then says "volume unknown" instead of setting NaN.
-    const value = Number.isFinite(Number(level)) ? Math.round(Number(level)) : null;
+    // A level HEOS sent garbled or empty is unknown, never NaN or 0 (r2 m3,
+    // B3; r3 m6): the ad break then says "volume unknown".
+    const number = typeof level === 'string' && level.trim() === '' ? NaN : Number(level);
+    const value = Number.isFinite(number) ? Math.round(number) : null;
     session.volume = value;
     if (isTelnetConnected() || value === null) {
       return;

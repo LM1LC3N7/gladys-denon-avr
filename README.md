@@ -85,8 +85,9 @@ TuneIn...) — see "Playback controls" below.
   map 1:1 onto the raw 0-`DENON_VOLUME_MAX` (98) scale, half steps kept on the way in (`MV255` =
   25.5), rounded on the way out, 99-100 sent as `MV98`. Up to 1.2.0 the 0-98 scale was stretched
   onto 0-100 (`round(raw / 98 * 100)`), so from raw 25 up Gladys showed one more than the
-  receiver's display (and setting 25 % snapped to 26 %). Telnet widget taps top out at 98; the
-  HEOS path keeps HEOS' own 0-100.
+  receiver's display (and setting 25 % snapped to 26 %). Same number, louder than before: +1 dB
+  for 26-75 and 99, +2 dB for 76-98 (90 was `MV88`, is `MV90`). Telnet widget taps top out at 98;
+  the HEOS path keeps HEOS' own 0-100.
 - **Input source**: a dropdown on the dashboard, backed by `TEXT.SELECT` +
   `supported_options` (the receiver's own SI codes) — **not** the generic `TELEVISION.SOURCE`
   type, which Gladys' front-end renders as a one-shot remote-control button with no way to pick

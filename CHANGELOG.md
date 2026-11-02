@@ -15,26 +15,32 @@ the notes of the version's GitHub Release.
 - Volume (forum topic 10722, post 39, Marantz PM7000N): from 25 up, the widget
   showed one more than the receiver's display. Over Telnet the volume is now
   the receiver's own number, 0 to 98 (half steps kept): what Gladys shows is
-  what the receiver shows. 99 and 100 are sent as 98. A scene or saved volume
-  lands up to 1 dB higher than before for the same number. HEOS speakers keep
-  their 0-100 scale.
-- Widget Vol −/+ steps are now exactly 2 dB and stop at 98 (or the receiver's
+  what the receiver shows. 99 and 100 are sent as 98. **A scene, an
+  announcement volume or a saved volume now plays louder than before for the
+  same number: +1 dB from 26 to 75 and 99, +2 dB from 76 to 98** (for example
+  90 sent `MV88` before, `MV90` now); 0 to 25 and 100 are unchanged. To get the
+  old level back, lower the number by 1 (26-75) or 2 (76-98). HEOS speakers
+  keep their 0-100 scale.
+- Widget Vol −/+ steps are now 2 dB (from a half step set with the remote, such
+  as 25.5, the result is rounded to a whole number: 28 or 24) and stop at 98 (or the receiver's
   "Max Volume" when it announces it, a half-step one included), so Vol − acts
   from the first tap.
 - "The action failed" in the widgets: the integration's own widget reloads
   share Gladys' 30-a-minute budget with the taps. A card is now reloaded only
-  for the device it shows, never before Gladys first loaded it, and once per
-  burst of changes.
+  for the device it shows, never before Gladys first loaded it (except during
+  the first 5 minutes after the integration starts), and once per burst of
+  changes.
 - Announcements (music from Lyrion or another app playing on HEOS before): the
   end of the message is seen at once even when the music kept HEOS on "play",
   or when another app takes the player back, instead of after 15 s. Once the
-  message is over and nothing plays, the HEOS queue is emptied, so a later Play
+  message is over and nothing else plays, the HEOS queue is emptied (only with
+  "Restore the receiver after an announcement" on, the default), so a later Play
   no longer speaks it again. The music itself is still not resumed by the
   integration.
 - A HEOS speaker already updated from Discovery logs the refusal of port 23 at
   start as information, not as a warning. Its badge names the right problem
   when HEOS answers without a player at its address (address changed).
-- A garbled HEOS volume is treated as unknown, never published as NaN.
+- A garbled or empty HEOS volume is treated as unknown, never published as NaN or 0.
 - Power mode: a receiver keeps its saved "with zones" verdict when its device
   is updated (it is only forgotten when the device is deleted), and a
   discovered receiver keeps it at a new IP address. When Deviceinfo.xml says

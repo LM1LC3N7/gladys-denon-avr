@@ -93,6 +93,7 @@ function handleStateChange(externalId, key, value) {
   if (key === STREAM_RESULT_KEY && value === 'fail') {
     finishAnnouncement(externalId, 'stream refused');
   } else if (key === NOW_PLAYING_MID_KEY) {
+    entry.lastMid = value;
     const ours = isAnnouncementMedia(value, entry.url);
     if (ours) {
       entry.mediaSeen = true;
@@ -141,6 +142,11 @@ function stillAtAnnouncementVolume(volume, announcementVolume) {
  */
 function forgetAnnouncementStream(externalId, entry) {
   if (!entry.streamSent || getState(externalId).playback_state === 1) {
+    return;
+  }
+  // HEOS last named other media (a queue started from the HEOS app during
+  // the announcement, review r3 m3): that queue is not ours to clear.
+  if (entry.lastMid && !isAnnouncementMedia(entry.lastMid, entry.url)) {
     return;
   }
   const heos = getHeos(externalId);
@@ -235,6 +241,7 @@ export async function playAnnouncement(externalId, url, config = normalizeConfig
     tracking: false,
     sawPlaying: false,
     mediaSeen: false,
+    lastMid: '',
     streamSent: false,
   });
   if (config.announcement_restore) {
