@@ -79,3 +79,11 @@
   announcement BEFORE HEOS named the announcement's own `mid` is still cleared at its end (the
   guard only keeps a queue when the announcement was seen, then replaced). Accepted: the other
   way round would stop clearing whenever `mid` is not the URL.
+
+## Next patch (review denon-heos r5, 7514017)
+
+- m1: no test holds `entry.lastMid &&` in the queue guard (`src/devices/announcements.js`). Add:
+  announcement URL seen, then an empty `mid`, then "stop" → exactly one `clear_queue`.
+- m2: the guard keeps a queue started from the HEOS app only if HEOS names it BEFORE the
+  announcement's "stop" event; if "stop" comes first, the end is "over" and the new queue is
+  cleared. Same as r3, real HEOS event order not checked on hardware.
