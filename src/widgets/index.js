@@ -79,6 +79,51 @@ export const WIDGETS_BY_STATE_KEY = Object.entries(WATCHED_KEYS).reduce((byKey, 
   return byKey;
 }, {});
 
+// Forum topic 10722, post 39: every nudge costs one content pull per open
+// widget instance, out of the core's 30 pulls a minute per integration —
+// the same budget the re-pull after each widget tap draws from. So a widget
+// is nudged only for a device it showed in a pull since the module started
+// (a Denon Home playing does not re-pull the PM7000N's Amplifier widget).
+// The core drops its cache when the integration stops; a widget not pulled
+// within this long after the start may still be cached by a core that saw
+// no stop (a crash), so until then it is nudged for every device as before.
+const NUDGE_EVERY_DEVICE_AFTER_START_MS = 5 * 60_000;
+
+/**
+ * Which devices each widget showed: `note()` on every pull, `shows()` before
+ * a nudge. An instance without a picked receiver follows the first session
+ * (resolveView), so it is nudged for that one and for any reachability change.
+ */
+export function createShownDevices({
+  now = () => performance.now(),
+  firstSession = () => sessionIds()[0],
+} = {}) {
+  const startedAt = now();
+  const shown = new Map(); // widget key -> { ids: Set<externalId>, followsDefault }
+  return {
+    note(widget, settings) {
+      const entry = shown.get(widget) ?? { ids: new Set(), followsDefault: false };
+      shown.set(widget, entry);
+      const picked = typeof settings?.avr === 'string' ? settings.avr.trim() : '';
+      if (picked) {
+        entry.ids.add(picked);
+      } else {
+        entry.followsDefault = true;
+      }
+    },
+    shows(widget, externalId, stateKey) {
+      const entry = shown.get(widget);
+      if (!entry) {
+        return now() - startedAt < NUDGE_EVERY_DEVICE_AFTER_START_MS;
+      }
+      if (entry.ids.has(externalId)) {
+        return true;
+      }
+      return entry.followsDefault && (stateKey === 'connection' || externalId === firstSession());
+    },
+  };
+}
+
 // Longest wait for a cover download inside onWidgetGet (Gladys awaits 15 s).
 const ARTWORK_WAIT_MS = 5_000;
 
@@ -140,11 +185,16 @@ export async function buildWidgetContent(key, settings, config, { artwork }) {
  * Register every widget handler on the SDK. `getConfig()` returns the live,
  * normalized config. Returns `stop()` (graceful shutdown).
  */
-export function registerWidgets(gladys, getConfig, { artwork = createArtworkCache() } = {}) {
+export function registerWidgets(
+  gladys,
+  getConfig,
+  { artwork = createArtworkCache(), shown = createShownDevices(), refresherOptions } = {},
+) {
   for (const key of Object.values(WIDGET)) {
-    gladys.onWidgetGet(key, ({ settings }) =>
-      buildWidgetContent(key, settings, getConfig(), { artwork }),
-    );
+    gladys.onWidgetGet(key, ({ settings }) => {
+      shown.note(key, settings);
+      return buildWidgetContent(key, settings, getConfig(), { artwork });
+    });
     gladys.onWidgetAction(key, (actionKey, params) =>
       runWidgetAction(gladys, actionKey, params, getConfig()),
     );
@@ -157,10 +207,12 @@ export function registerWidgets(gladys, getConfig, { artwork = createArtworkCach
     return image;
   });
 
-  const refresher = createRefresher((key) => gladys.requestWidgetRefresh(key));
+  const refresher = createRefresher((key) => gladys.requestWidgetRefresh(key), refresherOptions);
   const unsubscribe = onDeviceStateChange((externalId, stateKey, value) => {
     for (const widget of WIDGETS_BY_STATE_KEY[stateKey] ?? []) {
-      refresher.request(widget);
+      if (shown.shows(widget, externalId, stateKey)) {
+        refresher.request(widget);
+      }
     }
     // Download the new cover ahead of the pull the nudge above triggers.
     if (stateKey === STATE.NOW_PLAYING_IMAGE_URL && value) {

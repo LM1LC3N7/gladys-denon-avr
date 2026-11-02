@@ -25,6 +25,7 @@ import {
   registerWidgets,
   resolveView,
   WIDGETS_BY_STATE_KEY,
+  createShownDevices,
 } from '../src/widgets/index.js';
 import {
   __clearConnectionsForTesting,
@@ -360,7 +361,7 @@ test('artwork: too large, not an image or a failed download is left out, and rem
 
 test('refresher: first nudge at once, the rest collapsed into one trailing nudge', async () => {
   const sent = [];
-  const refresher = createRefresher((key) => sent.push(key), { minIntervalMs: 40 });
+  const refresher = createRefresher((key) => sent.push(key), { minIntervalMs: 40, settleMs: 0 });
   refresher.request('a');
   refresher.request('a');
   refresher.request('a');
@@ -374,6 +375,77 @@ test('refresher: first nudge at once, the rest collapsed into one trailing nudge
   assert.deepEqual(sent, ['a', 'b', 'a'], 'stop() drops the pending trailing nudge');
 });
 
+const SETTLE_MS = 400;
+
+test('refresher: a burst of lines is one nudge, sent after the settle time', async () => {
+  const sent = [];
+  const refresher = createRefresher((key) => sent.push(key), { minIntervalMs: 200, settleMs: 40 });
+  refresher.request('a'); // SI line
+  refresher.request('a'); // MS line
+  refresher.request('a'); // NSE line
+  assert.deepEqual(sent, [], 'not at the first line of the burst');
+  await tick(80);
+  assert.deepEqual(sent, ['a']);
+  await tick(250);
+  assert.deepEqual(sent, ['a'], 'one nudge for the whole burst, no trailing one');
+  refresher.stop();
+});
+
+// Forum topic 10722, post 39: every nudge is a content pull out of the
+// core's 30 a minute per integration, shared with the widget taps.
+test('widgets are nudged only for a device they showed, never before their first pull', async () => {
+  const gladys = createFakeGladys();
+  const config = normalizeConfig();
+  let clock = 0;
+  const shown = createShownDevices({ now: () => clock, firstSession: () => ID });
+  const stop = registerWidgets(gladys, () => config, {
+    artwork: createArtworkCache({ fetchFn: async () => new Response(PNG) }),
+    shown,
+    refresherOptions: { minIntervalMs: 0, settleMs: 0 },
+  });
+  try {
+    connect({ power: 1 });
+    clock = 6 * 60_000; // Past the start: the core cache was dropped with the old process.
+    updateState(ID, { mute: 1 });
+    assert.deepEqual(gladys.widgetRefreshes, [], 'nothing pulled yet: nothing cached to drop');
+
+    await gladys.handlers.widgetGet.amplifier({ settings: { avr: ID } });
+    await gladys.handlers.widgetGet.now_playing({ settings: { avr: 'avr:home' } });
+    updateState(ID, { mute: 0 });
+    assert.deepEqual(gladys.widgetRefreshes, ['amplifier'], 'only the widget showing this device');
+    updateState('avr:home', { playback_state: 1 });
+    assert.deepEqual(gladys.widgetRefreshes, ['amplifier', 'now_playing']);
+    updateState('avr:other', { power: 0, playback_state: 0 });
+    assert.deepEqual(gladys.widgetRefreshes, ['amplifier', 'now_playing'], 'no widget shows it');
+
+    // An instance without a picked receiver follows the first session.
+    await gladys.handlers.widgetGet.shortcuts({ settings: {} });
+    updateState(ID, { source: 'CD' });
+    assert.ok(gladys.widgetRefreshes.includes('shortcuts'));
+    gladys.widgetRefreshes.length = 0;
+    updateState('avr:other', { source: 'TV' });
+    assert.deepEqual(gladys.widgetRefreshes, []);
+  } finally {
+    stop();
+  }
+});
+
+test('shown devices: within 5 min of the start, a widget never pulled is nudged as before', () => {
+  let clock = 0;
+  const shown = createShownDevices({ now: () => clock, firstSession: () => 'a' });
+  assert.equal(
+    shown.shows('amplifier', 'b', 'power'),
+    true,
+    'a core that saw no stop may cache it',
+  );
+  clock = 5 * 60_000 + 1;
+  assert.equal(shown.shows('amplifier', 'b', 'power'), false);
+  shown.note('amplifier', {});
+  assert.equal(shown.shows('amplifier', 'a', 'power'), true, 'the first session');
+  assert.equal(shown.shows('amplifier', 'b', 'power'), false);
+  assert.equal(shown.shows('amplifier', 'b', 'connection'), true, 'the first session may change');
+});
+
 test('registerWidgets: handlers for every widget, nudges on the state each one shows', async () => {
   const gladys = createFakeGladys();
   const config = normalizeConfig();
@@ -385,8 +457,10 @@ test('registerWidgets: handlers for every widget, nudges on the state each one s
 
   connect({ power: 1 });
   updateState(ID, { tuner_frequency: 9000 });
+  await tick(SETTLE_MS + 50);
   assert.deepEqual(gladys.widgetRefreshes, ['radio']);
   updateState(ID, { volume: 12 });
+  await tick(SETTLE_MS + 50);
   assert.deepEqual(gladys.widgetRefreshes, ['radio'], 'the volume tile is live, no nudge');
   assert.deepEqual(WIDGETS_BY_STATE_KEY.source.sort(), [
     'amplifier',

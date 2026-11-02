@@ -25,7 +25,7 @@ import {
   onSetValue,
   runTestConnectionAction,
 } from '../src/devices/avr.js';
-import { initialQueries } from '../src/devices/session.js';
+import { initialQueries, refreshDevice } from '../src/devices/session.js';
 import {
   __flushPowerStoreForTesting,
   createPowerDetector,
@@ -843,18 +843,114 @@ test('a ZM answer alone is saved too: after a restart with every answer lost, ZM
   }
 });
 
-test('a saved verdict for another IP address is not used', async () => {
+test('a discovered receiver (UDN) keeps its saved verdict at a new IP address (r3 m1, H12)', async () => {
   const gladys = createFakeGladys();
-  const rx = await startReceiver({ zones: false });
+  const rx = await startReceiver({ zones: true, zone2: true, answerZ2: false, dropZm: 99 });
   const id = `avr:udn-${rx.port}`;
-  await fs.writeFile(STORE, JSON.stringify({ [id]: { host: '10.0.0.9', zone: true } }));
+  await fs.writeFile(STORE, JSON.stringify({ [id]: { host: '10.0.0.9', zone2: true } }));
   const c = connect(gladys, rx);
   try {
     assert.equal(c.id, id);
-    await waitFor(() => getPowerMode(c.id) === POWER_MODE.SYSTEM, 'SYSTEM mode');
+    // Every zone answer lost at the new address: the saved Zone 2 still counts.
+    await tick(PROBE_DONE_MS);
+    assert.equal(getPowerMode(c.id), POWER_MODE.ZONE);
+    await setPower(gladys, c, 0);
+    await tick(100);
+    assert.deepEqual(rx.powerCommands(), ['ZMOFF']);
   } finally {
     disconnectDevice(c.id);
     await rx.close();
+  }
+});
+
+test('a device updated without a session, same IP, keeps its saved verdict (r3 m1, H13)', async () => {
+  const gladys = createFakeGladys();
+  const rx = await startReceiver({ zones: true, zone2: true, answerZ2: false, dropZm: 99 });
+  const device = buildDiscoveredDevice(gladys, {
+    udn: `udn-${rx.port}`,
+    host: '127.0.0.1',
+    friendlyName: 'Receiver',
+    modelName: 'AVR-X2700H',
+  });
+  await fs.writeFile(
+    STORE,
+    JSON.stringify({ [device.external_id]: { host: '127.0.0.1', zone2: true } }),
+  );
+  const config = normalizeConfig({ port: rx.port, reconnect_interval_seconds: 1 });
+  refreshDevice(gladys, device, config); // onDeviceUpdated before the startup connection.
+  getSession(device.external_id).heos?.stop?.();
+  try {
+    await tick(PROBE_DONE_MS);
+    assert.equal(getPowerMode(device.external_id), POWER_MODE.ZONE);
+    assert.deepEqual((await readStore())[device.external_id], {
+      host: '127.0.0.1',
+      zone2: true,
+    });
+  } finally {
+    disconnectDevice(device.external_id);
+    await rx.close();
+  }
+});
+
+test('a saved ZM verdict never beats DeviceZones=1 read this session (r3 m3, T5)', async () => {
+  const gladys = createFakeGladys();
+  const rx = await startReceiver({ zones: false });
+  const id = `avr:udn-${rx.port}`;
+  await fs.writeFile(STORE, JSON.stringify({ [id]: { host: '127.0.0.1', zone: true } }));
+  const info = await startDeviceInfo(deviceInfoXml(1), 100);
+  const c = connect(gladys, rx);
+  try {
+    await waitFor(() => getPowerMode(c.id) === POWER_MODE.SYSTEM, 'SYSTEM from Deviceinfo.xml');
+    await tick(100);
+    assert.equal(getPowerMode(c.id), POWER_MODE.SYSTEM);
+  } finally {
+    disconnectDevice(c.id);
+    await rx.close();
+    await info.close();
+  }
+});
+
+test('deleting a device never writes over an unreadable /data (r3 m3, T9)', async () => {
+  await fs.writeFile(STORE, '{not json');
+  const gladys = createFakeGladys();
+  const rx = await startReceiver({ zones: false });
+  const c = connect(gladys, rx);
+  try {
+    await tick(50);
+    disconnectDevice(c.id); // onDeviceDeleted.
+    await tick(20);
+    await __flushPowerStoreForTesting();
+    assert.equal(await fs.readFile(STORE, 'utf8'), '{not json');
+  } finally {
+    disconnectDevice(c.id);
+    await rx.close();
+  }
+});
+
+test('DeviceZones=1 after a ZM line: Z2? asked again, a Zone 2 that answers keeps zones (r3 m2, H8b)', async () => {
+  const info = await startDeviceInfo(deviceInfoXml(1), 250);
+  const gladys = createFakeGladys();
+  const rx = await startReceiver({ zones: true, zone2: true, answerZ2: false });
+  const c = connect(gladys, rx);
+  try {
+    // The first Z2? is lost; ZM? is answered.
+    await waitFor(() => rx.received.includes('Z2?'), 'the first Z2?');
+    await waitFor(() => getPowerMode(c.id) === POWER_MODE.ZONE, 'ZONE from the ZM line');
+    rx.answerZ2 = true;
+    await waitFor(
+      () => rx.received.filter((command) => command === 'Z2?').length >= 2,
+      'Z2? asked again after DeviceZones=1',
+    );
+    await tick(100);
+    assert.equal(getPowerMode(c.id), POWER_MODE.ZONE);
+    await setPower(gladys, c, 0);
+    await tick(100);
+    assert.deepEqual(rx.powerCommands(), ['ZMOFF']);
+    assert.equal(rx.zone2, true, 'Zone 2 kept on');
+  } finally {
+    disconnectDevice(c.id);
+    await rx.close();
+    await info.close();
   }
 });
 

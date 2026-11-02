@@ -139,7 +139,9 @@ function watchConnections(t, port, { fail } = {}) {
       return original(options, ...rest);
     }
     attempts.push(performance.now());
-    if (!fail) {
+    // `fail`: one error code, or (attempt number) => code for a sequence.
+    const code = typeof fail === 'function' ? fail(attempts.length) : fail;
+    if (!code) {
       return original(options, ...rest);
     }
     const socket = new EventEmitter();
@@ -151,8 +153,8 @@ function watchConnections(t, port, { fail } = {}) {
       socket.destroyed = true;
     };
     setTimeout(() => {
-      const error = new Error(`connect ${fail} 127.0.0.1:${port}`);
-      error.code = fail;
+      const error = new Error(`connect ${code} 127.0.0.1:${port}`);
+      error.code = code;
       socket.emit('error', error);
       socket.emit('close', true);
     }, 5);
@@ -166,12 +168,13 @@ function watchConnections(t, port, { fail } = {}) {
 
 async function openSpeaker(
   t,
-  { model, telnetPort, playersDelayMs, interval = 1, fail, watch = false } = {},
+  { model, telnetPort, playersDelayMs, interval = 1, fail, watch = false, saved = false } = {},
 ) {
   const heos = await fakeHeosSpeaker(t, { model, playersDelayMs });
   process.env.DENON_HEOS_PORT = String(heos.port);
   const gladys = createFakeGladys();
-  const device = buildManualDevice(gladys, '127.0.0.1');
+  // `saved`: created or updated from Discovery as a speaker (no power feature).
+  const device = buildManualDevice(gladys, '127.0.0.1', {}, { heosOnly: saved });
   const port = telnetPort ?? (await refusedPort());
   const attempts = watch || fail ? watchConnections(t, port, { fail }) : null;
   connectDevice(gladys, device, normalizeConfig({ port, reconnect_interval_seconds: interval }));
@@ -242,6 +245,15 @@ test('computeTransport: a HEOS speaker follows HEOS; an AVR without Telnet stays
     assert.equal(lost.transport, 'unreachable');
     assert.match(lost.message.fr, /enceinte HEOS h \(port 1255\)/);
   }
+  // HEOS answers, but no player at this address any more (r2 m6).
+  const unmatched = computeTransport('s', {
+    ...base,
+    heosOnly: true,
+    heosMatch: HEOS_MATCH.UNMATCHED,
+  });
+  assert.equal(unmatched.transport, 'unreachable');
+  assert.match(unmatched.message.en, /lists no player at h/);
+  assert.match(unmatched.message.fr, /relancez la Découverte/);
 });
 
 test('telnet client: tells a refused port, and takes a longer retry delay when asked', async (t) => {
@@ -289,6 +301,70 @@ test('telnet client: a port refused again and again logs one warning, not one pe
   await until(() => closes >= 4, 3_000, 'four refused attempts');
   assert.equal(warnings.length, 1, warnings.join('\n'));
   assert.match(warnings[0], /ECONNREFUSED.*logged once while it repeats/);
+});
+
+/** Capture the log lines naming `port`, split by stream (warn/error vs info). */
+function captureLogs(t, port) {
+  const logs = { warn: [], info: [] };
+  const originals = { error: console.error, log: console.log };
+  const tap =
+    (kind, original) =>
+    (...args) => {
+      const line = args.join(' ');
+      if (line.includes(`:${port}`)) {
+        logs[kind].push(line);
+      }
+      original(...args);
+    };
+  console.error = tap('warn', originals.error);
+  console.log = tap('info', originals.log);
+  t.after(() => {
+    console.error = originals.error;
+    console.log = originals.log;
+  });
+  return logs;
+}
+
+test('telnet client: an error the owner expects is logged once at info, never as a warning', async (t) => {
+  const port = await refusedPort();
+  const logs = captureLogs(t, port);
+  let closes = 0;
+  const client = createTelnetClient({
+    host: '127.0.0.1',
+    port,
+    reconnectDelayMs: () => 50,
+    quietError: (err) => err.code === 'ECONNREFUSED',
+    onDisconnect: () => {
+      closes += 1;
+    },
+  });
+  t.after(() => client.stop());
+  await until(() => closes >= 3, 3_000, 'three refused attempts');
+  assert.deepEqual(logs.warn, []);
+  assert.equal(logs.info.length, 1, logs.info.join('\n'));
+  assert.match(logs.info[0], /ECONNREFUSED.*logged once while it repeats/);
+});
+
+// Forum topic 10722, post 39: a Denon Home already updated from Discovery
+// still logged one WARN at start (port 23 refused before HEOS names it).
+test('a device saved as a speaker: port 23 refused at start is info, not a warning', async (t) => {
+  const port = await refusedPort();
+  const logs = captureLogs(t, port);
+  const { device } = await openSpeaker(t, { telnetPort: port, saved: true });
+  await until(() => getDeviceSnapshot(device.external_id).heosOnly === true, 5_000, 'speaker');
+  assert.deepEqual(logs.warn, []);
+  assert.ok(
+    logs.info.some((line) => /ECONNREFUSED/.test(line)),
+    logs.info.join('\n'),
+  );
+});
+
+test('a device saved as a receiver: port 23 refused at start is still a warning', async (t) => {
+  const port = await refusedPort();
+  const logs = captureLogs(t, port);
+  await openSpeaker(t, { telnetPort: port, model: 'Marantz PM7000N' });
+  await until(() => logs.warn.length >= 1, 5_000, 'the warning');
+  assert.match(logs.warn[0], /ECONNREFUSED/);
 });
 
 test('telnet client: only ECONNREFUSED is a refusal (timeout, accept-then-close are not)', async (t) => {
@@ -568,6 +644,19 @@ test('a Telnet that times out (not refused) never makes a speaker', async (t) =>
   assert.equal(getDeviceSnapshot(id).heosOnly, false);
 });
 
+test('only the LAST Telnet attempt counts: refused, then timed out, is no speaker (r2 m3, S13)', async (t) => {
+  const { device, attempts } = await openSpeaker(t, {
+    fail: (attempt) => (attempt === 1 ? 'ECONNREFUSED' : 'ETIMEDOUT'),
+    playersDelayMs: 2_000,
+    interval: 1,
+  });
+  const id = device.external_id;
+  await until(() => attempts.length >= 2, 3_000, 'the second (timed out) attempt');
+  await until(() => getDeviceSnapshot(id).heosConnected, 3_000, 'HEOS matched');
+  await sleep(100);
+  assert.equal(getDeviceSnapshot(id).heosOnly, false);
+});
+
 test('Telnet answering after the speaker mode brings every feature back, with no orange dot', async (t) => {
   __setTimingForTesting({ heosOnlyTelnetRetryMs: 300 });
   const { gladys, device, port } = await openSpeaker(t);
@@ -604,7 +693,10 @@ test('Telnet answering after the speaker mode brings every feature back, with no
     config: normalizeConfig(),
   });
 
-  // Telnet refused again later, HEOS matched again: still a receiver.
+  // Telnet refused again later, HEOS matched again: still a receiver, at
+  // the receiver backoff (r2 m1: a 1 min speaker pace here would never
+  // reach the 3 failures below in time).
+  __setTimingForTesting({ heosOnlyTelnetRetryMs: 60_000 });
   for (const socket of sockets) {
     socket.destroy();
   }
@@ -614,6 +706,48 @@ test('Telnet answering after the speaker mode brings every feature back, with no
   assert.equal(getDeviceSnapshot(id).heosOnly, false, 'a Telnet seen once keeps it a receiver');
   // ...and its badge is a receiver's: "only HEOS answers" after 3 Telnet failures.
   await until(() => gladys.transports.at(-1)?.degraded === true, 6_000, 'the degraded badge');
+});
+
+test('telnet client: retryIn during an attempt in progress opens no second socket (r2 m1)', async (t) => {
+  const port = await refusedPort();
+  const original = net.createConnection;
+  let attempts = 0;
+  net.createConnection = (options, ...rest) => {
+    if (options?.port !== port) {
+      return original(options, ...rest);
+    }
+    attempts += 1;
+    const socket = new EventEmitter();
+    socket.destroyed = false;
+    socket.setEncoding = () => {};
+    socket.setNoDelay = () => {};
+    socket.write = () => false;
+    socket.destroy = () => {
+      socket.destroyed = true;
+    };
+    if (attempts === 1) {
+      setTimeout(() => {
+        const error = new Error(`connect ECONNREFUSED 127.0.0.1:${port}`);
+        error.code = 'ECONNREFUSED';
+        socket.emit('error', error);
+        socket.emit('close', true);
+      }, 5);
+    } // Later attempts hang: still connecting.
+    return socket;
+  };
+  t.after(() => {
+    net.createConnection = original;
+  });
+  const client = createTelnetClient({
+    host: '127.0.0.1',
+    port,
+    reconnectDelayMs: () => 50,
+  });
+  t.after(() => client.stop());
+  await until(() => attempts === 2, 3_000, 'the second attempt');
+  client.retryIn(0);
+  await sleep(150);
+  assert.equal(attempts, 2);
 });
 
 test('on a speaker, every Telnet retry keeps the speaker pace', async (t) => {

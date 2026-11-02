@@ -160,6 +160,51 @@ test('a device not updated since the feature exists gets no state; an announceme
   }
 });
 
+test('a garbled HEOS volume is unknown: not published, no ad-break duck to NaN (r2 m3, B3)', async () => {
+  const { heos, gladys, device, session, settings } = await playingRadio({
+    features: [{ external_id: AD_BREAK }],
+  });
+  try {
+    heos.push('player/get_volume', 'pid=5&level=loud');
+    await tick(50);
+    assert.equal(session.volume, null);
+    assert.ok(!gladys.published.some((p) => Number.isNaN(p.state)), 'never a NaN state');
+    await onSetValue(gladys, {
+      device,
+      feature: { external_id: AD_BREAK },
+      value: 1,
+      config: settings,
+    });
+    await tick(50);
+    assert.deepEqual(setVolumes(heos), []);
+  } finally {
+    session.stop();
+    heos.close();
+  }
+});
+
+test('through the HEOS session: music playing, the announcement named as media, over at its stop', async () => {
+  const { heos, session, settings } = await playingRadio({ config: { ad_break_detection: false } });
+  try {
+    const tts = 'http://gladys.local/tts-2.mp3';
+    await playAnnouncement(ID, tts, settings);
+    // Still "play" from the radio: only the media tells the announcement plays.
+    heos.push('player/get_now_playing_media', 'pid=5', { type: 'station', mid: tts });
+    await tick(50);
+    heos.push('event/player_state_changed', 'pid=5&state=stop');
+    await tick(50);
+    const stream = heos.received.findIndex((l) => l.startsWith('heos://browse/play_stream'));
+    assert.ok(
+      heos.received.slice(stream + 1).includes('heos://player/clear_queue?pid=5'),
+      'over at once, and the queue cleared',
+    );
+  } finally {
+    cancelAnnouncement(ID);
+    session.stop();
+    heos.close();
+  }
+});
+
 test('a lost HEOS connection forgets the volume; the switch on an unknown device is refused', async () => {
   const { heos, gladys, session, settings } = await playingRadio();
   try {

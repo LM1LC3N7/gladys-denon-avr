@@ -80,7 +80,7 @@ test('set_amp: power on first, then input, sound mode and volume; each optional'
     sound_mode: 'MOVIE',
     volume: 45,
   });
-  assert.deepEqual(telnet.sent, ['ZMON', 'SIBD', 'MSMOVIE', 'MV44']);
+  assert.deepEqual(telnet.sent, ['ZMON', 'SIBD', 'MSMOVIE', 'MV45']);
 
   telnet.sent.length = 0;
   await handlers[SCENE_ACTION.SET_AMP]({ avr: ID, volume: 0 });

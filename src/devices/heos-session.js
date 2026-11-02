@@ -47,6 +47,9 @@ const logger = createLogger({ name: 'avr' });
 // browse/play_stream: 'ok' | 'fail'. ./announcements.js listens to it to
 // restore the previous state at once when HEOS refuses a stream.
 export const STREAM_RESULT_KEY = 'heos_stream_result';
+// The `mid` of every get_now_playing_media answer (a URL for a stream), for
+// ./announcements.js to know when HEOS plays its stream, or something else.
+export const NOW_PLAYING_MID_KEY = 'heos_now_playing_mid';
 
 // What the HEOS side knows of this receiver, for the transport badge
 // (./transport.js): not connected yet, connected and matched to our IP, or
@@ -271,13 +274,16 @@ export function openHeosSession(
   // HEOS-only speaker that has no "AVR Control" service at all (port 23
   // actively refused) — see the volume/mute routing in ./commands.js.
   function publishVolume(level) {
-    if (level !== undefined) {
-      session.volume = Math.round(Number(level));
-    }
-    if (isTelnetConnected() || level === undefined) {
+    if (level === undefined) {
       return;
     }
-    const value = Math.round(Number(level));
+    // A level HEOS sent garbled is unknown, never NaN (r2 m3, B3): the ad
+    // break then says "volume unknown" instead of setting NaN.
+    const value = Number.isFinite(Number(level)) ? Math.round(Number(level)) : null;
+    session.volume = value;
+    if (isTelnetConnected() || value === null) {
+      return;
+    }
     updateState(externalId, { [FEATURE.VOLUME]: value });
     publishHeosState(featureExternalId(externalId, FEATURE.VOLUME), value);
   }
@@ -419,6 +425,8 @@ export function openHeosSession(
 
       if (parsed.command === 'player/get_now_playing_media') {
         publishNowPlayingMedia(parsed.payload);
+        const mid = parsed.payload?.mid;
+        notifyStateChange(externalId, NOW_PLAYING_MID_KEY, typeof mid === 'string' ? mid : '');
         return;
       }
 

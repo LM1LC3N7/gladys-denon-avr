@@ -5,23 +5,22 @@
 - Power on receivers without zones (forum topic 10722, post 35, Marantz PM7000N): confirmed
   working by the reporter with 1.1.1 (post 37). Still not known: whether the PM7000N serves
   `/goform/Deviceinfo.xml` with `DeviceZones`, and what it answers to `ZM?`.
-- HEOS-only speakers (forum topic 10722, post 37, Denon Home 150 at 192.168.1.30): checked on a
-  simulated speaker only. To confirm with the reporter after the release: the log line
-  `... is a HEOS speaker (Denon Home 150) without AVR Control ...` once, no more repeated
-  `Telnet socket error` warnings, no orange dot, and the device list after Discovery > Update.
-- Widget Vol −/+: the core caps (30 actions and 30 content reloads a minute per integration)
-  stay; to ask upstream: not counting the re-pull that a successful action itself triggers, or a
-  device-feature slider in widgets. To confirm with the reporter: 2 dB per tap is not too much.
+- HEOS-only speakers (forum topic 10722, post 37, Denon Home 150 at 192.168.1.30): confirmed by
+  the reporter with 1.2.0 (post 39): no repeated warnings, no orange dot, power/input/sound mode
+  gone after Discovery > Update, volume/mute/playback/announcements working. Not seen in his
+  logs: the `... is a HEOS speaker ...` line (asked again).
+- Widget Vol −/+: 2 dB per tap accepted by the reporter (post 39); "L'action a échoué" still at
+  times, see "Open after 1.2.1".
 
 ## Decisions
 
-- 2026-11-01 (review r1 of f37aa92), HEOS-only speaker (`src/devices/speaker.js`): HEOS matched
-  - last Telnet attempt refused (ECONNREFUSED only) + a speaker model (HEOS `model`, SSDP
-    `modelName`: "Denon Home", "HEOS", never AVR/receiver/SR/NR/AV/PM/CINEMA models). No model, no
-    speaker: an AVR never loses power/zones on a guess (r1 I3). Never once Telnet came up in the
-    session (sticky otherwise until then). Telnet retried every 5 min. No power feature (HEOS CLI
-    has none). Badge follows HEOS only (r1 I2); "only HEOS answers" on an AVR waits for 3 Telnet
-    failures.
+- 2026-11-01 (review r1 of f37aa92), HEOS-only speaker (`src/devices/speaker.js`): HEOS matched,
+  the last Telnet attempt refused (ECONNREFUSED only) and a speaker model (in a session, the HEOS
+  `model` only; the SSDP `modelName` only decides what Discovery offers): "Denon Home", "HEOS",
+  never AVR/receiver/SR/NR/AV/PM/CINEMA models. No model, no speaker: an AVR never loses
+  power/zones on a guess (r1 I3). Never once Telnet came up in the session (sticky otherwise until
+  then). Telnet retried every 5 min. No power feature (HEOS CLI has none). Badge follows HEOS only
+  (r1 I2); "only HEOS answers" on an AVR waits for 3 Telnet failures.
 - 2026-11-01, widget Vol −/+ (`nudgeVolume()`): 2 % (Telnet, ~2 dB) / 5 % (HEOS) from the last
   wanted level (kept 2.5 s), 60 ms between volume commands per device; the device features
   Volume up/down keep one remote step (MVUP/MVDOWN).
@@ -48,21 +47,23 @@
 - 2026-10-30, power commands are re-queried after 2 s and followed for 5 s: no power report back
   turns the device badge degraded (not an error: the command may still have worked).
 
-## Next patch (review r3, 9191491; m4 and m5 done 2026-11-01)
+## Done in 1.2.1 (forum topic 10722, post 39)
+
+- Volume percent = the receiver's raw 0-98 number (display match); widget taps top out at 98.
+- Widget nudges only for a device a widget showed, burst settled 400 ms.
+- Announcements: end seen from HEOS' media too, queue cleared once over and silent.
+- Port 23 refused by a device saved as a speaker: info, not warn. Speaker "not paired" badge text.
+- Minors of reviews r3 (9191491) m1-m3 and denon-heos r2 (5896845) m1-m7.
+
+## Open after 1.2.1
 
 - r1 (f37aa92) m4: a delayed volume send (60 ms) that fails is only logged; the tap already
   answered success. Accepted, noted.
-
-- m1: delete the /data power-mode entry only in onDeviceDeleted; keep the "with zones" verdict across IP changes for devices identified by UDN (H12, H13).
-- m2: when DeviceZones=1 arrives after a ZM line was seen, send `Z2?` alone again.
-- m3: tests for T5 (a saved ZM verdict never beats a DeviceZones=1 read) and T9 (deletion never writes over an unreadable /data).
-
-## Next patch (review denon-heos r2, 5896845)
-
-- m1: no test for "speaker turned back into a receiver whose Telnet drops again keeps the receiver backoff", nor for "`retryIn` during an attempt opens no second socket".
-- m2: surviving mutant V1b: capping a reported volume above the ceiling (`src/control.js:~347`).
-- m3: surviving mutants V20, V24, V25, V15b, B3, S13 have no test (details in `_lots/hors-lot/denon-heos-r2.md`).
-- m4: a receiver that never announces MVMAX gets the r1 behaviour back (presses past its ceiling are dead); the docs' "never above" needs "when the receiver announces its maximum".
-- m5: README, docs and TODO say the SSDP model decides too; in a session only the HEOS model decides. Align one with the other.
-- m6: speaker mode with HEOS "not paired" shows "Cannot reach the speaker": say what is really wrong.
-- m7: malformed bullet in this file.
+- Lyrion with announcements (post 39): how Lyrion plays on the PM7000N is unknown (UPnP bridge,
+  AirPlay bridge, optical from a Squeezelite box...); the music is not resumed by the
+  integration. Questions sent to the reporter.
+- Denon Home at 192.168.1.48 (post 39) while it was at .30 (post 37): manual devices are tied to
+  their IP (`manual:<ip>`). To confirm with the reporter.
+- Widget actions: the core re-pulls after every successful tap (30 a minute shared with the
+  nudges). To ask upstream: not counting that re-pull, or a device-feature slider in widgets.
+- A receiver that never announces MVMAX: taps above its Max Volume are dead (r2 m4), documented.

@@ -235,14 +235,18 @@ function loadStore() {
   return storePromise;
 }
 
-/** Merge `fields` into the stored entry of one receiver at `host`; saved when it changed. */
-async function remember(externalId, host, fields) {
+/**
+ * Merge `fields` into the stored entry of one receiver at `host`; saved when
+ * it changed. `anyHost`: the device is identified by its UDN, so an entry
+ * saved at another IP is the same receiver, kept (review r3 m1).
+ */
+async function remember(externalId, host, fields, anyHost = false) {
   const store = await loadStore();
   if (!store.ok) {
     return;
   }
   const before = store.data[externalId];
-  const base = before?.host === host ? before : { host };
+  const base = before && (before.host === host || anyHost) ? { ...before, host } : { host };
   const next = JSON.parse(JSON.stringify({ ...base, ...fields }));
   if (JSON.stringify(next) === JSON.stringify(before ?? { host })) {
     return; // Unchanged, or nothing worth saving.
@@ -351,8 +355,18 @@ const ZONE_LINE = /^(ZM|Z2|Z3)/;
  * the session. `send` writes one Telnet command. Only the main zone is
  * classified: Zone 2/3 always use their own Z2/Z3 commands.
  */
-export function createPowerDetector({ externalId, host, zone, send, fetchFn = fetch }) {
+export function createPowerDetector({
+  externalId,
+  host,
+  zone,
+  send,
+  fetchFn = fetch,
+  anyHost = false,
+}) {
   const isMain = zone === ZONE.MAIN;
+  const keep = (fields) => remember(externalId, host, fields, anyHost);
+  // A ZM line was seen this session (review r3 m2, see applyDeviceZones).
+  let sawZmLine = false;
   const abort = new AbortController();
   let stopped = false;
   let storeOk = false;
@@ -376,6 +390,11 @@ export function createPowerDetector({ externalId, host, zone, send, fetchFn = fe
     ) {
       // A PW answer already received was not read in the old mode.
       send(buildPowerQuery(ZONE.MAIN, POWER_MODE.SYSTEM));
+      // DeviceZones=1 on a unit that answered ZM: a second Z2? alone, so a
+      // Zone 2 whose first answer was lost still proves zones (review r3 m2).
+      if (sawZmLine) {
+        send('Z2?');
+      }
     }
   };
 
@@ -408,7 +427,7 @@ export function createPowerDetector({ externalId, host, zone, send, fetchFn = fe
       }
       storeOk = store.ok;
       const saved = store.data[externalId];
-      if (saved?.host === host) {
+      if (saved && (saved.host === host || anyHost)) {
         if (saved.zone2) {
           setPowerMode(
             externalId,
@@ -444,7 +463,7 @@ export function createPowerDetector({ externalId, host, zone, send, fetchFn = fe
       }
       applyDeviceZones(zones);
       // Only "with zones" is saved; a 1 also drops an older saved count.
-      remember(externalId, host, { deviceZones: zones >= 2 ? zones : undefined });
+      keep({ deviceZones: zones >= 2 ? zones : undefined });
     });
   }
 
@@ -504,7 +523,8 @@ export function createPowerDetector({ externalId, host, zone, send, fetchFn = fe
           `answered ${line}`,
           isZm ? RANK.ZONE_LINE : RANK.ZONE2_LINE,
         );
-        remember(externalId, host, isZm ? { zone: true } : { zone2: true });
+        sawZmLine ||= isZm;
+        keep(isZm ? { zone: true } : { zone2: true });
       } else if ((line === 'PWON' || line === 'PWSTANDBY') && probe) {
         probe.sawPw = true;
       }

@@ -269,7 +269,7 @@ test('onSetValue routes power/volume to the right telnet command', async () => {
 
   const volumeFeature = { external_id: featureExternalId(device.external_id, FEATURE.VOLUME) };
   await onSetValue(gladys, { device, feature: volumeFeature, value: 50 });
-  assert.equal(telnet.sent.at(-1), 'MV49');
+  assert.equal(telnet.sent.at(-1), 'MV50');
 });
 
 test('onSetValue targets the configured zone (zone 2) for power/volume/mute/source/volume keys', async () => {
@@ -298,7 +298,7 @@ test('onSetValue targets the configured zone (zone 2) for power/volume/mute/sour
   assert.deepEqual(telnet.sent, [
     'Z2ON',
     'Z2OFF',
-    'Z249',
+    'Z250',
     'Z2MUON',
     'Z2TUNER',
     'Z2PHONO',
@@ -528,7 +528,7 @@ test('onSetValue prefers the legacy Telnet MV/MU commands for volume/mute even w
 
   const volumeFeature = { external_id: featureExternalId(device.external_id, FEATURE.VOLUME) };
   await onSetValue(gladys, { device, feature: volumeFeature, value: 50 });
-  assert.equal(telnet.sent.at(-1), 'MV49');
+  assert.equal(telnet.sent.at(-1), 'MV50');
 
   const volumeUpFeature = { external_id: featureExternalId(device.external_id, FEATURE.VOLUME_UP) };
   await onSetValue(gladys, { device, feature: volumeUpFeature, value: 1 });

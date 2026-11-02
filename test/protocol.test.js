@@ -110,7 +110,7 @@ test('parseLine: mute', () => {
 test('parseLine: volume, two-digit whole steps', () => {
   assert.deepEqual(parseLine('MV50'), { feature: 'volume', value: denonVolumeToPercent(50) });
   assert.deepEqual(parseLine('MV00'), { feature: 'volume', value: 0 });
-  assert.deepEqual(parseLine('MV98'), { feature: 'volume', value: 100 });
+  assert.deepEqual(parseLine('MV98'), { feature: 'volume', value: 98 });
 });
 
 test('parseLine: volume, three-digit half steps', () => {
@@ -194,18 +194,39 @@ test('parseLine trims incoming whitespace/CR', () => {
   assert.deepEqual(parseLine('  ZMON\r'), { feature: 'power', value: 1 });
 });
 
+// Forum topic 10722, post 39 (Marantz PM7000N): from 25 up, the widget
+// read one more than the receiver's display (MV25 shown as 26 %), because
+// 0-98 was stretched onto 0-100. The percent is now the displayed number.
+test('volume: the percent is the number the receiver displays, whole and half steps', () => {
+  for (let raw = 0; raw <= 98; raw += 1) {
+    const digits = String(raw).padStart(2, '0');
+    assert.deepEqual(parseLine(`MV${digits}`), { feature: 'volume', value: raw }, `MV${digits}`);
+    assert.equal(buildVolumeCommand(raw), `MV${digits}`, `${raw} %`);
+    assert.equal(buildVolumeCommand(raw, ZONE.ZONE2), `Z2${digits}`, `zone 2, ${raw} %`);
+    if (raw < 98) {
+      assert.deepEqual(parseLine(`MV${digits}5`), { feature: 'volume', value: raw + 0.5 });
+    }
+  }
+  assert.deepEqual(parseLine('MV25'), { feature: 'volume', value: 25 });
+  assert.deepEqual(parseLine('MVMAX 60'), { feature: 'volume_max', value: 60 });
+  assert.deepEqual(parseLine('MVMAX 805'), { feature: 'volume_max', value: 80.5 });
+  assert.equal(buildVolumeCommand(99), 'MV98');
+  assert.equal(buildVolumeCommand(100), 'MV98');
+  assert.equal(buildVolumeCommand(25.4), 'MV25');
+});
+
 test('volume percent <-> Denon raw scale round-trips at the boundaries', () => {
   assert.equal(percentToDenonVolume(0), 0);
   assert.equal(percentToDenonVolume(100), 98);
   assert.equal(denonVolumeToPercent(0), 0);
-  assert.equal(denonVolumeToPercent(98), 100);
+  assert.equal(denonVolumeToPercent(98), 98);
 });
 
-test('volume percent is clamped to 0-100 and the raw scale to 0-98', () => {
+test('volume percent and the raw scale are both clamped to 0-98', () => {
   assert.equal(percentToDenonVolume(-10), 0);
   assert.equal(percentToDenonVolume(150), 98);
   assert.equal(denonVolumeToPercent(-5), 0);
-  assert.equal(denonVolumeToPercent(200), 100);
+  assert.equal(denonVolumeToPercent(200), 98);
 });
 
 test('command builders produce the exact protocol strings, no trailing CR', () => {
@@ -213,7 +234,7 @@ test('command builders produce the exact protocol strings, no trailing CR', () =
   assert.equal(buildPowerCommand(true), 'ZMON');
   assert.equal(buildPowerCommand(false), 'ZMOFF');
   assert.equal(buildVolumeQuery(), 'MV?');
-  assert.equal(buildVolumeCommand(50), 'MV49');
+  assert.equal(buildVolumeCommand(50), 'MV50');
   assert.equal(buildMuteQuery(), 'MU?');
   assert.equal(buildMuteCommand(true), 'MUON');
   assert.equal(buildMuteCommand(false), 'MUOFF');
@@ -244,7 +265,7 @@ test('zone-aware builders target the requested zone, never the whole-unit PW com
   assert.equal(buildPowerCommand(true, ZONE.ZONE2), 'Z2ON');
   assert.equal(buildPowerCommand(false, ZONE.ZONE2), 'Z2OFF');
   assert.equal(buildVolumeQuery(ZONE.ZONE2), 'Z2?');
-  assert.equal(buildVolumeCommand(50, ZONE.ZONE2), 'Z249');
+  assert.equal(buildVolumeCommand(50, ZONE.ZONE2), 'Z250');
   assert.equal(buildVolumeCommand(0, ZONE.ZONE2), 'Z200');
   assert.equal(buildMuteQuery(ZONE.ZONE2), 'Z2MU?');
   assert.equal(buildMuteCommand(true, ZONE.ZONE2), 'Z2MUON');

@@ -56,6 +56,8 @@ export function computeReconnectDelayMs(attempt, baseIntervalSeconds) {
  * @param {(consecutiveFailures: number) => number | undefined} [opts.reconnectDelayMs]
  *   overrides the backoff delay when it returns a number (a HEOS-only
  *   speaker: Telnet retried rarely, see src/devices/session.js).
+ * @param {(err: Error) => boolean} [opts.quietError] true for an error the
+ *   owner expects: logged once at info level instead of warn.
  * @returns {{ send(command: string): boolean, isConnected(): boolean, stop(): void }}
  */
 export function createTelnetClient({
@@ -68,6 +70,7 @@ export function createTelnetClient({
   onConnect,
   onDisconnect,
   reconnectDelayMs,
+  quietError,
 }) {
   const logger = createLogger({ name: loggerName });
   let socket = null;
@@ -122,7 +125,10 @@ export function createTelnetClient({
         logger.debug(message);
       } else {
         warnedError = err.message;
-        logger.warn(`${message} (logged once while it repeats)`);
+        // An error the owner expects (port 23 refused by a known HEOS
+        // speaker, forum topic 10722, post 39) is information, not a warning.
+        const level = quietError?.(err) ? 'info' : 'warn';
+        logger[level](`${message} (logged once while it repeats)`);
       }
     });
 

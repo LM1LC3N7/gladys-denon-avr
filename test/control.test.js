@@ -65,7 +65,7 @@ test('setVolume: Telnet when it is up (clamped, rounded), HEOS otherwise, error 
   __setHeosConnectionForTesting(ID, heos);
   setVolume(ID, 50, 'main');
   setVolume(ID, 150, 'zone2');
-  assert.deepEqual(telnet.sent, ['MV49', 'Z298']);
+  assert.deepEqual(telnet.sent, ['MV50', 'Z298']);
   assert.deepEqual(heos.sent, []);
 
   telnet.setConnected(false);

@@ -34,7 +34,9 @@ TuneIn...) — see "Playback controls" below.
   HEOS matches a player at the device's IP, the last Telnet attempt was refused (`ECONNREFUSED`,
   not a timeout) and the model is a speaker one (HEOS `get_players` `model` or SSDP `modelName`:
   "Denon Home …", "HEOS …", never an AVR/amp model); a missing or unreadable model is never a
-  speaker; never once Telnet came up in the session. Then: Discovery offers only the HEOS
+  speaker; never once Telnet came up in the session. In a session only the HEOS model decides;
+  the SSDP `modelName` only decides what Discovery offers. A device saved without the power
+  feature logs its port 23 refusal at info, not warn (`quietError` of the Telnet client). Then: Discovery offers only the HEOS
   features (`HEOS_SPEAKER_FEATURES`), Telnet-only commands are refused with "not available on a
   HEOS speaker … nothing sent", the badge follows HEOS only (`local`, or `unreachable` as soon as
   HEOS is lost), Telnet is retried every 5 min (the retry already scheduled is moved too), and
@@ -43,8 +45,13 @@ TuneIn...) — see "Playback controls" below.
   actions and the content re-pull after each one at 30 a minute per integration (fixed window,
   429 for every widget button until it ends). A tap is therefore a real step (2 % ≈ 2 dB on
   Telnet `MV`, 5 % on HEOS `set_volume`) from the last wanted level (2.5 s, per route), never
-  past the receiver's `MVMAX` (state `volume_max`) nor outside 0-100, spaced 60 ms per device,
-  the last wanted level winning; an absolute volume cancels a waiting tap.
+  past the receiver's `MVMAX` (state `volume_max`, when the receiver announces it; a half-step
+  ceiling is floored) nor outside 0-98 (Telnet) / 0-100 (HEOS), spaced 60 ms per device, the last
+  wanted level winning; an absolute volume cancels a waiting tap. Widget re-pulls
+  (`src/widgets/index.js`, `refresh.js`): the core's 30 pulls a minute are shared with the taps,
+  so a widget is nudged only for a device one of its instances showed in a pull since the start
+  (`createShownDevices()`; every device during the first 5 min, a crashed process may have left
+  content cached core-side), and the first nudge of a burst waits 400 ms to carry it whole.
 - **Zones**: every per-zone command targets the **main zone by default** (`zone` config key,
   `main`/`zone2`/`zone3`, see `ZONE` in `src/denon/protocol.js`). Power uses `ZMON`/`ZMOFF`, never
   the whole-unit `PWON`/`PWSTANDBY`: `PWON` wakes the receiver up restoring whichever zones were on
@@ -73,19 +80,13 @@ TuneIn...) — see "Playback controls" below.
   device update carrying a new `IP_ADDRESS` (DHCP, then **Update** in the Discovery tab) reconnects
   that AVR alone (`refreshDevice()`, `onDeviceUpdated`); a rename keeps its session. Sound mode and
   the Setup-menu keys stay main-zone only.
-  **Volume: 25% and 75% can never be displayed as themselves** — confirmed on real hardware (a
-  slider that "jumps from 24% to 26%, can't land on 25%") and in the math: `percentToDenonVolume()`/
-  `denonVolumeToPercent()` (`src/denon/protocol.js`) round-trip a plain 0-100 percent through the
-  receiver's raw 0-`DENON_VOLUME_MAX` (98) scale, and compressing 101 possible percent values onto
-  99 raw ones forces at least two collisions (pigeonhole principle) — raw `25` is the value both
-  25% and 26% round to, but it reads back as 26%, so setting 25% is immediately overwritten by the
-  receiver's own echo of what it actually did. This is an inherent consequence of the hardware only
-  having 99 discrete volume steps for a 101-position percent scale, not a rounding bug to fix — the
-  "gap" can be moved but never removed. The exact two percents affected depend on
-  `DENON_VOLUME_MAX`, which is itself a generic default (see the comment above it), so don't expect
-  25/75 to necessarily be the affected pair on every model/configuration. This quantization quirk
-  only applies to the Telnet path — HEOS's own volume scale is already 0-100, no conversion needed,
-  so it doesn't have this gap.
+  **Volume: the percent is the receiver's own number** (1.2.1, forum topic 10722 post 39,
+  Marantz PM7000N): `percentToDenonVolume()`/`denonVolumeToPercent()` (`src/denon/protocol.js`)
+  map 1:1 onto the raw 0-`DENON_VOLUME_MAX` (98) scale, half steps kept on the way in (`MV255` =
+  25.5), rounded on the way out, 99-100 sent as `MV98`. Up to 1.2.0 the 0-98 scale was stretched
+  onto 0-100 (`round(raw / 98 * 100)`), so from raw 25 up Gladys showed one more than the
+  receiver's display (and setting 25 % snapped to 26 %). Telnet widget taps top out at 98; the
+  HEOS path keeps HEOS' own 0-100.
 - **Input source**: a dropdown on the dashboard, backed by `TEXT.SELECT` +
   `supported_options` (the receiver's own SI codes) — **not** the generic `TELEVISION.SOURCE`
   type, which Gladys' front-end renders as a one-shot remote-control button with no way to pick
@@ -236,7 +237,11 @@ TuneIn...) — see "Playback controls" below.
   `get_play_state` while an announcement plays), refused by HEOS, never started (15 s) or capped
   (3 min). The volume is left alone if someone changed it during the announcement; a second
   announcement keeps the first one's snapshot; what HEOS was playing before is not resumed (the
-  queue was cleared, see above).
+  queue was cleared, see above). Since 1.2.1 (forum topic 10722, post 39, Lyrion): HEOS naming
+  the announcement URL as its current media (`get_now_playing_media` `mid`, polled with the play
+  state) proves it plays even when the music before kept the state at `play`; another media
+  after it ends the announcement at once; once over with nothing playing, the queue is cleared
+  again so a later Play cannot replay it.
   **Works on a HEOS-only speaker (Denon Home, HEOS 1/3/5/7, Bar...) added through the manual IP
   fallback**, not just a real AV receiver: `onSetValue()` dispatches this feature before its
   Telnet-connectivity check, not after, specifically because a pure HEOS speaker has no "AVR
@@ -658,7 +663,8 @@ Honest status, so it's clear what "it works" actually rests on:
   `get_play_state`/`get_now_playing_media` on top of the pushed events, so a missed/dropped event
   self-heals within 30s instead of sticking forever.
 - **Not yet confirmed** — implemented from protocol research, not yet run against real hardware:
-  - The volume mapping (`DENON_VOLUME_MAX` = 98, the receiver's raw scale ceiling) and multiple
+  - The volume mapping (`DENON_VOLUME_MAX` = 98, the receiver's raw scale ceiling; 1:1 since
+    1.2.1, matching a Marantz PM7000N's display per its owner) and multiple
     manual-fallback hosts (comma-separated `source_overrides`/`host`) — implemented and
     unit-tested, no real-hardware pass yet (the volume ceiling is a protocol-level constant, not
     a per-user "Maximum Volume" setting, so it shouldn't need calibration — see the comment above

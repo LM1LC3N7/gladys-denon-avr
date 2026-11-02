@@ -34,11 +34,13 @@ These show up per receiver:
   logged ("power mode is now ...") and shown by "Test connection"; each power command is logged at
   info level with the exact command sent. Checked against the published protocols and simulated
   receivers, not yet against a real PM7000N.
-- **Volume** — 0-100%, controllable (mapped from the receiver's internal -80 dB to +18 dB scale).
-  Confirmed on real hardware: one specific percent (25% on the default scale) can never stay put —
-  setting it snaps to 26% instead. This is a genuine hardware limit (the receiver only has 99
-  discrete volume steps for the 101 possible percent values), not a bug this integration can fix —
-  and it only applies to this Telnet-based scale, not the HEOS fallback below. On a HEOS-equipped
+- **Volume** — controllable. Over Telnet the value is the receiver's own volume number, 0 to 98
+  (1 = 1 dB, 80 = 0 dB; half steps such as 40.5 show as is): Gladys shows what the receiver
+  displays (with its volume display set to absolute "0-98"; the dB display is that number minus
+  80). 99 and 100 are sent as 98. Up to 1.2.0 the 0-98 scale was stretched to 0-100, so from 25 up
+  Gladys showed one more than the receiver (forum, Marantz PM7000N). A scene or a saved volume now
+  lands up to 1 dB higher than before for the same number. The HEOS fallback below keeps HEOS'
+  own 0-100 scale. On a HEOS-equipped
   device, if the classic Telnet control isn't reachable at all (see "HEOS support" below — this is
   the case for a standalone HEOS speaker, not a real AV receiver), Volume/Volume up/Volume down
   fall back to HEOS's own volume commands automatically.
@@ -79,7 +81,10 @@ These show up per receiver:
   current volume), and leave **Restore the receiver after an announcement** on: once the
   announcement is over, the receiver gets back its previous volume, input and standby state (the
   volume is left alone if someone changed it during the announcement). Whatever HEOS was playing
-  before (a radio, a playlist) does not resume on its own. This is also one of the features here that works on a standalone
+  before (a radio, a playlist, a stream sent by another app over UPnP or AirPlay, Lyrion for
+  instance) does not resume on its own: that app has to play again. Once the announcement is
+  over and nothing plays, the HEOS queue is emptied, so a later Play cannot speak it again. The
+  end is noticed as soon as HEOS stops, or as soon as it plays something else. This is also one of the features here that works on a standalone
   HEOS speaker (Denon Home, HEOS 1/3/5/7, Bar...) added through the manual IP fallback in
   Configuration, not just a real AV receiver — alongside Volume, Mute and Play/Pause/Next/Previous
   (all of which have a real HEOS equivalent, see "HEOS speakers" below). Triggering this scene action repeatedly in quick succession replaces
@@ -101,8 +106,9 @@ models (Link, Amp, Drive...), the lack of Telnet is not verified: if they answer
 stay handled as receivers.
 
 The integration recognizes it when three things hold: HEOS lists a player at its address, port
-23 is refused, and the announced model (over HEOS or in the scan) is a speaker model ("Denon
-Home…", "HEOS…"). It is then immediate. Without a readable model, the device stays a receiver:
+23 is refused, and the model HEOS announces for that player is a speaker model ("Denon Home…",
+"HEOS…"). The model found by the Discovery scan only decides what Discovery offers (a speaker
+without power, input or sound mode); a running device follows the HEOS model. It is then immediate. Without a readable model, the device stays a receiver:
 it keeps power, inputs and zones, Telnet is retried at the usual pace, and the badge gets the
 "only HEOS answers" orange dot after three Telnet failures. A device whose Telnet answered even
 once since the start stays a receiver, and a known receiver or amplifier model (for example the
@@ -120,7 +126,12 @@ What the integration then does:
 - **Badge**: _local_, with no orange dot (not a degraded mode for a speaker); _unreachable_ as
   soon as HEOS stops answering (speaker unplugged).
 - **Logs**: one info line ("… is a HEOS speaker … without AVR Control …") instead of a Telnet
-  warning every 10 to 30 seconds. Telnet is retried every 5 minutes. If it ever answers, the
+  warning every 10 to 30 seconds. On a speaker already updated from Discovery, the first refusal
+  of port 23 at start is an info line too (`Telnet socket error … ECONNREFUSED`), never a
+  warning.
+- **Address**: a speaker added through the manual IP (Configuration) is tied to that IP. If your
+  router gives it a new one, add the new IP in Configuration, run Discovery and add it again (or
+  give the speaker a fixed DHCP lease): the old device then says "Cannot reach the HEOS speaker". Telnet is retried every 5 minutes. If it ever answers, the
   receiver commands work again at once; the features removed by **Update** only come back after
   a new scan and a new **Update**.
 - **Widgets**: the Amplifier card swaps Turn on/Standby for Play/Pause and shows "Power: Not
@@ -149,11 +160,12 @@ dropdown stay those of Gladys' own "Devices" card.
   can get a custom label.
 - **Amplifier** — power, input, sound mode and mute at a glance, the live volume, and Turn
   on/Standby, Vol −, Vol + and Mute buttons. In the cards, a Vol − or Vol + tap moves the volume
-  by about 2 dB on a receiver (2 %, four remote presses) and by 5 % on a HEOS speaker. Quick taps
+  by 2 on a receiver (2 dB, four remote presses) and by 5 % on a HEOS speaker. Quick taps
   add up from the last requested volume, even before the receiver answers, and never go out
   faster than the receiver takes them (one command every 60 ms at most, the last requested
-  volume wins). They never go past the "Max Volume" set in the receiver (`MVMAX`), so Vol − acts
-  from the first tap. The Volume up/down buttons of the device list keep one remote press.
+  volume wins). They never go past 98, nor past the "Max Volume" set in the receiver when it
+  announces it (`MVMAX`), so Vol − acts from the first tap. A receiver that does not announce its
+  Max Volume may ignore the taps above it: a Vol − then takes a few taps to bite. The Volume up/down buttons of the device list keep one remote press.
 - **Remote** — four keys of your choice (Up, Down, Left, Right, OK, Back, Menu, Info, Vol −,
   Vol +, Mute, Turn on, Standby; the four arrows by default). Place several side by side for a full
   pad (for instance an "arrows" card and an "OK / Back / Menu / Info" card).
@@ -443,7 +455,9 @@ integration's data folder (`/data/ad-breaks.json`, `/data/ad-jingles/`).
   while**: a Gladys limit, not the receiver's. Gladys takes at most 30 widget taps a minute per
   integration, and reloads the widget content after each tap (at most 30 reloads a minute).
   Beyond that, every widget button of this integration is refused until the current minute ends
-  (60 s at most), then everything comes back on its own. Since this version a Vol −/+ tap moves
+  (60 s at most), then everything comes back on its own. The reloads the integration asks for
+  itself count too: since 1.2.1 a card is only reloaded for the device it shows, once per burst of
+  changes, so a speaker playing music no longer uses up the taps of the amplifier's card. Since this version a Vol −/+ tap moves
   2 dB instead of 0.5 dB, so four times fewer taps for the same change; for a big change, prefer
   the volume slider of the Gladys "Devices" card: one setting instead of several taps.
 

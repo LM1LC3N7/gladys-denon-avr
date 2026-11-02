@@ -116,6 +116,14 @@ export function connectDevice(gladys, device, config) {
 
   // HEOS-only speaker (./speaker.js): what the two sessions told so far.
   const speaker = { telnetEverUp: false, refused: false, heosOnly: false, announced: false };
+  // Created (or updated from Discovery) as a HEOS speaker: no power feature.
+  // Its port 23 refused at start, before HEOS names the model, is expected
+  // (forum topic 10722, post 39): logged at info, not as a warning.
+  const powerId = featureExternalId(externalId, FEATURE.POWER);
+  const savedAsSpeaker =
+    Array.isArray(device.features) &&
+    device.features.length > 0 &&
+    !device.features.some((feature) => feature.external_id === powerId);
   function updateSpeakerMode() {
     // Sticky for the session once seen (a speaker unplugged is still a
     // speaker); only Telnet answering makes it an AVR again.
@@ -157,6 +165,8 @@ export function connectDevice(gladys, device, config) {
     host,
     zone,
     send: (command) => telnet.send(command),
+    // Discovered by SSDP: the id is the UDN, the same receiver at any IP.
+    anyHost: !/(^|:)manual:/.test(externalId),
   });
 
   const telnet = createTelnetClient({
@@ -164,6 +174,8 @@ export function connectDevice(gladys, device, config) {
     port,
     reconnectIntervalSeconds: config.reconnect_interval_seconds,
     reconnectDelayMs: () => (speaker.heosOnly ? timing.heosOnlyTelnetRetryMs : undefined),
+    quietError: (err) =>
+      err?.code === 'ECONNREFUSED' && !speaker.telnetEverUp && (speaker.heosOnly || savedAsSpeaker),
     onConnect: () => {
       logger.info(`${externalId}: connected (${zone} zone), seeding initial state`);
       if (speaker.heosOnly) {
@@ -341,7 +353,8 @@ export function refreshDevice(gladys, device, config) {
     setSession(device.external_id, { device });
     return;
   }
-  disconnectDevice(device.external_id);
+  // Its saved power mode stays: only a deleted device loses it (review r3 m1).
+  disconnectDevice(device.external_id, { keepSaved: true });
   connectDevice(gladys, device, config);
 }
 

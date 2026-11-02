@@ -55,6 +55,10 @@ const MESSAGES = {
     en: `AVR Control (Telnet ${host}:${port}) unreachable: only volume, mute, playback and announcements (HEOS) work.`,
     fr: `Contrôle AVR (Telnet ${host}:${port}) injoignable : seuls le volume, la sourdine, la lecture et les annonces (HEOS) fonctionnent.`,
   }),
+  speakerUnmatched: (host) => ({
+    en: `The HEOS speaker answers but lists no player at ${host} (its address changed?): run Discovery again and update the device.`,
+    fr: `L'enceinte HEOS répond mais ne liste aucun lecteur à ${host} (adresse changée ?) : relancez la Découverte et mettez l'appareil à jour.`,
+  }),
   speakerUnreachable: (host) => ({
     en: `Cannot reach the HEOS speaker at ${host} (port 1255). Check that it is powered and on the network.`,
     fr: `Impossible de joindre l'enceinte HEOS ${host} (port 1255). Vérifiez qu'elle est alimentée et sur le réseau.`,
@@ -92,13 +96,18 @@ export function computeTransport(
   if (heosOnly) {
     // A speaker's reachability is HEOS's (review r1, I2): its Telnet is
     // only retried every few minutes and says nothing.
-    return heosMatch === HEOS_MATCH.MATCHED
-      ? { external_id: externalId, transport: DEVICE_TRANSPORTS.LOCAL }
-      : {
-          external_id: externalId,
-          transport: DEVICE_TRANSPORTS.UNREACHABLE,
-          message: MESSAGES.speakerUnreachable(host),
-        };
+    if (heosMatch === HEOS_MATCH.MATCHED) {
+      return { external_id: externalId, transport: DEVICE_TRANSPORTS.LOCAL };
+    }
+    return {
+      external_id: externalId,
+      transport: DEVICE_TRANSPORTS.UNREACHABLE,
+      // HEOS answering without a player here is not a power problem (r2 m6).
+      message:
+        heosMatch === HEOS_MATCH.UNMATCHED
+          ? MESSAGES.speakerUnmatched(host)
+          : MESSAGES.speakerUnreachable(host),
+    };
   }
   // An AVR whose Telnet is still in its first failed attempts is not
   // reported yet: HEOS often answers first, and a receiver that is waking

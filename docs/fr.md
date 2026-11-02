@@ -38,12 +38,13 @@ Voici ce qui apparaît par ampli :
   noté dans les logs (« power mode is now … ») et affiché par « Tester la connexion » ; chaque
   commande d'alimentation est notée (niveau info) avec la commande exacte envoyée. Vérifié sur les
   protocoles publiés et des amplis simulés, pas encore sur un vrai PM7000N.
-- **Volume** — 0-100 %, contrôlable (converti depuis l'échelle interne de l'ampli, -80 dB à +18 dB).
-  Confirmé sur du matériel réel : un pourcentage précis (25 % sur l'échelle par défaut) ne peut
-  jamais rester tel quel — le régler bascule immédiatement à 26 %. C'est une vraie limite
-  matérielle (l'ampli n'a que 99 crans de volume pour les 101 valeurs de pourcentage possibles),
-  pas un bug que cette intégration peut corriger — et ça ne concerne que cette échelle basée sur le
-  Telnet, pas la bascule HEOS ci-dessous. Sur un appareil équipé HEOS, si le contrôle Telnet
+- **Volume** — contrôlable. En Telnet, la valeur est le nombre de volume de l'ampli lui-même, de
+  0 à 98 (1 = 1 dB, 80 = 0 dB ; les demi-crans comme 40,5 s'affichent tels quels) : Gladys montre ce
+  qu'affiche l'ampli (avec l'affichage du volume en absolu « 0-98 » ; l'affichage en dB vaut ce
+  nombre moins 80). 99 et 100 sont envoyés comme 98. Jusqu'à la 1.2.0, l'échelle 0-98 était
+  étirée sur 0-100, donc à partir de 25 Gladys affichait un de plus que l'ampli (forum, Marantz
+  PM7000N). Une scène ou un volume enregistré tombe maintenant jusqu'à 1 dB plus haut qu'avant pour
+  le même nombre. La bascule HEOS ci-dessous garde l'échelle 0-100 de HEOS. Sur un appareil équipé HEOS, si le contrôle Telnet
   classique n'est pas joignable du tout (voir « Support HEOS » ci-dessous — c'est le cas d'une
   enceinte HEOS autonome, pas d'un vrai ampli-tuner), Volume/Volume +/Volume - basculent
   automatiquement sur les commandes HEOS.
@@ -90,7 +91,11 @@ Voici ce qui apparaît par ampli :
   dans la Configuration (0 = volume actuel), et laissez **Rétablir l'ampli après une annonce**
   activé : une fois l'annonce terminée, l'ampli retrouve son volume, son entrée et sa veille
   d'avant (le volume n'est pas touché si quelqu'un l'a changé pendant l'annonce). Ce que HEOS
-  jouait avant l'annonce (une radio, une playlist) ne reprend pas tout seul. C'est aussi une des fonctionnalités
+  jouait avant l'annonce (une radio, une playlist, un flux envoyé par une autre application en UPnP
+  ou AirPlay, Lyrion par exemple) ne reprend pas tout seul : cette application doit relancer la
+  lecture. Une fois l'annonce finie et si rien ne joue, la file d'attente HEOS est vidée, pour
+  qu'une lecture plus tard ne la répète pas. La fin est vue dès que HEOS s'arrête, ou dès qu'il
+  joue autre chose. C'est aussi une des fonctionnalités
   de cette page qui fonctionne sur une enceinte HEOS autonome (Denon Home, HEOS 1/3/5/7, Bar...)
   ajoutée via l'IP manuelle dans la Configuration, et pas seulement sur un vrai ampli-tuner — aux
   côtés de Volume, Muet et Lecture/Pause/Suivant/Précédent (qui ont tous un équivalent HEOS réel,
@@ -115,8 +120,10 @@ les autres modèles « HEOS » (Link, Amp, Drive...), l'absence de Telnet n'est 
 répondent sur le port 23, ils restent traités comme des amplis.
 
 L'intégration la reconnaît quand trois conditions sont réunies : HEOS trouve un lecteur à son
-adresse, le port 23 est refusé, et le modèle annoncé (par HEOS ou par le scan) est un modèle
-d'enceinte (« Denon Home… », « HEOS… »). C'est alors immédiat. Sans modèle lisible, l'appareil
+adresse, le port 23 est refusé, et le modèle que HEOS annonce pour ce lecteur est un modèle
+d'enceinte (« Denon Home… », « HEOS… »). Le modèle trouvé par le scan de la Découverte ne décide
+que ce que la Découverte propose (une enceinte sans marche/veille, entrée ni mode son) ; un
+appareil en marche suit le modèle HEOS. C'est alors immédiat. Sans modèle lisible, l'appareil
 reste un ampli : il garde marche/veille, entrées et zones, le Telnet est réessayé au rythme
 habituel, et le badge prend le point orange « seul HEOS répond » après trois échecs Telnet. Un
 appareil dont le Telnet a répondu une seule fois depuis le démarrage reste un ampli, et un modèle
@@ -134,7 +141,13 @@ Ce que fait alors l'intégration :
 - **Badge** : _local_, sans point orange (ce n'est pas un mode dégradé pour une enceinte) ;
   _injoignable_ dès que HEOS ne répond plus (enceinte débranchée).
 - **Logs** : une seule ligne d'information (« … is a HEOS speaker … without AVR Control … ») au
-  lieu d'un avertissement Telnet toutes les 10 à 30 secondes. Le Telnet est réessayé toutes les
+  lieu d'un avertissement Telnet toutes les 10 à 30 secondes. Sur une enceinte déjà mise à jour
+  depuis la Découverte, le premier refus du port 23 au démarrage est aussi une ligne
+  d'information (`Telnet socket error … ECONNREFUSED`), jamais un avertissement.
+- **Adresse** : une enceinte ajoutée par l'IP manuelle (Configuration) est liée à cette IP. Si la
+  box lui en donne une nouvelle, ajoutez la nouvelle IP dans la Configuration, lancez la
+  Découverte et ajoutez-la de nouveau (ou réservez-lui une IP fixe dans la box) : l'ancien
+  appareil affiche alors « Impossible de joindre l'enceinte HEOS ». Le Telnet est réessayé toutes les
   5 minutes. S'il répond un jour, les commandes d'ampli repartent aussitôt ; les fonctions retirées
   par **Mettre à jour** ne reviennent, elles, qu'après un nouveau scan et un nouveau **Mettre à
   jour**.
@@ -166,12 +179,13 @@ et déclenchent ; le curseur de volume et le menu déroulant des entrées resten
   coché. Un libellé personnalisé est possible pour chaque bouton.
 - **Ampli** — alimentation, entrée, mode son et sourdine d'un coup d'œil, le volume en direct, et
   les boutons Allumer/Veille, Vol −, Vol + et Sourdine. Dans les cartes, un appui sur Vol − ou
-  Vol + change le volume d'environ 2 dB sur un ampli (2 %, quatre crans de télécommande) et de
-  5 % sur une enceinte HEOS. Des appuis rapprochés s'additionnent à partir du dernier volume
+  Vol + change le volume de 2 sur un ampli (2 dB, quatre crans de télécommande) et de 5 % sur une
+  enceinte HEOS. Des appuis rapprochés s'additionnent à partir du dernier volume
   demandé, même si l'ampli n'a pas encore répondu, et ne partent pas plus vite que l'ampli ne les
   accepte (un envoi toutes les 60 ms au plus, le dernier volume demandé gagne). Ils ne dépassent
-  jamais le « Volume max » réglé dans l'ampli (`MVMAX`), pour que Vol − agisse dès le premier
-  appui. Les boutons
+  jamais 98, ni le « Volume max » réglé dans l'ampli quand celui-ci l'annonce (`MVMAX`), pour que
+  Vol − agisse dès le premier appui. Un ampli qui n'annonce pas son Volume max peut ignorer les
+  appuis au-dessus : un Vol − demande alors quelques appuis avant d'agir. Les boutons
   Volume +/- de la liste des appareils gardent un cran de télécommande.
 - **Télécommande** — quatre touches au choix (Haut, Bas, Gauche, Droite, OK, Retour, Menu, Info,
   Vol −, Vol +, Sourdine, Allumer, Veille ; les quatre flèches par défaut). Posez-en plusieurs côte
@@ -481,7 +495,10 @@ dossier de données de l'intégration (`/data/ad-breaks.json`, `/data/ad-jingles
   30 appuis de widget par minute pour une intégration, et recharge le contenu du widget après
   chaque appui (30 rechargements par minute au plus). Au-delà, tous les boutons des widgets de
   cette intégration sont refusés jusqu'à la fin de la minute en cours (60 s au plus), puis tout
-  revient seul. Depuis cette version un appui sur Vol −/+ fait 2 dB au lieu de 0,5 dB, donc
+  revient seul. Les rechargements que l'intégration demande elle-même comptent aussi : depuis la
+  1.2.1, une carte n'est rechargée que pour l'appareil qu'elle montre, une fois par rafale de
+  changements, donc une enceinte qui joue de la musique n'use plus les appuis de la carte de
+  l'ampli. Depuis cette version un appui sur Vol −/+ fait 2 dB au lieu de 0,5 dB, donc
   quatre fois moins d'appuis pour le même réglage ; pour un grand changement, préférez le curseur
   de volume de la carte « Appareils » de Gladys : un seul réglage au lieu de plusieurs appuis.
 

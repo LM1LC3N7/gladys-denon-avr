@@ -347,3 +347,79 @@ test('HEOS taps past 100 or under 0 are not kept: the next opposite tap bites at
     'player/set_volume?pid=7&level=5',
   ]);
 });
+
+// 1.2.1 (forum topic 10722, post 39): the percent is the receiver's own
+// 0-98 number, so Telnet tops out at 98 and a half-step "Max Volume" is
+// never rounded past.
+test('without MVMAX, Vol + stops at 98 and the first Vol − bites at once', async () => {
+  const receiver = fakeReceiver({ raw: 94 });
+  for (let i = 0; i < 5; i += 1) {
+    await runWidgetAction(gladys, 'volume_up', { avr: ID }, config);
+    await tick(80);
+  }
+  assert.ok(
+    receiver.sent.every((command) => Number(command.slice(2)) <= 98),
+    receiver.sent.join(' '),
+  );
+  assert.equal(receiver.raw(), 98);
+  await runWidgetAction(gladys, 'volume_down', { avr: ID }, config);
+  await tick(80);
+  assert.equal(receiver.sent.at(-1), 'MV96');
+});
+
+test('a half-step MVMAX (80.5) is never rounded up past', async () => {
+  const receiver = fakeReceiver({ raw: 76 });
+  __setLastKnownStateForTesting(ID, { power: 1, volume: 76, volume_max: 80.5 });
+  for (let i = 0; i < 4; i += 1) {
+    await runWidgetAction(gladys, 'volume_up', { avr: ID }, config);
+    await tick(80);
+  }
+  assert.deepEqual(receiver.sent, ['MV78', 'MV80', 'MV80', 'MV80']);
+});
+
+test('a volume reported above a lowered MVMAX: Vol − starts from the ceiling (r2 m2)', async () => {
+  const receiver = fakeReceiver({ raw: 70, echo: false });
+  __setLastKnownStateForTesting(ID, { power: 1, volume: 70, volume_max: 60 });
+  await runWidgetAction(gladys, 'volume_down', { avr: ID }, config);
+  assert.deepEqual(receiver.sent, ['MV58']);
+});
+
+test('MVMAX only caps the Telnet route: a HEOS tap ignores it (r2 m3, V20)', async () => {
+  const heos = createFakeHeosSession(7);
+  __setHeosConnectionForTesting(ID, heos);
+  setSession(ID, { device: { external_id: ID, name: 'Denon Home' } });
+  __setLastKnownStateForTesting(ID, { volume: 70, volume_max: 60 });
+  await runWidgetAction(gladys, 'volume_up', { avr: ID }, config);
+  assert.deepEqual(heos.sent, ['player/set_volume?pid=7&level=75']);
+});
+
+test('an absolute HEOS volume is the base of the next tap (r2 m3, V24)', async () => {
+  const heos = createFakeHeosSession(7);
+  __setHeosConnectionForTesting(ID, heos);
+  setSession(ID, { device: { external_id: ID, name: 'Denon Home' } });
+  __setLastKnownStateForTesting(ID, { volume: 20 });
+  setVolume(ID, 50, 'main');
+  await tick(100);
+  await runWidgetAction(gladys, 'volume_up', { avr: ID }, config);
+  assert.deepEqual(heos.sent.at(-1), 'player/set_volume?pid=7&level=55');
+});
+
+test('a tap right after an absolute volume waits for the receiver pace (r2 m3, V25)', async () => {
+  const receiver = fakeReceiver({ raw: 40, echo: false });
+  setVolume(ID, 30, 'main');
+  await runWidgetAction(gladys, 'volume_up', { avr: ID }, config);
+  assert.deepEqual(receiver.sent, ['MV30'], 'the tap is held back, not sent at once');
+  await tick(150);
+  assert.deepEqual(receiver.sent, ['MV30', 'MV32']);
+  assert.ok(receiver.sentAt[1] - receiver.sentAt[0] >= 55);
+});
+
+test('an absolute volume that fails drops the wanted level (r2 m3, V15b)', async () => {
+  const receiver = fakeReceiver({ raw: 40, echo: false });
+  await runWidgetAction(gladys, 'volume_up', { avr: ID }, config); // MV42 wanted
+  await tick(100);
+  receiver.failNextSends(1);
+  assert.throws(() => setVolume(ID, 10, 'main'), /Failed to send command/);
+  await runWidgetAction(gladys, 'volume_up', { avr: ID }, config);
+  assert.equal(receiver.sent.at(-1), 'MV42', 'from the reported 40, not from the old wanted 42');
+});

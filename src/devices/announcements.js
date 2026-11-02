@@ -15,22 +15,36 @@
 //     the NET input, switched on, at whatever volume (forum topic 10722).
 //
 // The end of an announcement is HEOS' own play state going back to
-// stop/pause after having played (event or fast poll), a refused stream, a
-// stream that never starts, or a hard cap — whichever comes first. What the
-// receiver was playing on HEOS before (a radio, a playlist) is NOT resumed:
-// clearing the HEOS queue (see buildClearQueueCommand()) loses it.
+// stop/pause after having played (event or fast poll), HEOS playing
+// something else after it (another controller took the player back), a
+// refused stream, a stream that never starts, or a hard cap — whichever
+// comes first. What the receiver was playing on HEOS before (a radio, a
+// playlist, a UPnP/AirPlay sender) is NOT resumed: clearing the HEOS queue
+// (see buildClearQueueCommand()) loses it.
+//
+// Forum topic 10722, post 39 (music from Lyrion, Marantz PM7000N):
+//   - play_stream leaves the announcement in the HEOS queue, so a later
+//     Play replayed it; once it is over and nothing plays, the queue is
+//     cleared again;
+//   - music already playing before kept the play state at "play", so the
+//     announcement's own "play" was no change, and a poll answer in the
+//     first 2 s was not trusted (it may be the music's): a short message
+//     was only seen as over by the 15 s "never started" timer. HEOS naming
+//     the announcement URL as its current media now proves it plays.
 // -----------------------------------------------------------------------------
 
 import { createLogger } from '@gladysassistant/integration-sdk';
-import { normalizeZone } from '../denon/protocol.js';
+import { normalizeZone, percentToDenonVolume } from '../denon/protocol.js';
 import {
   buildClearQueueCommand,
+  buildGetNowPlayingMediaCommand,
   buildGetPlayStateCommand,
   buildPlayStreamCommand,
 } from '../heos/protocol.js';
 import { normalizeConfig } from '../config.js';
 import { FEATURE, HEOS_SOURCE_CODE } from './features.js';
 import {
+  getHeos,
   getState,
   isTelnetConnected,
   onDeviceStateChange,
@@ -38,7 +52,7 @@ import {
   timing,
 } from './registry.js';
 import { ensureZoneReadyForHeos, requireHeos, setPower, setSource, setVolume } from './control.js';
-import { STREAM_RESULT_KEY } from './heos-session.js';
+import { NOW_PLAYING_MID_KEY, STREAM_RESULT_KEY } from './heos-session.js';
 
 const logger = createLogger({ name: 'avr' });
 
@@ -78,6 +92,16 @@ function handleStateChange(externalId, key, value) {
   }
   if (key === STREAM_RESULT_KEY && value === 'fail') {
     finishAnnouncement(externalId, 'stream refused');
+  } else if (key === NOW_PLAYING_MID_KEY) {
+    const ours = isAnnouncementMedia(value, entry.url);
+    if (ours) {
+      entry.mediaSeen = true;
+      if (getState(externalId).playback_state === 1) {
+        entry.sawPlaying = true;
+      }
+    } else if (entry.mediaSeen && value) {
+      finishAnnouncement(externalId, 'replaced by other playback');
+    }
   } else if (key === FEATURE.PLAYBACK_STATE) {
     if (value === 1) {
       entry.sawPlaying = true;
@@ -87,16 +111,48 @@ function handleStateChange(externalId, key, value) {
   }
 }
 
+/** Whether HEOS' current media id is the announcement's stream URL. */
+function isAnnouncementMedia(mid, url) {
+  if (typeof mid !== 'string' || mid === '' || !url) {
+    return false;
+  }
+  if (mid === url) {
+    return true;
+  }
+  try {
+    return decodeURIComponent(mid) === url;
+  } catch {
+    return false;
+  }
+}
+
 /** Is `volume` (what the receiver reports now) still the announcement's own? */
 function stillAtAnnouncementVolume(volume, announcementVolume) {
-  // The receiver's 0-98 scale rounds some percents by one (25 % reads back
-  // as 26 %, see percentToDenonVolume()): one step apart is still ours.
+  // A remote press during the announcement moves it by half a step; a
+  // change of more than one unit is the user's, kept.
   return volume === undefined || Math.abs(volume - announcementVolume) <= 1;
+}
+
+/**
+ * The announcement over and nothing playing: empty the HEOS queue it was
+ * appended to, so no later Play speaks it again (forum topic 10722, post 39).
+ * Skipped while something plays (the hard cap on a long stream, another
+ * controller that took over: its queue is not ours to clear).
+ */
+function forgetAnnouncementStream(externalId, entry) {
+  if (!entry.streamSent || getState(externalId).playback_state === 1) {
+    return;
+  }
+  const heos = getHeos(externalId);
+  if (heos?.pid != null && heos.client?.isConnected?.() !== false) {
+    heos.client.sendCommand(buildClearQueueCommand(heos.pid));
+  }
 }
 
 async function restore(externalId, entry) {
   const { snapshot, zone } = entry;
   const state = getState(externalId);
+  forgetAnnouncementStream(externalId, entry);
   if (
     entry.announcementVolume !== undefined &&
     snapshot.volume !== undefined &&
@@ -173,7 +229,14 @@ export async function playAnnouncement(externalId, url, config = normalizeConfig
       snapshot: { power: state.power, source: state.source, volume: adBreakVolume ?? state.volume },
     };
   }
-  Object.assign(entry, { zone, tracking: false, sawPlaying: false });
+  Object.assign(entry, {
+    zone,
+    url,
+    tracking: false,
+    sawPlaying: false,
+    mediaSeen: false,
+    streamSent: false,
+  });
   if (config.announcement_restore) {
     pending.set(externalId, entry);
     ensureListening();
@@ -183,7 +246,10 @@ export async function playAnnouncement(externalId, url, config = normalizeConfig
     await ensureZoneReadyForHeos(externalId, zone);
     if (wantsVolume) {
       setVolume(externalId, volume, zone);
-      entry.announcementVolume = Math.round(Math.min(100, volume));
+      // What the receiver will report back: 0-98 over Telnet, 0-100 on HEOS.
+      entry.announcementVolume = isTelnetConnected(externalId)
+        ? percentToDenonVolume(volume)
+        : Math.round(Math.min(100, volume));
     }
     // Real-hardware feedback: browse/play_stream appends to the queue rather
     // than replacing it, so triggering this scene action more than once in
@@ -198,6 +264,7 @@ export async function playAnnouncement(externalId, url, config = normalizeConfig
     if (!heos.client.sendCommand(buildPlayStreamCommand(heos.pid, url))) {
       throw new Error(`Failed to send HEOS play_stream command to ${externalId}`);
     }
+    entry.streamSent = true;
   } catch (err) {
     finishAnnouncement(externalId, 'failed');
     throw err;
@@ -215,6 +282,7 @@ export async function playAnnouncement(externalId, url, config = normalizeConfig
       entry.sawPlaying = true;
     }
     heos.client.sendCommand(buildGetPlayStateCommand(heos.pid));
+    heos.client.sendCommand(buildGetNowPlayingMediaCommand(heos.pid));
   }, timing.announcementPollMs);
   entry.startTimer = setTimeout(() => {
     if (!entry.sawPlaying) {

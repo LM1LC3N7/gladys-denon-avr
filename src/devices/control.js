@@ -16,6 +16,7 @@ import {
   buildSoundModeCommand,
   buildVolumeCommand,
   buildQuickSelectCommand,
+  DENON_VOLUME_MAX,
   normalizeZone,
   SOURCE_CODES,
   TUNER_COMMANDS,
@@ -210,7 +211,7 @@ export function setVolume(externalId, percent, zone) {
 // command carrying the last wanted level. The device feature Volume up/down
 // (a Gladys remote control) keeps its one-step behavior.
 
-// Telnet: 2 % of the 0-98 scale, about 2 dB (4 presses of the remote).
+// Telnet: 2 units of the receiver's 0-98 scale, 2 dB (4 presses of the remote).
 // HEOS: 5 %, the step its own volume_up uses by default.
 export const WIDGET_VOLUME_STEP = Object.freeze({ telnet: 2, heos: 5 });
 
@@ -321,15 +322,17 @@ export function nudgeVolume(externalId, direction, zone) {
   const wanted = wantedVolumes.get(externalId);
   const state = getState(externalId);
   const normalizedZone = normalizeZone(zone);
-  // The receiver's own "Max Volume" (MVMAX, main zone only, review r1 I4):
-  // a wanted level past it would make the next Vol − taps dead.
+  // The top of the scale (98 over Telnet, see DENON_VOLUME_MAX) and the
+  // receiver's own "Max Volume" (MVMAX, main zone only, review r1 I4): a
+  // wanted level past it would make the next Vol − taps dead.
+  const top = route === 'telnet' ? DENON_VOLUME_MAX : 100;
   const ceiling =
     route === 'telnet' &&
     normalizedZone === ZONE.MAIN &&
     typeof state[STATE.VOLUME_MAX] === 'number' &&
     Number.isFinite(state[STATE.VOLUME_MAX])
-      ? Math.max(0, Math.min(100, state[STATE.VOLUME_MAX]))
-      : 100;
+      ? Math.max(0, Math.min(top, state[STATE.VOLUME_MAX]))
+      : top;
   const base =
     wanted && wanted.route === route && now - wanted.at < timing.volumeWantedMs
       ? wanted.level
@@ -344,9 +347,11 @@ export function nudgeVolume(externalId, direction, zone) {
     }
     return;
   }
-  const level = Math.round(
+  const rounded = Math.round(
     Math.max(0, Math.min(ceiling, Math.min(ceiling, base) + sign * WIDGET_VOLUME_STEP[route])),
   );
+  // A half-step ceiling (MVMAX 805 = 80.5) never rounds up past itself.
+  const level = rounded > ceiling ? Math.floor(ceiling) : rounded;
   wantedVolumes.set(externalId, { level, route, at: now });
   try {
     sendVolumeSpaced(externalId, () =>

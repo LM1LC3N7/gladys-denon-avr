@@ -48,14 +48,15 @@
 // against your own receiver.
 // -----------------------------------------------------------------------------
 
-// Denon's raw master-volume scale: roughly 0-98, where each unit is 1 dB and
-// 80 is the "reference" 0 dB mark (so the usable range is about -80 dB to
-// +18 dB). Gladys wants a plain 0-100 percent, so we map linearly onto the
-// raw scale. This is a reasonable generic default; the exact ceiling can
-// differ per model/setup (Denon lets you cap "Maximum Volume"), so treat this
-// as a starting point to calibrate against the real receiver, not a promise
-// of pixel-perfect dB accuracy.
-const DENON_VOLUME_MAX = 98;
+// Denon's raw master-volume scale: 0-98 in 0.5 steps, where each unit is
+// 1 dB and 80 is the "reference" 0 dB mark (so about -80 dB to +18 dB).
+// The receivers' own display shows this very number when its Volume
+// Display is "absolute" (Marantz PM7000N, forum topic 10722, post 39: the
+// widget read one more than the receiver from 25 up, because 1.2.0 and
+// earlier stretched 0-98 onto 0-100). So the Gladys "percent" IS the raw
+// value: 25 % = MV25 = "25" on the receiver, 0 = MV00, 98 = MV98; 99 and
+// 100 are sent as MV98. A relative display reads the same value minus 80 dB.
+export const DENON_VOLUME_MAX = 98;
 
 // Zones a multi-zone receiver exposes over the same Telnet session. Every
 // zone-aware builder/parser below defaults to ZONE.MAIN, and so does the
@@ -170,21 +171,21 @@ export const SOUND_MODE_CODES = [
 ];
 
 /**
- * Convert a Gladys volume percent (0-100) to a Denon raw volume integer
- * (0-DENON_VOLUME_MAX).
+ * Convert a Gladys volume percent (0-100) to the Denon raw volume integer
+ * the MV/Z2/Z3 commands take: the same number, clamped to 0-98 and rounded
+ * (see DENON_VOLUME_MAX).
  */
 export function percentToDenonVolume(percent) {
-  const clamped = Math.max(0, Math.min(100, Number(percent)));
-  return Math.round((clamped / 100) * DENON_VOLUME_MAX);
+  return Math.round(Math.max(0, Math.min(DENON_VOLUME_MAX, Number(percent))));
 }
 
 /**
  * Convert a Denon raw volume value (integer, or integer + 0.5 for the
- * half-step 3-digit form, e.g. 80.5) to a Gladys volume percent (0-100).
+ * half-step 3-digit form, e.g. 80.5) to the Gladys volume percent: the same
+ * number, clamped to 0-98, half steps kept — what the receiver displays.
  */
 export function denonVolumeToPercent(rawVolume) {
-  const clamped = Math.max(0, Math.min(DENON_VOLUME_MAX, Number(rawVolume)));
-  return Math.round((clamped / DENON_VOLUME_MAX) * 100);
+  return Math.max(0, Math.min(DENON_VOLUME_MAX, Number(rawVolume)));
 }
 
 /**
