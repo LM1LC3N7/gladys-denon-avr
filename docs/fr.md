@@ -347,6 +347,23 @@ coupure arrive sans jingle, la règle des fenêtres prend le relais. Il faut
 compter quelques heures d'écoute (3 longues coupures), ou allumer 3 fois **Radio ad break** juste
 après le jingle. Un jingle qui se met à donner de fausses alertes est oublié et réappris.
 
+**Un jingle qui ne passe plus.** Chaque coupure vue grâce aux titres sert aussi à vérifier le jingle
+actif. Le jingle de début doit passer entre la fin du titre et 90 s après, celui de fin dans la
+minute avant le titre suivant (10 s de marge de chaque côté, pour le décalage entre l'ampli et le
+flux décodé). Sinon, c'est un **manqué**. Une coupure dont le son n'a pas été entendu en entier
+(écoute commencée en cours de route, flux coupé) ne compte pas. L'intégration garde le résultat des
+10 dernières coupures, et le journal note chaque manqué avec la meilleure ressemblance vue.
+
+- **Attente de secours.** Avec un jingle de début fiable, une coupure sans jingle est prise 90 s
+  après la fin du titre, au lieu de 45 s : on laisse au jingle le temps de passer. Fiable veut dire
+  reconnu dans au moins 80 % des coupures, sur 5 coupures au moins. Sinon, l'attente reste celle
+  apprise pour l'animateur (45 s, ou celle de l'heure), comme sans jingle. Un jingle qui vient
+  d'être activé n'est donc pas encore fiable. Ses détections baissent quand même le volume.
+- **Retour en observation.** Un jingle actif manqué dans plus de la moitié de ses 6 dernières
+  coupures repasse en observation. Il garde son son, mais ses détections ne baissent plus le volume,
+  et il doit à nouveau être confirmé 2 fois. Si les coupures suivantes partagent un autre son,
+  celui-ci le remplace.
+
 **D'où viennent les titres :**
 
 - **Métadonnées HEOS** : pour toute station qui en fournit (ex. Radio Paradise via TuneIn). La durée
@@ -398,7 +415,9 @@ Coupures pub des radios**. Il montre la station en cours (sinon la dernière éc
 
 - si une pub est en cours, ou l'heure de la prochaine fenêtre de pub (`Prochaine pub 14:34–14:47`) ;
 - les pubs entendues sur les 14 derniers jours, leur durée type, celles du jour ;
-- chaque jingle : _actif_ (avec ses détections confirmées), _en observation_, ou pas encore appris ;
+- chaque jingle : _actif_ (avec le nombre de coupures récentes où il a été reconnu, par exemple
+  « reconnu dans 3 des 10 dernières coupures »), _en observation_, ou pas encore appris. Le détail
+  dit si l'attente de 90 s sert ou non, et quand un jingle est repassé en observation ;
 - d'où viennent les changements de titre, combien de temps l'animateur parle en général avant la
   pub, le volume baissé en ce moment ;
 - une carte par type de jour (semaine, samedi, dimanche) : les heures avec pub et leurs fenêtres

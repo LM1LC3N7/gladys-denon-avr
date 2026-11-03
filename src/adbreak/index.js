@@ -310,7 +310,7 @@ export function createAdBreakController({
       preBreakTalkSeconds: preBreakTalkSeconds(stats),
       preBreakTalkByHour: preBreakTalkByHour(stats),
       typicalBreakSeconds: typicalBreakSeconds(stats),
-      hasStartJingle: jingles?.hasActive('start') ?? false,
+      hasReliableStartJingle: jingles?.hasReliable('start') ?? false,
     };
   }
 

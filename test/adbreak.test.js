@@ -238,6 +238,34 @@ test('a song ending inside an ad window starts a break after the usual host talk
   ]);
 });
 
+test('only a reliable start jingle makes the window rule wait 90 s for it', () => {
+  // Active but unreliable (often missed, or too new): the learned talk, as
+  // without a jingle. The old flag (hasStartJingle) no longer changes it.
+  for (const overrides of [{ hasReliableStartJingle: false }, { hasStartJingle: true }]) {
+    const h = harness(overrides);
+    h.setTime(at(12, 40));
+    h.detector.onTrack({ startedAt: at(12, 40), durationSeconds: 192 }); // ends 12:43:12
+    h.runUntil(at(12, 43, 57)); // + 45 s
+    assert.deepEqual(h.events, [['start', 'song_ended_in_window']], JSON.stringify(overrides));
+  }
+  // Reliable: the jingle should start the break; the window rule waits 90 s.
+  const h = harness({ hasReliableStartJingle: true });
+  h.setTime(at(12, 40));
+  h.detector.onTrack({ startedAt: at(12, 40), durationSeconds: 192 });
+  h.runUntil(at(12, 44, 41));
+  assert.deepEqual(h.events, []);
+  h.runUntil(at(12, 44, 42)); // 12:43:12 + 90 s
+  assert.deepEqual(h.events, [['start', 'song_ended_in_window']]);
+  // A learned talk longer than 90 s still wins.
+  const long = harness({ hasReliableStartJingle: true, preBreakTalkSeconds: 120 });
+  long.setTime(at(12, 40));
+  long.detector.onTrack({ startedAt: at(12, 40), durationSeconds: 192 });
+  long.runUntil(at(12, 45, 11));
+  assert.deepEqual(long.events, []);
+  long.runUntil(at(12, 45, 12));
+  assert.deepEqual(long.events, [['start', 'song_ended_in_window']]);
+});
+
 test('outside an ad window only a long silence counts as a break (host talk is spared)', () => {
   const h = harness();
   h.setTime(at(12, 28));

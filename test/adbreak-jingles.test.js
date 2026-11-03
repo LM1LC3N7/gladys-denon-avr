@@ -282,3 +282,250 @@ test('learning stops with the listener: a break after stop() is not sampled', as
   assert.equal(searches, 0);
   await fs.rm(storeDir, { recursive: true, force: true });
 });
+
+// -----------------------------------------------------------------------------
+// Recall of an active jingle: missed breaks, reliability, demotion (1.2.3).
+// -----------------------------------------------------------------------------
+
+const END_JINGLE = jingleAudio(555, 3000, 600);
+const NEW_JINGLE = jingleAudio(321, 900, 2500);
+
+/** A learned template of `jingle`, as findSharedJingle() makes it. */
+function templateOf(jingle) {
+  const samples = [21, 22, 23].map((seed) => {
+    const audio = radioAudio(30, seed);
+    audio.set(jingle, 12 * SAMPLE_RATE);
+    return { frames: bandFrames(audio), anchor: Math.round(10 / FRAME_SECONDS) };
+  });
+  const { frames } = findSharedJingle(samples);
+  return { ...encodeFrames(frames), frames: frames.length };
+}
+
+const START_TEMPLATE = templateOf(AD_JINGLE);
+const END_TEMPLATE = templateOf(END_JINGLE);
+
+/**
+ * A state file as saved by 1.2.2 (no record of missed breaks): both
+ * jingles active, confirmed on their hits.
+ */
+async function writeOldState(storeDir, stationKey, records = {}) {
+  const jingle = (template, offsetSeconds, record) => ({
+    template,
+    offsetSeconds,
+    support: 3,
+    score: 0.8,
+    hits: 6,
+    confirmed: 6,
+    active: true,
+    learnedAt: Date.now() - 86_400_000,
+    ...(record ? { record } : {}),
+  });
+  await fs.mkdir(storeDir, { recursive: true });
+  await fs.writeFile(
+    stationFile(storeDir, stationKey),
+    JSON.stringify({
+      version: 2,
+      samples: { start: [], end: [] },
+      jingles: {
+        start: jingle(START_TEMPLATE, 12, records.start),
+        end: jingle(END_TEMPLATE, -8, records.end),
+      },
+    }),
+  );
+}
+
+/**
+ * One break heard in full: the song ends 20 s into 220 s of radio, the next
+ * one starts at 200 s (the end jingle out of the start-side sample). `start` (12 s after the song end) and `end` (8 s
+ * before the next song): the jingle sounds aired, if any.
+ */
+async function playBreak(
+  t,
+  child,
+  listener,
+  seed,
+  { start = null, end = null, startAt = 32 } = {},
+) {
+  const audio = radioAudio(220, seed);
+  if (start) {
+    audio.set(start, startAt * SAMPLE_RATE);
+  }
+  if (end) {
+    audio.set(end, 192 * SAMPLE_RATE);
+  }
+  playAudio(t, child, audio);
+  const begin = Date.now() - 220_000;
+  await listener.learnFromBreak({ songEndedAt: begin + 20_000, nextSongAt: begin + 200_000 });
+}
+
+async function recallSetUp(t, stationKey, findJingle = findInThread, records = {}) {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+  const storeDir = await tempDir();
+  t.after(() => fs.rm(storeDir, { recursive: true, force: true }));
+  await writeOldState(storeDir, stationKey, records);
+  const { spawnImpl, children } = fakeSpawn();
+  const counts = { changes: 0 };
+  const listener = createJingleListener({
+    stationKey,
+    streamUrl: 'http://radio.example/stream',
+    onHit: () => {},
+    onChange: () => {
+      counts.changes += 1;
+    },
+    spawnImpl,
+    findJingle,
+    storeDir,
+  });
+  t.after(async () => {
+    listener.stop();
+    await listener.settled();
+  });
+  await listener.ready;
+  const saved = async () =>
+    JSON.parse(await fs.readFile(stationFile(storeDir, stationKey), 'utf8'));
+  return { listener, child: children[0], counts, saved };
+}
+
+test('an active start jingle never heard: learned talk, demoted, then replaced', async (t) => {
+  // New sounds are searched for once the jingle is demoted (a quicker test).
+  let searching = false;
+  const { listener, child, counts, saved } = await recallSetUp(t, 'tunein:s1', (samples) =>
+    searching ? findInThread(samples) : null,
+  );
+  // A 1.2.2 file loads: active, with an empty record, hence not reliable.
+  assert.equal(listener.hasActive('start'), true);
+  assert.deepEqual(listener.state().jingles.start.record, []);
+  assert.equal(listener.hasReliable('start'), false, 'too new to tell: the learned talk');
+
+  // Three breaks without the start jingle (the end one airs): misses.
+  for (const seed of [31, 32, 33]) {
+    await playBreak(t, child, listener, seed, { end: END_JINGLE });
+  }
+  assert.deepEqual(listener.state().jingles.start.record, [false, false, false]);
+  assert.equal(listener.hasActive('start'), true, 'not demoted yet: 3 of 6 is not more than half');
+  assert.deepEqual(listener.state().jingles.end.record, [true, true, true]);
+  assert.deepEqual((await saved()).jingles.start.record, [false, false, false], 'persisted');
+  assert.equal(counts.changes, 0);
+
+  // A fourth miss: more than half of the last 6 recorded breaks.
+  await playBreak(t, child, listener, 34, { end: END_JINGLE });
+  const demoted = listener.state().jingles.start;
+  assert.equal(demoted.active, false, 'back to observation');
+  assert.deepEqual([demoted.hits, demoted.confirmed, demoted.record], [0, 0, []]);
+  assert.equal(demoted.template.data, START_TEMPLATE.data, 'it keeps its template');
+  assert.equal(typeof demoted.demotedAt, 'number');
+  assert.equal(counts.changes, 1, 'the detector is refreshed');
+  assert.equal((await saved()).jingles.start.active, false);
+
+  searching = true;
+  // The end jingle, heard in 4 breaks, stays active (not reliable before 5).
+  assert.equal(listener.hasReliable('end'), false);
+  // Observed, the old start jingle is no longer judged on breaks; a new
+  // sound shared by the next breaks replaces it.
+  for (const seed of [35, 36, 37, 38]) {
+    await playBreak(t, child, listener, seed, { start: NEW_JINGLE, end: END_JINGLE });
+  }
+  await listener.settled();
+  const replaced = listener.state().jingles.start;
+  assert.notEqual(replaced.template.data, START_TEMPLATE.data, 'a different sound now');
+  assert.equal(replaced.active, false, 'observed first');
+  assert.ok(Math.abs(replaced.offsetSeconds - 12) <= 1, `offset ${replaced.offsetSeconds}`);
+  assert.deepEqual(replaced.record, []);
+  assert.equal(listener.hasReliable('end'), true, 'the end jingle, heard 8 times of 8');
+  assert.equal(counts.changes, 2, 'the end jingle became reliable');
+});
+
+test('a reliable start jingle keeps the 90 s wait, until it misses too often', async (t) => {
+  // No new sound searched for here (a quicker test).
+  const { listener, child, counts } = await recallSetUp(t, 'tunein:s2', async () => null);
+  for (const [i, seed] of [41, 42, 43, 44].entries()) {
+    await playBreak(t, child, listener, seed, { start: AD_JINGLE });
+    assert.equal(listener.hasReliable('start'), false, `${i + 1} breaks: too few`);
+  }
+  // The end jingle missed every time: demoted after its fourth miss.
+  assert.equal(listener.hasActive('end'), false);
+  assert.equal(counts.changes, 1);
+  await playBreak(t, child, listener, 45, { start: AD_JINGLE });
+  assert.equal(listener.hasReliable('start'), true, 'heard in 5 of 5');
+  assert.equal(counts.changes, 2);
+  // One miss: 5 of 6 is still over 80 %.
+  await playBreak(t, child, listener, 46);
+  assert.equal(listener.hasReliable('start'), true);
+  // Two: 5 of 7 is not.
+  await playBreak(t, child, listener, 47);
+  assert.equal(listener.hasReliable('start'), false);
+  assert.equal(listener.hasActive('start'), true, 'still active: its hits still start breaks');
+  assert.equal(counts.changes, 3);
+  // Only the last RECORD_BREAKS are kept.
+  for (const seed of [48, 49, 50, 51]) {
+    await playBreak(t, child, listener, seed, { start: AD_JINGLE });
+  }
+  assert.deepEqual(listener.state().jingles.start.record, [
+    true,
+    true,
+    true,
+    true,
+    false,
+    false,
+    true,
+    true,
+    true,
+    true,
+  ]);
+  assert.equal(listener.hasReliable('start'), true, '8 of 10');
+});
+
+test('a break not fully heard (stream gap, listener started late) is not a miss', async (t) => {
+  const { listener, child } = await recallSetUp(t, 'tunein:s3');
+  // The stream stalls 30 s in the middle of the start range.
+  playAudio(t, child, radioAudio(60, 61));
+  t.mock.timers.tick(30_000);
+  playAudio(t, child, radioAudio(200, 62));
+  const end = Date.now();
+  await listener.learnFromBreak({ songEndedAt: end - 270_000, nextSongAt: end - 30_000 });
+  // The song ended before the listener started.
+  await listener.learnFromBreak({ songEndedAt: end - 900_000, nextSongAt: end - 300_000 });
+  assert.deepEqual(listener.state().jingles.start.record, []);
+  // The end range (heard in full, no end jingle in it) is a miss.
+  assert.deepEqual(listener.state().jingles.end.record, [false]);
+  // A near miss is still a miss: the jingle buried under loud talk (~0.4).
+  const talk = radioAudio(2, 78);
+  const buried = Int16Array.from(AD_JINGLE, (v, i) => v * 0.3 + talk[i]);
+  await playBreak(t, child, listener, 63, { start: buried, end: END_JINGLE });
+  assert.deepEqual(listener.state().jingles.start.record, [false]);
+  assert.deepEqual(listener.state().jingles.end.record, [false, true]);
+});
+
+test('a jingle aired a few seconds off (receiver lag) is heard, not missed', async (t) => {
+  const { listener, child } = await recallSetUp(t, 'tunein:s4', async () => null);
+  // The decoded stream runs ahead of the receiver: the jingle 6 s before
+  // the song end as the receiver dates it.
+  await playBreak(t, child, listener, 71, { start: AD_JINGLE, startAt: 14, end: END_JINGLE });
+  assert.deepEqual(listener.state().jingles.start.record, [true]);
+  assert.deepEqual(listener.state().jingles.end.record, [true]);
+  // Deep in the break (105 s after the song end): not a start jingle.
+  await playBreak(t, child, listener, 72, { start: AD_JINGLE, startAt: 125, end: END_JINGLE });
+  assert.deepEqual(listener.state().jingles.start.record, [true, false]);
+});
+
+test('a saved record is read back, and misses count over the last 6 breaks only', async (t) => {
+  const T = true;
+  const F = false;
+  const { listener, child, counts, saved } = await recallSetUp(
+    t,
+    'tunein:s5',
+    async () => null,
+    // 11 saved (an older bug, a hand edit): the last 10 kept.
+    { start: [T, T, F, F, F, T, T, T, T, T, T], end: [T, T, F, F, F, T] },
+  );
+  assert.deepEqual(listener.state().jingles.start.record, [T, F, F, F, T, T, T, T, T, T]);
+  assert.equal(listener.hasReliable('start'), false, '7 of 10');
+  assert.equal(listener.hasReliable('end'), false, '3 of 6');
+  await playBreak(t, child, listener, 81);
+  // Start: 1 miss in its last 6, still active; end: 4 of its last 6, demoted.
+  assert.deepEqual(listener.state().jingles.start.record, [F, F, F, T, T, T, T, T, T, F]);
+  assert.equal(listener.hasActive('start'), true);
+  assert.equal(listener.hasActive('end'), false);
+  assert.equal(counts.changes, 1);
+  assert.equal((await saved()).jingles.end.active, false);
+});

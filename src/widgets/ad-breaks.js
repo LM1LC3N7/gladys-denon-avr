@@ -120,10 +120,13 @@ function captionOf(insights, now) {
 function jingleItem(jingle, label) {
   return {
     label,
-    value: bilingual((l) => fit(jingleStateText(jingle, l), 40)),
+    value: bilingual((l) => fit(jingleStateText(jingle, l, { short: true }), 40)),
+    // Active but missed too often, or too new to tell: not relied upon.
     color:
       jingle.state === 'active'
-        ? WIDGET_COLORS.SUCCESS
+        ? jingle.reliable
+          ? WIDGET_COLORS.SUCCESS
+          : WIDGET_COLORS.INFO
         : jingle.state === 'observing'
           ? WIDGET_COLORS.WARNING
           : WIDGET_COLORS.NEUTRAL,

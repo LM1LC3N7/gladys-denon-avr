@@ -57,7 +57,11 @@ function fakeJingles() {
       ready: Promise.resolve(),
       tick() {},
       onSongStarted() {},
-      hasActive: () => false,
+      reliableAsked: [],
+      hasReliable: (side) => {
+        listener.reliableAsked.push(side);
+        return false;
+      },
       state: () => ({
         version: 2,
         samples: { start: [{}], end: [] },
@@ -249,7 +253,12 @@ test('learned jingles start and end the break; an announcement ends it first', a
   assert.deepEqual(receiver.sets, [30]);
   listener.opts.onHit({ side: 'end', active: true });
   assert.deepEqual(receiver.sets, [30, 50]);
+  // A jingle activated, demoted, or its reliability changed: the detector
+  // is told again whether to wait for the start jingle.
+  const asked = listener.reliableAsked.length;
+  assert.ok(asked > 0 && listener.reliableAsked.every((side) => side === 'start'));
   listener.opts.onChange();
+  await until(() => listener.reliableAsked.length > asked);
 
   listener.opts.onHit({ side: 'start', active: true });
   const tts = 'http://gladys.local/api/v1/tts.mp3';

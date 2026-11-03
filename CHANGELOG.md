@@ -10,6 +10,25 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+### Fixed
+
+- Radio ad breaks (OUI FM, reported by Louis): with a learned start jingle,
+  every break the jingle was not heard in was taken about 90 s after the song
+  end instead of after the learned host talk (45 s by default). Only hits were
+  judged, so a jingle that no longer matched stayed active forever and blocked
+  relearning. Now each break measured from the song titles, when its sound was
+  heard in full, records whether each active jingle was heard (the last 10
+  kept in `/data/ad-jingles`, missed ones logged with the best score seen):
+  - the 90 s fallback wait only applies to a reliable start jingle, heard in
+    at least 80 % of at least 5 recorded breaks; otherwise the learned host
+    talk is used, as with no jingle. A jingle saved by an earlier version has
+    no record yet, so it gets the learned talk right after the update;
+  - an active jingle missed in more than half of its last 6 recorded breaks
+    goes back to observation (template kept, hits and confirmations reset),
+    and a different shared sound may then replace it;
+  - the Radio widget and the Ad-break report show the recall (« reconnu dans
+    3 des 10 dernières coupures ») and say when the 90 s wait is not used.
+
 ## [1.2.2] - 2026-11-03
 
 ### Changed

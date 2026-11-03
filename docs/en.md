@@ -317,6 +317,22 @@ caught by the windows rule. Expect a few hours of listening (3 long breaks), or 
 times switching **Radio ad break** on right after the jingle. A jingle that starts giving false alarms is
 forgotten and learned again.
 
+**A jingle that no longer airs.** Each break found from the song titles also checks the active
+jingle. The start jingle must air between the song end and 90 s after it, the end jingle within
+the minute before the next song (10 s of margin on each side, for the delay between the receiver
+and the decoded stream). Otherwise it is a **miss**. A break whose sound was not heard in full
+(listening started midway, stream cut) does not count. The integration keeps the result of the
+last 10 breaks, and the log notes each miss with the best similarity seen.
+
+- **Fallback wait.** With a reliable start jingle, a break without the jingle is taken 90 s after
+  the song end instead of 45 s: the jingle is given time to air. Reliable means heard in at least
+  80 % of the breaks, over at least 5 breaks. Otherwise the wait is the host talk learned (45 s, or
+  the one of that hour), as with no jingle. A newly activated jingle is therefore not reliable yet.
+  Its detections still lower the volume.
+- **Back to observation.** An active jingle missed in more than half of its last 6 breaks goes
+  back to observation. It keeps its sound, but its detections no longer lower the volume, and it
+  must be confirmed twice again. If the next breaks share another sound, that one replaces it.
+
 **Where song changes come from:**
 
 - **HEOS metadata**: for any station that provides it (e.g. Radio Paradise through TuneIn). Song
@@ -368,7 +384,9 @@ It shows the station playing (else the last one played):
 
 - whether a break is on right now, or when the next ad window is (`Next ad window 14:34–14:47`);
 - the breaks heard over the last 14 days, their typical length, today's breaks;
-- each jingle: _active_ (with its confirmed detections), _observing_, or not learned yet;
+- each jingle: _active_ (with the number of recent breaks it was heard in, for example "heard in
+  3 of the last 10 breaks"), _observing_, or not learned yet. The detail says whether the 90 s wait
+  is used, and when a jingle went back to observation;
 - where the song changes come from, how long the host usually talks before the ads, the volume
   lowered right now;
 - one card per day type (weekdays, Saturday, Sunday): the hours with ads and their minute

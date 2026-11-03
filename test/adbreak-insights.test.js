@@ -134,7 +134,12 @@ test('describeStation: windows and hours by day type, counts, jingles', () => {
   assert.equal(station.recentBreaks[0].source, 'auto');
   assert.match(recentBreaksText(station, 'en'), /^Wed 7 Oct, 14:11 · 5 min · heard\n/);
   assert.deepEqual(station.jingles.end, { state: 'none', samples: 1 });
-  assert.equal(jingleStateText(station.jingles.start, 'en'), 'Active · 5/6 confirmed');
+  // Saved before 1.2.3: no record of heard/missed breaks yet, not reliable.
+  assert.equal(jingleStateText(station.jingles.start, 'en'), 'Active · no break checked yet');
+  assert.deepEqual(
+    [station.jingles.start.heard, station.jingles.start.recorded, station.jingles.start.reliable],
+    [0, 0, false],
+  );
   assert.equal(jingleStateText(station.jingles.end, 'fr'), 'Pas encore appris (1/3 échantillons)');
   assert.match(
     jingleDetailText(station.jingles.start, 'start', 'en'),
@@ -181,7 +186,10 @@ test('reportText: one paragraph per station, or what to do first', () => {
     en,
     /^OUI FM — \d+ breaks in 14 days, typically 6 min 12 s\n {2}Weekdays: 6h–21h · /,
   );
-  assert.match(en, /Start jingle: Active · 5\/6 confirmed\n {2}End jingle: Not learned yet/);
+  assert.match(
+    en,
+    /Start jingle: Active · no break checked yet \(not reliable yet: no 1 min 30 s wait\)\n {2}End jingle: Not learned yet/,
+  );
   assert.match(reportText([station], 'fr'), /\n {2}Samedi : 6h–21h · /);
   const one = describeStation({
     key: 'url:y',
@@ -291,4 +299,104 @@ test('a widget caption while the station is not playing, inside an ad window', (
   );
   assert.match(content.components[1].text.en, /^Not playing · In an ad window until 14:\d\d$/);
   assert.match(content.components[1].text.fr, /^Pas en écoute · Fenêtre de pub jusqu’à 14:\d\d$/);
+});
+
+test('an active jingle shows its recall; the 90 s wait only for a reliable start jingle', () => {
+  const withRecord = (record, extra = {}) =>
+    describeStation({
+      key: 'k',
+      stats: learnedStats(),
+      jingles: {
+        ...JINGLES,
+        jingles: {
+          start: { ...JINGLES.jingles.start, record, ...extra },
+          end: { ...JINGLES.jingles.start, offsetSeconds: -5, record },
+        },
+      },
+      now: NOW,
+    });
+  // Louis's OUI FM: active, but heard in 3 of the last 10 breaks.
+  const missed = withRecord([true, false, false, true, false, false, false, true, false, false]);
+  const start = missed.jingles.start;
+  assert.deepEqual([start.heard, start.recorded, start.reliable], [3, 10, false]);
+  assert.equal(jingleStateText(start, 'fr'), 'Actif · reconnu dans 3 des 10 dernières coupures');
+  assert.equal(jingleStateText(start, 'en'), 'Active · heard in 3 of the last 10 breaks');
+  assert.equal(jingleStateText(start, 'fr', { short: true }), 'Actif · reconnu 3 fois sur 10');
+  assert.equal(jingleStateText(start, 'en', { short: true }), 'Active · heard 3 of 10');
+  const detailFr = jingleDetailText(start, 'start', 'fr');
+  assert.match(detailFr, /Détections confirmées : 5 sur 6/, 'the confirmed count stays');
+  assert.match(detailFr, /Coupures suivies : reconnu dans 3 des 10 dernières coupures/);
+  assert.match(
+    detailFr,
+    /Pas encore fiable \(il faut 80 % sur 5 coupures au moins\) : sans jingle, l’attente de 1 min 30 s n’est pas utilisée/,
+  );
+  assert.match(jingleDetailText(start, 'start', 'en'), /Not reliable yet \(needs 80 % over/);
+  assert.doesNotMatch(
+    jingleDetailText(missed.jingles.end, 'end', 'en'),
+    /reliable/i,
+    'the wait is about the start jingle only',
+  );
+  assert.match(
+    reportText([missed], 'fr'),
+    /Jingle de début : Actif · reconnu dans 3 des 10 dernières coupures \(pas encore fiable : attente de 1 min 30 s non utilisée\)\n {2}Jingle de fin : Actif · reconnu dans 3 des 10 dernières coupures$/,
+  );
+
+  const reliable = withRecord([true, true, false, true, true]).jingles.start;
+  assert.equal(reliable.reliable, true);
+  assert.match(
+    jingleDetailText(reliable, 'start', 'fr'),
+    /Fiable \(80 % sur 5 coupures au moins\) : sans jingle, la coupure est prise 1 min 30 s après la fin du titre\./,
+  );
+  assert.match(jingleDetailText(reliable, 'start', 'en'), /Reliable \(80 % over at least 5/);
+  assert.equal(
+    reportText([withRecord([true, true, false, true, true])], 'en').match(/not reliable/),
+    null,
+  );
+  // One break recorded: said in words.
+  assert.equal(
+    jingleStateText(withRecord([false]).jingles.start, 'fr'),
+    'Actif · manqué dans la dernière coupure',
+  );
+  assert.equal(
+    jingleStateText(withRecord([true]).jingles.start, 'en'),
+    'Active · heard in the last break',
+  );
+  assert.equal(
+    jingleStateText(withRecord([true]).jingles.start, 'fr', { short: true }),
+    'Actif · reconnu dans la dernière coupure',
+  );
+  assert.equal(
+    jingleStateText(withRecord([false]).jingles.start, 'en'),
+    'Active · missed in the last break',
+  );
+  assert.equal(
+    jingleStateText(withRecord([]).jingles.start, 'fr'),
+    'Actif · aucune coupure suivie encore',
+  );
+
+  // Demoted: back to observation, and said so in the detail.
+  const demoted = withRecord([], { active: false, hits: 0, confirmed: 0, demotedAt: at(6, 9) });
+  assert.equal(jingleStateText(demoted.jingles.start, 'fr'), 'En observation · 0/0');
+  assert.match(
+    jingleDetailText(demoted.jingles.start, 'start', 'fr'),
+    /Repassé en observation le .+ : manqué dans trop de coupures/,
+  );
+  assert.match(
+    jingleDetailText(demoted.jingles.start, 'start', 'en'),
+    /Back to observation .+: missed in too many breaks/,
+  );
+
+  // The widget: short recall in the status (blue while not reliable), the
+  // long one in the card.
+  const widget = (station) => adBreaksContent(VIEW, live({ station }), NOW);
+  const content = widget(missed);
+  assert.deepEqual(validateWidgetContent(content), []);
+  const [startItem] = content.components.find((c) => c.type === 'status').items;
+  assert.equal(startItem.value.fr, 'Actif · reconnu 3 fois sur 10');
+  assert.equal(startItem.color, 'info');
+  const card = content.components.find((c) => c.type === 'card-list').items[4];
+  assert.equal(card.subtitle.fr, 'Actif · reconnu dans 3 des 10 dernières coupures');
+  assert.match(card.description.fr, /l’attente de 1 min 30 s n’est pas utilisée/);
+  const good = widget(withRecord([true, true, true, true, true]));
+  assert.equal(good.components.find((c) => c.type === 'status').items[0].color, 'success');
 });

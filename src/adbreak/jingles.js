@@ -20,7 +20,11 @@
 //      live hit is checked against what the metadata does next (a break
 //      that follows a start-jingle hit, a song that follows an end-jingle
 //      hit). It becomes active after CONFIRMATIONS_TO_ACTIVATE confirmed hits
-//      with a good precision, and is dropped if its precision degrades.
+//      with a good precision, and is dropped if its precision degrades;
+//   4. an active jingle is also judged on the breaks it misses: each break
+//      measured from the metadata records whether it was heard (its recall).
+//      Missed too often, it goes back to observation, and a different sound
+//      found in the samples may then replace it (see recordBreak()).
 // -----------------------------------------------------------------------------
 
 import { spawn } from 'node:child_process';
@@ -76,6 +80,49 @@ const HIT_COOLDOWN_MS = 90_000;
 
 export const CONFIRMATIONS_TO_ACTIVATE = 2;
 const MIN_PRECISION = 0.8;
+
+// Recall of an active jingle: each break measured from the metadata (and
+// fully heard) is recorded as heard or missed, the last RECORD_BREAKS kept.
+// A start jingle is "reliable" with at least RELIABLE_RECALL over at least
+// RELIABLE_MIN_BREAKS recorded breaks: only then does the detector wait
+// longer for it (JINGLE_FALLBACK_GRACE_SECONDS, detector.js). An active
+// jingle missed in more than DEMOTE_MAX_MISSES of its last DEMOTE_BREAKS
+// recorded breaks goes back to observation, so that relearn() may replace it.
+export const RECORD_BREAKS = 10;
+export const RELIABLE_MIN_BREAKS = 5;
+export const RELIABLE_RECALL = 0.8;
+export const DEMOTE_BREAKS = 6;
+export const DEMOTE_MAX_MISSES = 3;
+// Hits are dated in the decoded stream, songs in what the receiver plays
+// (lagged, durations from Deezer): a jingle counts as heard this much
+// before or after its range (the same slack as the learning samples).
+const MISS_SLACK_SECONDS = 10;
+// A hole longer than this in the decoded frames (stream stalled): that
+// break was not fully heard, it is not recorded.
+const MAX_FRAME_GAP_MS = 5000;
+
+/** Recorded breaks of a jingle: `{heard, recorded}` over its last RECORD_BREAKS. */
+export function jingleRecall(jingle) {
+  const record = Array.isArray(jingle?.record) ? jingle.record : [];
+  return { heard: record.filter(Boolean).length, recorded: record.length };
+}
+
+/**
+ * An active jingle heard in at least RELIABLE_RECALL of its recorded breaks,
+ * over at least RELIABLE_MIN_BREAKS. A newly active one is not reliable yet.
+ */
+export function isReliable(jingle) {
+  if (!jingle?.active) {
+    return false;
+  }
+  const { heard, recorded } = jingleRecall(jingle);
+  return recorded >= RELIABLE_MIN_BREAKS && heard >= RELIABLE_RECALL * recorded;
+}
+
+/** Breaks missed among the last DEMOTE_BREAKS recorded of a jingle. */
+function recentMisses(jingle) {
+  return jingle.record.slice(-DEMOTE_BREAKS).filter((heard) => !heard).length;
+}
 
 const STORE_DIR = process.env.AD_BREAK_JINGLES_DIR || '/data/ad-jingles';
 const STORE_VERSION = 2;
@@ -389,6 +436,13 @@ export function createJingleListener({
           if (!nearTransition(side, state.jingles[side]?.offsetSeconds)) {
             state.jingles[side] = null;
           }
+          // Saved before 1.2.3 (no record of heard/missed breaks): an empty one.
+          const jingle = state.jingles[side];
+          if (jingle) {
+            jingle.record = Array.isArray(jingle.record)
+              ? jingle.record.map(Boolean).slice(-RECORD_BREAKS)
+              : [];
+          }
         }
       }
     })
@@ -528,6 +582,89 @@ export function createJingleListener({
     return { frames: inWindow.map((h) => h.frame), anchor };
   }
 
+  /**
+   * Best score of the `side` template over the frames whose window starts
+   * between two wall times (what a live hit is dated with), or null when
+   * that range was not fully heard (listener started late, stream gap).
+   */
+  function bestScoreHeard(side, from, to) {
+    const template = templates[side];
+    const last = to + TEMPLATE_FRAMES * FRAME_SECONDS * 1000;
+    const covered = heard(from, last, from);
+    if (!template || !covered) {
+      return null;
+    }
+    const first = ring.findIndex((h) => h.at >= from);
+    let best = 0;
+    for (let i = first; i < ring.length && ring[i].at <= last; i++) {
+      if (i > first && ring[i].at - ring[i - 1].at > MAX_FRAME_GAP_MS) {
+        return null; // A hole in the decoded stream: not fully heard.
+      }
+      if (ring[i].at > to || i + TEMPLATE_FRAMES > ring.length) {
+        continue;
+      }
+      const window = normalizedWindow(
+        ring.slice(i, i + TEMPLATE_FRAMES).map((h) => h.frame),
+        0,
+        TEMPLATE_FRAMES,
+      );
+      best = Math.max(best, window ? dot(window, template) : 0);
+    }
+    return best;
+  }
+
+  /**
+   * A break measured from the metadata: was each active jingle heard in its
+   * range (start: song end to MAX_START_OFFSET after; end: MAX_END_OFFSET
+   * before the next song)? Recorded, then judged (reliability, demotion).
+   */
+  function recordBreak({ songEndedAt, nextSongAt }) {
+    const slack = MISS_SLACK_SECONDS * 1000;
+    const ranges = {
+      start: [
+        songEndedAt - slack,
+        Math.min(songEndedAt + MAX_START_OFFSET * 1000, nextSongAt) + slack,
+      ],
+      end: [Math.max(nextSongAt - MAX_END_OFFSET * 1000, songEndedAt) - slack, nextSongAt + slack],
+    };
+    for (const side of ['start', 'end']) {
+      const jingle = state.jingles[side];
+      if (!jingle?.active) {
+        continue;
+      }
+      const best = bestScoreHeard(side, ...ranges[side]);
+      if (best === null) {
+        continue; // Not fully heard: neither heard nor missed.
+      }
+      const wasReliable = isReliable(jingle);
+      const wasHeard = best >= MIN_HIT_SCORE;
+      jingle.record = [...jingle.record, wasHeard].slice(-RECORD_BREAKS);
+      const { heard: count, recorded } = jingleRecall(jingle);
+      if (!wasHeard) {
+        logger.info(
+          `${stationKey}: ${side} jingle missed in this break (best score ${best.toFixed(2)}, heard in ${count} of the last ${recorded} breaks)`,
+        );
+      }
+      const misses = recentMisses(jingle);
+      if (misses > DEMOTE_MAX_MISSES) {
+        logger.info(
+          `${stationKey}: ${side} jingle missed in ${misses} of its last ${Math.min(recorded, DEMOTE_BREAKS)} breaks: back to observation`,
+        );
+        state.jingles[side] = {
+          ...jingle,
+          active: false,
+          hits: 0,
+          confirmed: 0,
+          record: [],
+          demotedAt: Date.now(),
+        };
+        onChange?.();
+      } else if (isReliable(jingle) !== wasReliable) {
+        onChange?.();
+      }
+    }
+  }
+
   function addSample(side, sample) {
     state.samples[side] = [
       ...state.samples[side],
@@ -567,6 +704,7 @@ export function createJingleListener({
       hits: 0,
       confirmed: 0,
       active: false,
+      record: [],
       learnedAt: Date.now(),
     };
     state.jingles[side].template.frames = found.frames.length;
@@ -637,6 +775,8 @@ export function createJingleListener({
       if (stopped) {
         return;
       }
+      // Judged first: a jingle demoted here may be replaced by the samples.
+      recordBreak({ songEndedAt, nextSongAt });
       const startSide = heard(
         songEndedAt - SIDE_BEFORE * 1000,
         Math.min(songEndedAt + SIDE_AFTER * 1000, nextSongAt),
@@ -691,6 +831,15 @@ export function createJingleListener({
     /** Is the `side` ('start'/'end') jingle learned and confirmed? */
     hasActive(side) {
       return Boolean(state.jingles[side]?.active);
+    },
+
+    /**
+     * Is the `side` jingle active and heard in enough of its recent breaks
+     * (see isReliable())? Only a reliable start jingle makes the detector
+     * wait longer for it.
+     */
+    hasReliable(side) {
+      return isReliable(state.jingles[side]);
     },
 
     /** Resolves once the learned state is loaded from disk. */

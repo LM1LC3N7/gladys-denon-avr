@@ -296,7 +296,10 @@ TuneIn...) — see "Playback controls" below.
   (song gaps from HEOS metadata + Deezer durations, or the Les Indés Radios live feed and its
   playlist history for stations like OUI FM; per-station minute windows by day type and hour,
   `stats.js`), recognizes its ad jingle in the decoded stream (`jingles.js`: ffmpeg to band-energy
-  frames, the shared-sound search in a worker thread), publishes the **Radio ad break** switch
+  frames, the shared-sound search in a worker thread; each break measured from the titles records
+  whether the active jingles were heard, the last 10 kept: only a start jingle heard in ≥ 80 % of
+  ≥ 5 breaks makes the window rule wait 90 s instead of the learned host talk, and one missed in
+  more than 3 of its last 6 breaks goes back to observation, replaceable by `relearn()`), publishes the **Radio ad break** switch
   (`SWITCH.BINARY`, also a "it's an ad" control) and lowers the HEOS volume meanwhile
   (`ad_break_auto_duck`). Off by default (`ad_break_detection`): disabled, nothing is learned,
   looked up or decoded. The volume always comes back: a 10-minute cap, a restore on `stop()`

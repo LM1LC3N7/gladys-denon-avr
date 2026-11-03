@@ -17,6 +17,8 @@ import {
   typicalBreakSeconds,
   windowsAt,
 } from './stats.js';
+import { jingleRecall, isReliable, RELIABLE_MIN_BREAKS, RELIABLE_RECALL } from './jingles.js';
+import { JINGLE_FALLBACK_GRACE_SECONDS } from './detector.js';
 
 export const DAY_TYPES = ['week', 'sat', 'sun'];
 export const DAY_TYPE_LABELS = {
@@ -144,9 +146,14 @@ export function jingleSummary(jingle, samples = []) {
     offsetSeconds: jingle.offsetSeconds,
     confirmed: jingle.confirmed ?? 0,
     hits: jingle.hits ?? 0,
+    // Of its last recorded breaks (see recordBreak() in jingles.js), how
+    // many it was heard in; reliable: what the detector waits for.
+    ...jingleRecall(jingle),
+    reliable: isReliable(jingle),
     support: jingle.support,
     score: jingle.score,
     learnedAt: jingle.learnedAt ?? null,
+    demotedAt: jingle.demotedAt ?? null,
   };
 }
 
@@ -267,13 +274,37 @@ export function dayDetailText(day, language) {
   return lines.join('\n');
 }
 
-/** "Active · 5/6 confirmed", "Observing · 1/2", "Not learned (2/3 samples)". */
-export function jingleStateText(jingle, language) {
+/** "heard in 3 of the last 10 breaks" — the recall of an active jingle. */
+export function recallText(jingle, language) {
+  const fr = language === 'fr';
+  const { heard, recorded } = jingle;
+  if (!recorded) {
+    return fr ? 'aucune coupure suivie encore' : 'no break checked yet';
+  }
+  if (recorded === 1) {
+    if (fr) {
+      return heard ? 'reconnu dans la dernière coupure' : 'manqué dans la dernière coupure';
+    }
+    return heard ? 'heard in the last break' : 'missed in the last break';
+  }
+  return fr
+    ? `reconnu dans ${heard} des ${recorded} dernières coupures`
+    : `heard in ${heard} of the last ${recorded} breaks`;
+}
+
+/**
+ * "Active · heard in 3 of the last 10 breaks", "Observing · 1/2", "Not
+ * learned (2/3 samples)". `short`: for the 40-character status line.
+ */
+export function jingleStateText(jingle, language, { short = false } = {}) {
   const fr = language === 'fr';
   if (jingle.state === 'active') {
-    return fr
-      ? `Actif · ${jingle.confirmed}/${jingle.hits} confirmés`
-      : `Active · ${jingle.confirmed}/${jingle.hits} confirmed`;
+    if (short && jingle.recorded > 1) {
+      return fr
+        ? `Actif · reconnu ${jingle.heard} fois sur ${jingle.recorded}`
+        : `Active · heard ${jingle.heard} of ${jingle.recorded}`;
+    }
+    return `${fr ? 'Actif' : 'Active'} · ${recallText(jingle, language)}`;
   }
   if (jingle.state === 'observing') {
     return fr
@@ -310,12 +341,29 @@ export function jingleDetailText(jingle, side, language) {
       ? `Détections confirmées : ${jingle.confirmed} sur ${jingle.hits}`
       : `Confirmed detections: ${jingle.confirmed} of ${jingle.hits}`,
   ];
+  if (jingle.state === 'active') {
+    lines.push(
+      fr
+        ? `Coupures suivies : ${recallText(jingle, language)}`
+        : `Breaks checked: ${recallText(jingle, language)}`,
+    );
+  }
   if (jingle.learnedAt) {
     lines.push(
       fr
         ? `Appris le ${formatDateTime(jingle.learnedAt, language)}`
         : `Learned ${formatDateTime(jingle.learnedAt, language)}`,
     );
+  }
+  if (jingle.state === 'observing' && jingle.demotedAt) {
+    lines.push(
+      fr
+        ? `Repassé en observation le ${formatDateTime(jingle.demotedAt, language)} : manqué dans trop de coupures`
+        : `Back to observation ${formatDateTime(jingle.demotedAt, language)}: missed in too many breaks`,
+    );
+  }
+  if (side === 'start' && jingle.state === 'active') {
+    lines.push(fallbackText(jingle, language));
   }
   lines.push(
     jingle.state === 'active'
@@ -327,6 +375,27 @@ export function jingleDetailText(jingle, side, language) {
         : 'Observing: active after 2 detections followed by a real break.',
   );
   return lines.join('\n');
+}
+
+/**
+ * What the detector does when an active start jingle does not air: wait
+ * JINGLE_FALLBACK_GRACE_SECONDS for a reliable one, else the learned host
+ * talk, as without a jingle.
+ */
+export function fallbackText(jingle, language) {
+  const fr = language === 'fr';
+  const grace = formatDuration(JINGLE_FALLBACK_GRACE_SECONDS);
+  const rule = fr
+    ? `${Math.round(RELIABLE_RECALL * 100)} % sur ${RELIABLE_MIN_BREAKS} coupures au moins`
+    : `${Math.round(RELIABLE_RECALL * 100)} % over at least ${RELIABLE_MIN_BREAKS} breaks`;
+  if (jingle.reliable) {
+    return fr
+      ? `Fiable (${rule}) : sans jingle, la coupure est prise ${grace} après la fin du titre.`
+      : `Reliable (${rule}): without the jingle, the break is taken ${grace} after the song end.`;
+  }
+  return fr
+    ? `Pas encore fiable (il faut ${rule}) : sans jingle, l’attente de ${grace} n’est pas utilisée, c’est le temps de parole appris de l’animateur.`
+    : `Not reliable yet (needs ${rule}): without the jingle, the ${grace} wait is not used, the learned host talk is.`;
 }
 
 /** The "Ad-break report" text of every station learned, one paragraph each. */
@@ -356,8 +425,15 @@ export function reportText(stations, language) {
         );
       }
       for (const side of ['start', 'end']) {
+        const jingle = station.jingles[side];
+        const unreliable =
+          side === 'start' && jingle.state === 'active' && !jingle.reliable
+            ? fr
+              ? ` (pas encore fiable : attente de ${formatDuration(JINGLE_FALLBACK_GRACE_SECONDS)} non utilisée)`
+              : ` (not reliable yet: no ${formatDuration(JINGLE_FALLBACK_GRACE_SECONDS)} wait)`
+            : '';
         lines.push(
-          `  ${jingleLabels[side]}${colon}${jingleStateText(station.jingles[side], language)}`,
+          `  ${jingleLabels[side]}${colon}${jingleStateText(jingle, language)}${unreliable}`,
         );
       }
       return lines.join('\n');

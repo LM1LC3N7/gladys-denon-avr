@@ -143,7 +143,7 @@ export function createAdBreakDetector({
     /**
      * @param {null | {key: string, hasMetadata: boolean, windows: Array<[number, number]>,
      *   schedule?: {windows: object, hours: object|null},
-     *   preBreakTalkSeconds?: number, preBreakTalkByHour?: number[], hasStartJingle?: boolean,
+     *   preBreakTalkSeconds?: number, preBreakTalkByHour?: number[], hasReliableStartJingle?: boolean,
      *   typicalBreakSeconds?: number|null, joinable?: boolean}} next
      */
     setStation(next) {
@@ -236,9 +236,11 @@ export function createAdBreakDetector({
           station.preBreakTalkByHour?.[new Date(end).getHours()] ??
           station.preBreakTalkSeconds ??
           DEFAULT_PRE_BREAK_TALK_SECONDS;
-        // With a learned start jingle, the jingle starts the break: this is
-        // only the fallback for a missed jingle, so give the host more room.
-        const graceSeconds = station.hasStartJingle
+        // With a reliable start jingle (active, and heard in most recent
+        // breaks), the jingle starts the break: this is only the fallback
+        // for a missed jingle, so give the host more room. A jingle often
+        // missed, or too new to tell, gets no extra wait: the learned talk.
+        const graceSeconds = station.hasReliableStartJingle
           ? Math.max(learnedTalk, JINGLE_FALLBACK_GRACE_SECONDS)
           : learnedTalk;
         if (t >= end + graceSeconds * 1000) {
