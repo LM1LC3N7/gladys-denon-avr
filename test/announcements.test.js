@@ -278,3 +278,42 @@ test('one unit off the announcement volume is still ours, two is the user (r3 m7
   await tick();
   assert.deepEqual(telnet.sent, ['MV30']);
 });
+
+// Review denon-heos r5 m1: holds `entry.lastMid &&` in the queue guard. An
+// empty mid after the announcement's own (HEOS between two items, or nothing
+// named any more) is no other media: the queue is ours, cleared once.
+test('announcement named, then an empty mid, then stop: exactly one clear_queue (r5 m1)', async () => {
+  const { heos } = setup({ power: 1, source: 'NET', volume: 40, playback_state: 1 });
+  await playAnnouncement(ID, URL, normalizeConfig());
+  notifyStateChange(ID, NOW_PLAYING_MID_KEY, URL);
+  notifyStateChange(ID, NOW_PLAYING_MID_KEY, '');
+  assert.ok(isAnnouncing(ID), 'an empty mid does not end the announcement');
+  updateState(ID, { playback_state: 0 });
+  await tick();
+  assert.ok(!isAnnouncing(ID));
+  assert.equal(clearsAfterStream(heos), 1);
+});
+
+// Accepted limits, pinned so that a change of behaviour is a deliberate one
+// (real HEOS event order not checked on hardware, TODO.md "Still open").
+test('a queue HEOS names only after the announcement "stop" is cleared (r5 m2, accepted)', async () => {
+  const { heos } = setup({ power: 1, source: 'NET', volume: 40, playback_state: 1 });
+  await playAnnouncement(ID, URL, normalizeConfig());
+  notifyStateChange(ID, NOW_PLAYING_MID_KEY, URL);
+  updateState(ID, { playback_state: 0 });
+  notifyStateChange(ID, NOW_PLAYING_MID_KEY, 'queue-item-from-the-heos-app');
+  await tick();
+  assert.ok(!isAnnouncing(ID));
+  assert.equal(clearsAfterStream(heos), 1);
+});
+
+test('a queue named before HEOS ever named the announcement is cleared (r4 m1, accepted)', async () => {
+  const { heos } = setup({ power: 1, source: 'NET', volume: 40 });
+  await playAnnouncement(ID, URL, normalizeConfig());
+  notifyStateChange(ID, NOW_PLAYING_MID_KEY, 'queue-item-from-the-heos-app');
+  updateState(ID, { playback_state: 1 });
+  updateState(ID, { playback_state: 0 });
+  await tick();
+  assert.ok(!isAnnouncing(ID));
+  assert.equal(clearsAfterStream(heos), 1);
+});

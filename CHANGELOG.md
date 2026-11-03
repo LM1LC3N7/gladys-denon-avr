@@ -10,6 +10,15 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+### Changed
+
+- Gladys integration SDK 0.16 (`@gladysassistant/integration-sdk` `^0.16.0`).
+  No change in behaviour.
+- Announcements: the HEOS queue guard is now held by a test (an empty media id
+  after the announcement's own still clears the queue once), and the two
+  accepted limits of that guard (a queue named before the announcement, or
+  after its end) are pinned by tests.
+
 ## [1.2.1] - 2026-11-02
 
 ### Fixed

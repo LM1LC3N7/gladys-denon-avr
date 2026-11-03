@@ -68,22 +68,31 @@
   nudges). To ask upstream: not counting that re-pull, or a device-feature slider in widgets.
 - A receiver that never announces MVMAX: taps above its Max Volume are dead (r2 m4), documented.
 
-## Next patch (review denon-heos r3, 1e611b4)
+## Done in the next patch (after 1.2.1)
 
-- m4: the announcement `mid` is assumed to be its URL (not checked on hardware). If HEOS names
-  the URL, then changes `mid` for the same stream (internal id, ICY metadata), "replaced by other
-  playback" would end the announcement mid-message and give the old volume back while it speaks.
-  Ask the reporter for the `get_now_playing_media` lines during an announcement before changing
-  anything (a fix without that log would be a guess).
-- m1 (review r4, 0aafb10): narrow window left. A queue started from the HEOS app during an
+- Gladys integration SDK `^0.15.0` -> `^0.16.0` (no `poll_frequency`/`should_poll` in `src`, no
+  real-clock test to bring down to x20).
+- Review denon-heos r5 (7514017) m1: done. Test "announcement named, then an empty mid, then
+  stop: exactly one clear_queue" holds `entry.lastMid &&` in the queue guard (checked: it fails
+  with the condition removed).
+- Review denon-heos r5 m2 and r4 (0aafb10) m1: behaviour unchanged, now pinned by tests
+  ("... named only after the announcement stop is cleared", "... named before HEOS ever named
+  the announcement is cleared"), so any change is a deliberate one. Still open, see below.
+
+## Still open (left on purpose: need HEOS logs from real hardware)
+
+- Review denon-heos r3 (1e611b4) m4: the announcement `mid` is assumed to be its URL (not
+  checked on hardware). If HEOS names the URL, then changes `mid` for the same stream (internal
+  id, ICY metadata), "replaced by other playback" would end the announcement mid-message and give
+  the old volume back while it speaks. Left: needs the reporter's `get_now_playing_media` lines
+  during an announcement; a fix without that log would be a guess, and Tolkyen is testing the
+  1.2.1 announcement behaviour now.
+- Review r4 (0aafb10) m1: narrow window left. A queue started from the HEOS app during an
   announcement BEFORE HEOS named the announcement's own `mid` is still cleared at its end (the
   guard only keeps a queue when the announcement was seen, then replaced). Accepted: the other
-  way round would stop clearing whenever `mid` is not the URL.
-
-## Next patch (review denon-heos r5, 7514017)
-
-- m1: no test holds `entry.lastMid &&` in the queue guard (`src/devices/announcements.js`). Add:
-  announcement URL seen, then an empty `mid`, then "stop" → exactly one `clear_queue`.
-- m2: the guard keeps a queue started from the HEOS app only if HEOS names it BEFORE the
-  announcement's "stop" event; if "stop" comes first, the end is "over" and the new queue is
-  cleared. Same as r3, real HEOS event order not checked on hardware.
+  way round would stop clearing whenever `mid` is not the URL. Pinned by a test.
+- Review denon-heos r5 m2: the guard keeps a queue started from the HEOS app only if HEOS names
+  it BEFORE the announcement's "stop" event; if "stop" comes first, the end is "over" and the new
+  queue is cleared. Left: the real HEOS event order is not known (same log as r3 m4); waiting a
+  while for a late `mid` before clearing would change when the volume and input come back, which
+  the 1.2.1 test is checking. Pinned by a test.
