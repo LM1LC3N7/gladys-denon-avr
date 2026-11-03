@@ -302,7 +302,7 @@ export function jingleStateText(jingle, language, { short = false } = {}) {
     if (short && jingle.recorded > 1) {
       return fr
         ? `Actif · reconnu ${jingle.heard} fois sur ${jingle.recorded}`
-        : `Active · heard ${jingle.heard} of ${jingle.recorded}`;
+        : `Active · heard in ${jingle.heard} of ${jingle.recorded}`;
     }
     return `${fr ? 'Actif' : 'Active'} · ${recallText(jingle, language)}`;
   }

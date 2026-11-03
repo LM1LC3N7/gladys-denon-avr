@@ -318,7 +318,7 @@ async function writeOldState(storeDir, stationKey, records = {}) {
     confirmed: 6,
     active: true,
     learnedAt: Date.now() - 86_400_000,
-    ...(record ? { record } : {}),
+    ...(record === undefined ? {} : { record }),
   });
   await fs.mkdir(storeDir, { recursive: true });
   await fs.writeFile(
@@ -344,18 +344,22 @@ async function playBreak(
   child,
   listener,
   seed,
-  { start = null, end = null, startAt = 32 } = {},
+  { start = null, end = null, startAt = 32, endAt = 192, breakHandled = true } = {},
 ) {
   const audio = radioAudio(220, seed);
   if (start) {
     audio.set(start, startAt * SAMPLE_RATE);
   }
   if (end) {
-    audio.set(end, 192 * SAMPLE_RATE);
+    audio.set(end, endAt * SAMPLE_RATE);
   }
   playAudio(t, child, audio);
   const begin = Date.now() - 220_000;
-  await listener.learnFromBreak({ songEndedAt: begin + 20_000, nextSongAt: begin + 200_000 });
+  await listener.learnFromBreak({
+    songEndedAt: begin + 20_000,
+    nextSongAt: begin + 200_000,
+    breakHandled,
+  });
 }
 
 async function recallSetUp(t, stationKey, findJingle = findInThread, records = {}) {
@@ -482,9 +486,17 @@ test('a break not fully heard (stream gap, listener started late) is not a miss'
   t.mock.timers.tick(30_000);
   playAudio(t, child, radioAudio(200, 62));
   const end = Date.now();
-  await listener.learnFromBreak({ songEndedAt: end - 270_000, nextSongAt: end - 30_000 });
+  await listener.learnFromBreak({
+    songEndedAt: end - 270_000,
+    nextSongAt: end - 30_000,
+    breakHandled: true,
+  });
   // The song ended before the listener started.
-  await listener.learnFromBreak({ songEndedAt: end - 900_000, nextSongAt: end - 300_000 });
+  await listener.learnFromBreak({
+    songEndedAt: end - 900_000,
+    nextSongAt: end - 300_000,
+    breakHandled: true,
+  });
   assert.deepEqual(listener.state().jingles.start.record, []);
   // The end range (heard in full, no end jingle in it) is a miss.
   assert.deepEqual(listener.state().jingles.end.record, [false]);
@@ -529,3 +541,111 @@ test('a saved record is read back, and misses count over the last 6 breaks only'
   assert.equal(counts.changes, 1);
   assert.equal((await saved()).jingles.end.active, false);
 });
+
+test('a long gap the detector did not take for a break judges no jingle', async (t) => {
+  // Louis's case: both jingles air in every real break. Between the breaks,
+  // the host talks 200 s or more (a feature, an interview), outside the ad
+  // windows or in a window already used: no break was started there.
+  const { listener, child, counts } = await recallSetUp(t, 'tunein:s6', async () => null);
+  const real = { start: AD_JINGLE, end: END_JINGLE };
+  const talk = { breakHandled: false };
+  const order = [real, talk, real, talk, talk, real, talk, talk, talk, talk, real, real, talk];
+  for (const [i, gap] of order.entries()) {
+    await playBreak(t, child, listener, 100 + i, gap);
+  }
+  const breaks = order.filter((gap) => gap === real).length;
+  for (const side of ['start', 'end']) {
+    const jingle = listener.state().jingles[side];
+    assert.equal(jingle.active, true, `${side}: never demoted by host talk`);
+    assert.deepEqual(jingle.record, Array(breaks).fill(true), side);
+    assert.equal(listener.hasReliable(side), true, `${side}: heard in ${breaks} of ${breaks}`);
+  }
+  assert.equal(counts.changes, 2, 'each jingle became reliable, nothing else');
+});
+
+test('a break the detector started without the jingles is a miss on both sides', async (t) => {
+  // Opened by the ad window (the start jingle did not air), no end jingle.
+  const { listener, child } = await recallSetUp(t, 'tunein:s7', async () => null);
+  await playBreak(t, child, listener, 120);
+  assert.deepEqual(listener.state().jingles.start.record, [false]);
+  assert.deepEqual(listener.state().jingles.end.record, [false]);
+  // Not passed at all (an older caller): not a break, nothing judged.
+  playAudio(t, child, radioAudio(220, 121));
+  const begin = Date.now() - 220_000;
+  await listener.learnFromBreak({ songEndedAt: begin + 20_000, nextSongAt: begin + 200_000 });
+  assert.deepEqual(listener.state().jingles.start.record, [false]);
+  assert.deepEqual(listener.state().jingles.end.record, [false]);
+});
+
+test('the end jingle is heard up to 150 s before the next song, as its hits are confirmed', async (t) => {
+  const { listener, child } = await recallSetUp(t, 'tunein:s8', async () => null);
+  // The host talks after the ads: the end jingle 90 s, then 140 s before
+  // the next song (at 200 s), still in the range that confirms its hits.
+  await playBreak(t, child, listener, 130, { start: AD_JINGLE, end: END_JINGLE, endAt: 110 });
+  await playBreak(t, child, listener, 131, { start: AD_JINGLE, end: END_JINGLE, endAt: 60 });
+  assert.deepEqual(listener.state().jingles.end.record, [true, true]);
+  // 165 s before it: beyond 150 s and its 10 s margin.
+  await playBreak(t, child, listener, 132, { start: AD_JINGLE, end: END_JINGLE, endAt: 35 });
+  assert.deepEqual(listener.state().jingles.end.record, [true, true, false]);
+});
+
+test('the start range keeps its 10 s margin on each side', async (t) => {
+  const { listener, child } = await recallSetUp(t, 'tunein:s9', async () => null);
+  // 9 s before the song end: heard. 101 s after it (90 s + 10 s + 1 s): missed.
+  await playBreak(t, child, listener, 140, { start: AD_JINGLE, startAt: 11, end: END_JINGLE });
+  await playBreak(t, child, listener, 141, { start: AD_JINGLE, startAt: 121, end: END_JINGLE });
+  // 99 s after it: heard.
+  await playBreak(t, child, listener, 142, { start: AD_JINGLE, startAt: 119, end: END_JINGLE });
+  assert.deepEqual(listener.state().jingles.start.record, [true, false, true]);
+});
+
+test('a jingle under loud talk (score ~0.45) is a miss: heard needs a hit score', async (t) => {
+  const { listener, child } = await recallSetUp(t, 'tunein:s10', async () => null);
+  const talk = radioAudio(2, 78);
+  const buried = Int16Array.from(AD_JINGLE, (v, i) => v * 0.4 + talk[i]);
+  await playBreak(t, child, listener, 150, { start: buried, end: END_JINGLE });
+  assert.deepEqual(listener.state().jingles.start.record, [false]);
+});
+
+test('demotion counts the last 6 breaks exactly', async (t) => {
+  const T = true;
+  const F = false;
+  const { listener, child } = await recallSetUp(t, 'tunein:s11', async () => null, {
+    // Start: 3 misses in 5; one more makes 4 of the last 6 (not 3 of 5).
+    start: [F, T, F, F, T],
+    // End: 4 misses in 6; heard once more, its last 6 hold 3 (not 4 of 7).
+    end: [F, F, F, F, T, T],
+  });
+  await playBreak(t, child, listener, 160, { end: END_JINGLE });
+  assert.equal(listener.hasActive('start'), false, '4 misses in the last 6: demoted');
+  assert.equal(listener.hasActive('end'), true, '3 misses in the last 6: kept');
+  assert.deepEqual(listener.state().jingles.end.record, [F, F, F, F, T, T, T]);
+});
+
+test('reliable needs 80 %: 7 of 9 is not, 8 of 10 is', async (t) => {
+  const T = true;
+  const F = false;
+  const { listener, child, counts } = await recallSetUp(t, 'tunein:s12', async () => null, {
+    start: [F, T, T, F, T, T, T, T],
+  });
+  assert.equal(listener.hasReliable('start'), false, '6 of 8');
+  await playBreak(t, child, listener, 170, { start: AD_JINGLE, end: END_JINGLE });
+  assert.equal(listener.hasReliable('start'), false, '7 of 9 (78 %)');
+  await playBreak(t, child, listener, 171, { start: AD_JINGLE, end: END_JINGLE });
+  assert.equal(listener.hasReliable('start'), true, '8 of 10');
+  assert.equal(counts.changes, 1);
+});
+
+for (const [i, bad] of [null, 'abc', { 0: true }, 3].entries()) {
+  test(`a bad saved record (${JSON.stringify(bad)}) loads empty and learning goes on`, async (t) => {
+    const { listener, child } = await recallSetUp(t, `tunein:bad${i}`, async () => null, {
+      start: bad,
+      end: bad,
+    });
+    assert.deepEqual(listener.state().jingles.start.record, []);
+    assert.equal(listener.hasActive('start'), true);
+    await playBreak(t, child, listener, 180 + i, { start: AD_JINGLE, end: END_JINGLE });
+    assert.deepEqual(listener.state().jingles.start.record, [true]);
+    assert.deepEqual(listener.state().jingles.end.record, [true]);
+  });
+}

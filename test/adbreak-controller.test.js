@@ -49,6 +49,8 @@ const OUIFM_PAGE = '"zones":[{"stream":{"idMds":"2174546520932614531"}}]';
 /** Jingle listeners stand-ins, see createJingleListener() for the real one. */
 function fakeJingles() {
   const made = [];
+  // What hasReliable('start') answers (a test may change it).
+  const holder = { reliable: false };
   const create = (opts) => {
     const listener = {
       opts,
@@ -60,14 +62,17 @@ function fakeJingles() {
       reliableAsked: [],
       hasReliable: (side) => {
         listener.reliableAsked.push(side);
-        return false;
+        return holder.reliable;
       },
       state: () => ({
         version: 2,
         samples: { start: [{}], end: [] },
         jingles: { start: null, end: null },
       }),
-      learnFromBreak: async () => {},
+      breaks: [],
+      learnFromBreak: async (info) => {
+        listener.breaks.push(info);
+      },
       learnFromMark: async (at, side) => {
         listener.marks.push(side);
       },
@@ -78,7 +83,7 @@ function fakeJingles() {
     made.push(listener);
     return listener;
   };
-  return { create, made };
+  return Object.assign(holder, { create, made });
 }
 
 /** A controller over a fake receiver: its volume, what it published. */
@@ -517,4 +522,81 @@ test('the usual schedule is published as a binary signal at each change, detecti
   t.mock.timers.tick(60_000);
   await wait();
   assert.equal(windows.length, 4, 'nothing more while off');
+});
+
+/**
+ * A controller whose station has a learned ad window at :10 every hour,
+ * with HEOS song titles (200 s songs from Deezer), mocked clock and ticker.
+ */
+async function windowStation(t, { reliable }) {
+  const base = new Date(2026, 9, 7, 14, 6, 0).getTime(); // a Wednesday, 14:06
+  t.mock.timers.enable({ apis: ['setInterval', 'Date'], now: base });
+  const setup = setUp(t);
+  setup.jingles.reliable = reliable;
+  const breaks = Array.from({ length: 48 }, (_, h) => ({
+    at: base + 4 * 60_000 - (h + 1) * 3_600_000,
+    minute: 10,
+    durationSeconds: 300,
+    source: 'history',
+  }));
+  await fs.writeFile(
+    process.env.AD_BREAK_STATS_FILE,
+    JSON.stringify({ 'url:http://radio.example/live': { breaks, markOffsets: [] } }),
+  );
+  const { controller } = setup;
+  controller.onPlayState(true);
+  controller.onNowPlayingMedia(titled('A', 'one')); // joined mid-song
+  await wait();
+  await until(() => setup.jingles.made[0]?.reliableAsked.length > 0);
+  return { ...setup, base };
+}
+
+/** Move the mocked clock (and the 1 s ticker) on by `ms`, a second at a time. */
+async function advance(t, ms) {
+  for (let i = 0; i < ms / 1000; i++) {
+    t.mock.timers.tick(1000);
+  }
+  await wait();
+}
+
+test('a reliable start jingle (from the listener) makes the real detector wait 90 s', async (t) => {
+  const { controller, receiver } = await windowStation(t, { reliable: true });
+  controller.onNowPlayingMedia(titled('A', 'B')); // 14:06:00, ends 14:09:20
+  await wait();
+  await advance(t, 200_000 + 89_000); // 14:10:49: song end + 89 s
+  assert.deepEqual(receiver.sets, [], 'the jingle is waited for');
+  await advance(t, 2000);
+  assert.deepEqual(receiver.sets, [30], 'then the window rule');
+});
+
+test('without a reliable start jingle, the learned talk (45 s) is waited for', async (t) => {
+  const { controller, receiver } = await windowStation(t, { reliable: false });
+  controller.onNowPlayingMedia(titled('A', 'B'));
+  await wait();
+  await advance(t, 200_000 + 44_000);
+  assert.deepEqual(receiver.sets, []);
+  await advance(t, 2000);
+  assert.deepEqual(receiver.sets, [30]);
+});
+
+test('only a gap taken for a break judges the jingles (breakHandled)', async (t) => {
+  const { controller, jingles } = await windowStation(t, { reliable: false });
+  const [listener] = jingles.made;
+  // In the window: the break starts 45 s after the song end.
+  controller.onNowPlayingMedia(titled('A', 'B')); // ends 14:09:20
+  await wait();
+  await advance(t, 500_000);
+  controller.onNowPlayingMedia(titled('A', 'C')); // 14:14:20, 300 s gap; ends 14:17:40
+  await wait();
+  // Outside the window: 300 s of host talk, no break.
+  await advance(t, 500_000);
+  controller.onNowPlayingMedia(titled('A', 'D'));
+  await until(() => listener.breaks.length === 2);
+  assert.deepEqual(
+    listener.breaks.map((b) => [Math.round((b.nextSongAt - b.songEndedAt) / 1000), b.breakHandled]),
+    [
+      [300, true],
+      [300, false],
+    ],
+  );
 });

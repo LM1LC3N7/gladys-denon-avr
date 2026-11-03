@@ -14,6 +14,25 @@
 
 ## Decisions
 
+- 2026-11-03 (1.2.3, review denon-123 r1 I1), which gaps judge an active jingle (`recordBreak()`,
+  `src/adbreak/jingles.js`): only a gap the detector took for a break, i.e. a break was started
+  for that song end (`track.breakHandled`, passed by `onGap`: ad window, start jingle, "it's an
+  ad"). Every 200-900 s gap is still sampled for learning. Not counted: a long host talk outside
+  the windows, and a gap whose song ended in a window already used (the detector takes it for the
+  host, `WINDOW_REUSE_MS`). The "song end in a learned ad window" fallback was not kept for that
+  case: an hourly talk after the break, in the same window, would count one miss per hour and
+  could demote the end jingle (Louis: 74/74). Cost: a real second break in a used window, or a
+  real break outside the windows without the start jingle, is not judged. That only delays the
+  verdict; it never demotes a good jingle. The end range is 150 s before the next song
+  (`VERDICT_SECONDS`, what confirms an end hit), the start range stays 90 s after the song end.
+- 2026-11-03, known limit, out of scope of 1.2.3 (review denon-123 r1, "Hors périmètre"): on HLS
+  the decoded stream likely runs ~30 s ahead of the receiver. The ring dates the last sample
+  received "now", and HLS sends whole 5 s segments (15 s at once at the start); the receiver
+  plays 40 s behind the title feed (`sources.js`). So jingle hits act ~30 s early on HLS (volume
+  lowered during the host talk, back during the last ads), and the learning windows and the 10 s
+  miss margin are shifted alike. Icecast (Louis, via TuneIn): ~2 s, no effect. To be measured by
+  the step 0 test bench; fix then: date the ring in receiver time, or delay hits by the offset.
+
 - 2026-11-01 (review r1 of f37aa92), HEOS-only speaker (`src/devices/speaker.js`): HEOS matched,
   the last Telnet attempt refused (ECONNREFUSED only) and a speaker model (in a session, the HEOS
   `model` only; the SSDP `modelName` only decides what Discovery offers): "Denon Home", "HEOS",

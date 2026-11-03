@@ -347,12 +347,20 @@ coupure arrive sans jingle, la règle des fenêtres prend le relais. Il faut
 compter quelques heures d'écoute (3 longues coupures), ou allumer 3 fois **Radio ad break** juste
 après le jingle. Un jingle qui se met à donner de fausses alertes est oublié et réappris.
 
-**Un jingle qui ne passe plus.** Chaque coupure vue grâce aux titres sert aussi à vérifier le jingle
-actif. Le jingle de début doit passer entre la fin du titre et 90 s après, celui de fin dans la
-minute avant le titre suivant (10 s de marge de chaque côté, pour le décalage entre l'ampli et le
-flux décodé). Sinon, c'est un **manqué**. Une coupure dont le son n'a pas été entendu en entier
-(écoute commencée en cours de route, flux coupé) ne compte pas. L'intégration garde le résultat des
-10 dernières coupures, et le journal note chaque manqué avec la meilleure ressemblance vue.
+**Un jingle qui ne passe plus.** Chaque coupure vue grâce aux titres sert aussi à vérifier les
+jingles actifs. Seule compte une coupure que l'intégration a détectée : **Radio ad break** allumé
+pour cette fin de titre, par la fenêtre de pub, le jingle de début ou un appui. Un long temps de
+parole de l'animateur, sans coupure, ne compte pas.
+
+- Le jingle de début doit passer entre la fin du titre et 90 s après.
+- Le jingle de fin doit passer dans les 150 s (2 min 30) avant le titre suivant. C'est aussi le délai
+  qui confirme ses détections : l'animateur peut parler après les pubs.
+- Une marge de 10 s s'ajoute de chaque côté. Elle couvre le décalage entre l'ampli et le flux
+  décodé quand ce flux est en Icecast (environ 2 s). Un flux HLS a plus d'avance (environ 30 s).
+
+Sinon, c'est un **manqué**. Une coupure dont le son n'a pas été entendu en entier (écoute commencée
+en cours de route, flux coupé) ne compte pas. L'intégration garde le résultat des 10 dernières
+coupures. Le journal note chaque manqué avec la meilleure ressemblance vue.
 
 - **Attente de secours.** Avec un jingle de début fiable, une coupure sans jingle est prise 90 s
   après la fin du titre, au lieu de 45 s : on laisse au jingle le temps de passer. Fiable veut dire
@@ -360,9 +368,10 @@ flux décodé). Sinon, c'est un **manqué**. Une coupure dont le son n'a pas ét
   apprise pour l'animateur (45 s, ou celle de l'heure), comme sans jingle. Un jingle qui vient
   d'être activé n'est donc pas encore fiable. Ses détections baissent quand même le volume.
 - **Retour en observation.** Un jingle actif manqué dans plus de la moitié de ses 6 dernières
-  coupures repasse en observation. Il garde son son, mais ses détections ne baissent plus le volume,
-  et il doit à nouveau être confirmé 2 fois. Si les coupures suivantes partagent un autre son,
-  celui-ci le remplace.
+  coupures repasse en observation. Il garde son son, mais ses détections ne servent plus : celles
+  du jingle de début ne baissent plus le volume, celles du jingle de fin ne le remettent plus. Le
+  volume revient alors au titre suivant. Le jingle doit à nouveau être confirmé 2 fois. Si les
+  coupures suivantes partagent un autre son, celui-ci le remplace.
 
 **D'où viennent les titres :**
 

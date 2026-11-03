@@ -333,6 +333,58 @@ test('a window already used by a break is not trusted again for a second one', (
   );
 });
 
+test('a gap is flagged breakHandled only when a break was started after that song end', () => {
+  let clock = at(12, 0);
+  const gaps = [];
+  const detector = createAdBreakDetector({
+    now: () => clock,
+    onBreakStart: () => {},
+    onBreakEnd: () => {},
+    onGap: ({ gapSeconds, breakHandled }) => gaps.push([Math.round(gapSeconds), breakHandled]),
+  });
+  detector.setStation({
+    key: 'tunein:s6586',
+    hasMetadata: true,
+    windows: [[34, 48]],
+    preBreakTalkSeconds: 45,
+  });
+  const runUntil = (t) => {
+    while (clock < t) {
+      clock += 1000;
+      detector.tick();
+    }
+  };
+  const song = (startedAt, durationSeconds = 120) => {
+    clock = Math.max(clock, startedAt);
+    detector.onTrack({ startedAt, durationSeconds });
+  };
+  song(at(12, 32)); // ends 12:34, in the window
+  runUntil(at(12, 38)); // the window rule starts a break
+  song(at(12, 38)); // ends 12:40, same window: already used, host talk
+  runUntil(at(12, 44));
+  song(at(12, 44)); // ends 12:46, still the used window
+  runUntil(at(12, 50));
+  song(at(12, 50)); // ends 12:52, outside the windows: host talk
+  runUntil(at(12, 56));
+  song(at(12, 56)); // ends 12:58: the start jingle starts the break
+  runUntil(at(12, 59));
+  detector.jingleStart();
+  runUntil(at(13, 2));
+  song(at(13, 2)); // ends 13:04: "it's an ad" pressed
+  runUntil(at(13, 5));
+  detector.mark();
+  runUntil(at(13, 8));
+  song(at(13, 8));
+  assert.deepEqual(gaps, [
+    [240, true],
+    [240, false],
+    [240, false],
+    [240, false],
+    [240, true],
+    [240, true],
+  ]);
+});
+
 test('a break never outlasts MAX_BREAK_SECONDS', () => {
   const h = harness();
   h.setTime(at(12, 10));

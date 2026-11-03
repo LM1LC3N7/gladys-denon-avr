@@ -223,10 +223,19 @@ export function createAdBreakController({
         restoreVolume(lowered);
       }
     },
-    onGap({ songEndedAt, gapSeconds }) {
+    onGap({ songEndedAt, gapSeconds, breakHandled }) {
       if (gapSeconds >= BREAK_MIN_SECONDS && gapSeconds <= BREAK_MAX_SECONDS) {
+        // Every long gap is sampled, but only one the detector took for a
+        // break judges the active jingles (heard or missed): a long host
+        // talk must never make a jingle that airs in every break look
+        // missed. Not a gap in an already used window either: the detector
+        // takes it for the host (see WINDOW_REUSE_MS in detector.js).
         jingles
-          ?.learnFromBreak({ songEndedAt, nextSongAt: songEndedAt + gapSeconds * 1000 })
+          ?.learnFromBreak({
+            songEndedAt,
+            nextSongAt: songEndedAt + gapSeconds * 1000,
+            breakHandled,
+          })
           .catch((err) => logger.warn(`${name}: jingle learning failed: ${err.message}`));
         updateStats((stats) =>
           recordBreak(stats, {

@@ -322,7 +322,7 @@ test('an active jingle shows its recall; the 90 s wait only for a reliable start
   assert.equal(jingleStateText(start, 'fr'), 'Actif · reconnu dans 3 des 10 dernières coupures');
   assert.equal(jingleStateText(start, 'en'), 'Active · heard in 3 of the last 10 breaks');
   assert.equal(jingleStateText(start, 'fr', { short: true }), 'Actif · reconnu 3 fois sur 10');
-  assert.equal(jingleStateText(start, 'en', { short: true }), 'Active · heard 3 of 10');
+  assert.equal(jingleStateText(start, 'en', { short: true }), 'Active · heard in 3 of 10');
   const detailFr = jingleDetailText(start, 'start', 'fr');
   assert.match(detailFr, /Détections confirmées : 5 sur 6/, 'the confirmed count stays');
   assert.match(detailFr, /Coupures suivies : reconnu dans 3 des 10 dernières coupures/);

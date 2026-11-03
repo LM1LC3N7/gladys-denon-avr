@@ -22,7 +22,8 @@
 //      hit). It becomes active after CONFIRMATIONS_TO_ACTIVATE confirmed hits
 //      with a good precision, and is dropped if its precision degrades;
 //   4. an active jingle is also judged on the breaks it misses: each break
-//      measured from the metadata records whether it was heard (its recall).
+//      measured from the metadata, and taken for a break by the detector,
+//      records whether it was heard (its recall).
 //      Missed too often, it goes back to observation, and a different sound
 //      found in the samples may then replace it (see recordBreak()).
 // -----------------------------------------------------------------------------
@@ -81,8 +82,8 @@ const HIT_COOLDOWN_MS = 90_000;
 export const CONFIRMATIONS_TO_ACTIVATE = 2;
 const MIN_PRECISION = 0.8;
 
-// Recall of an active jingle: each break measured from the metadata (and
-// fully heard) is recorded as heard or missed, the last RECORD_BREAKS kept.
+// Recall of an active jingle: each break measured from the metadata, taken
+// for a break by the detector, and fully heard, is recorded as heard or missed, the last RECORD_BREAKS kept.
 // A start jingle is "reliable" with at least RELIABLE_RECALL over at least
 // RELIABLE_MIN_BREAKS recorded breaks: only then does the detector wait
 // longer for it (JINGLE_FALLBACK_GRACE_SECONDS, detector.js). An active
@@ -96,6 +97,8 @@ export const DEMOTE_MAX_MISSES = 3;
 // Hits are dated in the decoded stream, songs in what the receiver plays
 // (lagged, durations from Deezer): a jingle counts as heard this much
 // before or after its range (the same slack as the learning samples).
+// Sized for an Icecast stream (~2 s ahead of the receiver). An HLS stream
+// runs ~30 s ahead, more than this (see TODO.md).
 const MISS_SLACK_SECONDS = 10;
 // A hole longer than this in the decoded frames (stream stalled): that
 // break was not fully heard, it is not recorded.
@@ -615,8 +618,10 @@ export function createJingleListener({
 
   /**
    * A break measured from the metadata: was each active jingle heard in its
-   * range (start: song end to MAX_START_OFFSET after; end: MAX_END_OFFSET
-   * before the next song)? Recorded, then judged (reliability, demotion).
+   * range? Start: song end to MAX_START_OFFSET after (what the 90 s wait
+   * gives it). End: VERDICT_SECONDS before the next song, the range in
+   * which hitVerdict() confirms an end hit (the host may talk after the
+   * ads). Recorded, then judged (reliability, demotion).
    */
   function recordBreak({ songEndedAt, nextSongAt }) {
     const slack = MISS_SLACK_SECONDS * 1000;
@@ -625,7 +630,7 @@ export function createJingleListener({
         songEndedAt - slack,
         Math.min(songEndedAt + MAX_START_OFFSET * 1000, nextSongAt) + slack,
       ],
-      end: [Math.max(nextSongAt - MAX_END_OFFSET * 1000, songEndedAt) - slack, nextSongAt + slack],
+      end: [Math.max(nextSongAt - VERDICT_SECONDS * 1000, songEndedAt) - slack, nextSongAt + slack],
     };
     for (const side of ['start', 'end']) {
       const jingle = state.jingles[side];
@@ -766,8 +771,15 @@ export function createJingleListener({
   start();
 
   return {
-    /** A break was measured from the metadata: learn from its audio. */
-    async learnFromBreak({ songEndedAt, nextSongAt }) {
+    /**
+     * A gap was measured from the metadata: learn from its audio (always).
+     * `breakHandled`: the detector took this gap for an ad break (it started
+     * one after that song end: ad window, start jingle, or "it's an ad").
+     * Only those judge the active jingles (recordBreak()): a long host talk
+     * is no break, so a jingle that airs in every real break is never
+     * missed there.
+     */
+    async learnFromBreak({ songEndedAt, nextSongAt, breakHandled = false }) {
       await loaded;
       // Called when the next song starts: the end-side sample also needs the
       // SIDE_BEFORE seconds after it, not heard yet.
@@ -776,7 +788,9 @@ export function createJingleListener({
         return;
       }
       // Judged first: a jingle demoted here may be replaced by the samples.
-      recordBreak({ songEndedAt, nextSongAt });
+      if (breakHandled) {
+        recordBreak({ songEndedAt, nextSongAt });
+      }
       const startSide = heard(
         songEndedAt - SIDE_BEFORE * 1000,
         Math.min(songEndedAt + SIDE_AFTER * 1000, nextSongAt),

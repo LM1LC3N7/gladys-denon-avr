@@ -47,8 +47,10 @@ const JOIN_MIN_LEFT_MS = 30_000;
  * @param {() => number} [opts.now]
  * @param {(info: {reason: string, songEndedAt: number|null}) => void} opts.onBreakStart
  * @param {(info: {reason: string}) => void} opts.onBreakEnd
- * @param {(info: {songEndedAt: number, gapSeconds: number}) => void} [opts.onGap]
- *   every measured gap between the end of a song and the start of the next one
+ * @param {(info: {songEndedAt: number, gapSeconds: number, breakHandled: boolean}) => void} [opts.onGap]
+ *   every measured gap between the end of a song and the start of the next one;
+ *   `breakHandled`: a break was started after that song end (ad window, start
+ *   jingle, "it's an ad"), i.e. the gap was taken for an ad break
  * @param {(info: {at: number, offsetSeconds: number|null, durationSeconds: number|null}) => void} [opts.onMark]
  */
 export function createAdBreakDetector({
@@ -165,7 +167,11 @@ export function createAdBreakDetector({
       const previousEnd = songEnd();
       if (previousEnd !== null) {
         const gapSeconds = (startedAt - previousEnd) / 1000;
-        onGap?.({ songEndedAt: previousEnd, gapSeconds });
+        onGap?.({
+          songEndedAt: previousEnd,
+          gapSeconds,
+          breakHandled: Boolean(track.breakHandled),
+        });
       }
       track = { startedAt, durationSeconds: Number(durationSeconds) || null };
       endBreak('next_song');

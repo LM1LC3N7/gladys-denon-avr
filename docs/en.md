@@ -318,11 +318,19 @@ times switching **Radio ad break** on right after the jingle. A jingle that star
 forgotten and learned again.
 
 **A jingle that no longer airs.** Each break found from the song titles also checks the active
-jingle. The start jingle must air between the song end and 90 s after it, the end jingle within
-the minute before the next song (10 s of margin on each side, for the delay between the receiver
-and the decoded stream). Otherwise it is a **miss**. A break whose sound was not heard in full
-(listening started midway, stream cut) does not count. The integration keeps the result of the
-last 10 breaks, and the log notes each miss with the best similarity seen.
+jingles. Only a break the integration detected counts: **Radio ad break** switched on for that
+song end, by the ad window, the start jingle or a press. A long host talk with no break does not
+count.
+
+- The start jingle must air between the song end and 90 s after it.
+- The end jingle must air within the 150 s (2 min 30) before the next song. This is also the delay
+  that confirms its detections: the host may talk after the ads.
+- A margin of 10 s is added on each side. It covers the delay between the receiver and the decoded
+  stream when that stream is Icecast (about 2 s). An HLS stream runs further ahead (about 30 s).
+
+Otherwise it is a **miss**. A break whose sound was not heard in full (listening started midway,
+stream cut) does not count. The integration keeps the result of the last 10 breaks. The log notes
+each miss with the best similarity seen.
 
 - **Fallback wait.** With a reliable start jingle, a break without the jingle is taken 90 s after
   the song end instead of 45 s: the jingle is given time to air. Reliable means heard in at least
@@ -330,8 +338,10 @@ last 10 breaks, and the log notes each miss with the best similarity seen.
   the one of that hour), as with no jingle. A newly activated jingle is therefore not reliable yet.
   Its detections still lower the volume.
 - **Back to observation.** An active jingle missed in more than half of its last 6 breaks goes
-  back to observation. It keeps its sound, but its detections no longer lower the volume, and it
-  must be confirmed twice again. If the next breaks share another sound, that one replaces it.
+  back to observation. It keeps its sound, but its detections no longer act on the volume: the
+  start jingle no longer lowers it, the end jingle no longer brings it back. The volume then comes
+  back with the next song. The jingle must be confirmed twice again. If the next breaks share
+  another sound, that one replaces it.
 
 **Where song changes come from:**
 
