@@ -115,3 +115,9 @@
   queue is cleared. Left: the real HEOS event order is not known (same log as r3 m4); waiting a
   while for a late `mid` before clearing would change when the volume and input come back, which
   the 1.2.1 test is checking. Pinned by a test.
+
+## Next patch (review denon-123-r2, minors)
+
+- [ ] Tests on the end-range bounds (4 mutants survive): end jingle 158 s before the next song (heard), 5 s after it (heard), 12 s after it (missed).
+- [ ] Code comments that overstate: `src/adbreak/index.js:228-232` and `src/adbreak/jingles.js:778-780` say host talk "never" makes a jingle look missed. It can, when the window rule takes the talk for a break or after a mistaken press. Same wording issue at `src/adbreak/detector.js:52`.
+- [ ] Limits for step 2 and the bench: start-jingle recall is biased upwards outside the windows (only breaks it opened are judged). "74/74" is a precision, not a recall: the end jingle's real recall will show in the 1.2.3 widget. Simulated demotion rate: 1 per 140 judged breaks at 80 % recall, 1 per 62 at 74 %.
