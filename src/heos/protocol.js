@@ -270,6 +270,72 @@ export function buildAddContainerToQueueCommand(
   return `browse/add_to_queue?pid=${pid}&sid=${escapeHeosValue(sid)}&cid=${escapeHeosValue(cid)}&aid=${aid}`;
 }
 
+// The Gladys music play modes (MUSIC_PLAY_MODES) as HEOS `aid` values.
+export const PLAY_MODE_AID = Object.freeze({
+  replace: ADD_TO_QUEUE.REPLACE_AND_PLAY,
+  next: ADD_TO_QUEUE.PLAY_NEXT,
+  append: ADD_TO_QUEUE.ADD_TO_END,
+});
+
+/** The `aid` of a play mode (`replace` | `next` | `append`); replace for anything else. */
+export function aidOfMode(mode) {
+  return PLAY_MODE_AID[mode] ?? ADD_TO_QUEUE.REPLACE_AND_PLAY;
+}
+
+/**
+ * `heos://browse/add_to_queue?pid&sid&cid&mid&aid` — put one track in the
+ * queue (CLI spec "Add Track to Queue"): `cid` is the container the track
+ * was browsed or searched in.
+ */
+export function buildAddTrackToQueueCommand(
+  pid,
+  sid,
+  cid,
+  mid,
+  aid = ADD_TO_QUEUE.REPLACE_AND_PLAY,
+) {
+  return `browse/add_to_queue?pid=${pid}&sid=${escapeHeosValue(sid)}&cid=${escapeHeosValue(cid)}&mid=${escapeHeosValue(mid)}&aid=${aid}`;
+}
+
+/**
+ * `heos://browse/play_stream?pid&sid[&cid]&mid&name` — play a station (CLI
+ * spec "Play Station"); `cid` is left out for a station found by a search.
+ */
+export function buildPlayStationCommand(pid, sid, cid, mid, name) {
+  let command = `browse/play_stream?pid=${pid}&sid=${escapeHeosValue(sid)}`;
+  if (cid !== undefined && cid !== null && cid !== '') {
+    command += `&cid=${escapeHeosValue(cid)}`;
+  }
+  command += `&mid=${escapeHeosValue(mid)}`;
+  if (name) {
+    command += `&name=${escapeHeosValue(name)}`;
+  }
+  return command;
+}
+
+/**
+ * `heos://browse/set_service_option?sid&option=13&scid&name` — "Create New
+ * Station" from a search (CLI spec, Pandora and iHeartRadio there): answers
+ * station items to play with buildPlayStationCommand().
+ */
+export function buildCreateStationCommand(sid, scid, name) {
+  return `browse/set_service_option?sid=${escapeHeosValue(sid)}&option=13&scid=${escapeHeosValue(scid)}&name=${escapeHeosValue(name)}`;
+}
+
+/** `heos://player/get_queue?pid&range=start,end` (100 items at most per answer). */
+export function buildGetQueueCommand(pid, range) {
+  let command = `player/get_queue?pid=${pid}`;
+  if (Array.isArray(range)) {
+    command += `&range=${Number(range[0])},${Number(range[1])}`;
+  }
+  return command;
+}
+
+/** `heos://player/play_queue?pid&qid` — jump to one item of the queue. */
+export function buildPlayQueueCommand(pid, qid) {
+  return `player/play_queue?pid=${pid}&qid=${escapeHeosValue(qid)}`;
+}
+
 /**
  * Whether a reply is HEOS' "command under process" placeholder (a slow
  * command, typically a music service browse): the real answer to the same
@@ -355,6 +421,9 @@ export function parseMessage(rawLine) {
     result: heos.result,
     message: parseHeosQueryString(heos.message),
     payload: parsed.payload,
+    // The "options" a browse, a search or the now playing media offer
+    // (`[{ browse: [{ id, name }] }]`), when there are any.
+    ...(parsed.options === undefined ? {} : { options: parsed.options }),
   };
 }
 

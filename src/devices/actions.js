@@ -13,6 +13,8 @@ import { getHeos, getSession, getState, getTelnet } from './registry.js';
 import { initialQueries } from './session.js';
 import { describePowerMode, getPowerMode } from './power.js';
 import { QobuzUnavailableError, listQobuzPlaylists } from './qobuz.js';
+import { qobuzDiagnostics } from './qobuz-check.js';
+import { redact } from '../heos/qobuz.js';
 
 const logger = createLogger({ name: 'avr' });
 
@@ -136,12 +138,15 @@ export async function runAdBreakReportAction() {
 
 /**
  * "Qobuz: check" manifest action: what HEOS shows of Qobuz on one receiver
- * (the source, the first level of its tree, the playlists found), as text
- * and as one log line. Built without a receiver showing Qobuz: this is what
- * a user reports to fix the lookup rules of src/heos/qobuz.js.
+ * (the source, the first level of its tree, the playlists found), as text,
+ * and the raw structure in the logs (./qobuz-check.js, lines "Qobuz check"):
+ * what a user sends back to fix the lookup rules of src/heos/qobuz.js. With
+ * an artist, also what "latest album" and "artist" would play (nothing is
+ * played).
  */
 export async function runQobuzCheckAction({ fields }) {
   const externalId = fields.device;
+  const artist = String(fields.artist ?? '').trim();
   let result;
   try {
     result = await listQobuzPlaylists(externalId, { refresh: true });
@@ -169,11 +174,38 @@ export async function runQobuzCheckAction({ fields }) {
   const names = playlists.slice(0, SHOWN_PLAYLISTS).map((item) => item.name);
   const more = playlists.length - names.length;
   const list = names.join(', ') + (more > 0 ? ` (+${more})` : '');
+  const hidden = source.hidden ?? [];
   logger.info(
-    `${externalId}: Qobuz check: source ${source.sid} "${source.name}", top level [${topLevel.join(' | ')}], opened [${opened.join(' | ')}], ${playlists.length} playlists`,
+    redact(
+      `${externalId}: Qobuz check: source ${source.sid} "${source.name}", top level [${topLevel.join(' | ')}], opened [${opened.join(' | ')}], ${playlists.length} playlists`,
+      hidden,
+    ),
   );
+  const diagnostics = await qobuzDiagnostics(externalId, { sid: source.sid, opened, artist });
+  for (const line of diagnostics.lines) {
+    logger.info(`${externalId}: Qobuz check: ${line}`);
+  }
+  let artistEn = '';
+  let artistFr = '';
+  const tested = diagnostics.artist;
+  if (tested) {
+    const latestEn = tested.latest
+      ? `latest album "${tested.latest}" (found by: ${tested.latestMethod})`
+      : 'no latest album found';
+    const latestFr = tested.latest
+      ? `dernier album « ${tested.latest} » (trouvé par : ${tested.latestMethod})`
+      : 'aucun dernier album trouvé';
+    const playEn = tested.playMethod
+      ? `artist played by: ${tested.playMethod}`
+      : 'artist not playable';
+    const playFr = tested.playMethod
+      ? `artiste joué par : ${tested.playMethod}`
+      : 'artiste non jouable';
+    artistEn = ` Artist "${tested.name}": ${latestEn}, ${playEn}.`;
+    artistFr = ` Artiste « ${tested.name} » : ${latestFr}, ${playFr}.`;
+  }
   return {
-    en: `Qobuz found (HEOS source ${source.sid}). First level: ${topLevel.join(', ') || '-'}. ${playlists.length} playlists${playlists.length ? `: ${list}` : ' found: tell the integration author which entry above holds them'}.`,
-    fr: `Qobuz trouvé (source HEOS ${source.sid}). Premier niveau : ${topLevel.join(', ') || '-'}. ${playlists.length} playlists${playlists.length ? ` : ${list}` : " trouvées : indiquez à l'auteur de l'intégration quelle entrée ci-dessus les contient"}.`,
+    en: `Qobuz found (HEOS source ${source.sid}). First level: ${topLevel.join(', ') || '-'}. ${playlists.length} playlists${playlists.length ? `: ${list}` : ' found: tell the integration author which entry above holds them'}.${artistEn} Details: the "Qobuz check" lines of the integration logs.`,
+    fr: `Qobuz trouvé (source HEOS ${source.sid}). Premier niveau : ${topLevel.join(', ') || '-'}. ${playlists.length} playlists${playlists.length ? ` : ${list}` : " trouvées : indiquez à l'auteur de l'intégration quelle entrée ci-dessus les contient"}.${artistFr} Détails : lignes « Qobuz check » des logs de l'intégration.`,
   };
 }

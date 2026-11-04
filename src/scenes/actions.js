@@ -63,13 +63,21 @@ export function createSceneActionHandlers(getConfig) {
       await playHeosFavorite(externalId, Number(fields.favorite), normalizeZone(getConfig().zone));
     },
 
-    // A Qobuz playlist (the user's own first, then the catalog) or album,
-    // by name, through HEOS; what was played for the following actions.
+    // From Qobuz through HEOS: a playlist (the user's own first, then the
+    // catalog), an album, the latest album of an artist, an artist (its
+    // radio or popular tracks) or a track, by name; the queue replaced, or
+    // the media played next or added at the end. What was played, and how it
+    // was found (`method`), for the following actions.
     [SCENE_ACTION.PLAY_QOBUZ]: async (fields) => {
       const { externalId } = targetAvr(fields);
       return playQobuz(
         externalId,
-        { kind: fields.kind || 'playlist', name: fields.name },
+        {
+          kind: fields.kind || 'playlist',
+          name: fields.name,
+          artist: fields.artist ?? '',
+          mode: fields.mode || 'replace',
+        },
         normalizeZone(getConfig().zone),
       );
     },
