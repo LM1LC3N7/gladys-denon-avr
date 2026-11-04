@@ -275,16 +275,32 @@ TuneIn...) — see "Playback controls" below.
   nudges are coalesced to the core's 1-per-10 s window with a trailing nudge
   (`src/widgets/refresh.js`), so a card always ends on the receiver's last state.
 - **Scene actions and triggers** (Gladys >=5.1.0, `src/scenes/`): **AVR: recall a Quick Select**,
-  **AVR: play a HEOS favorite** (`browse/play_preset`), **AVR: play from Qobuz** (a playlist or
-  an album by name: `browse/get_music_sources` finds Qobuz by name, `browse/browse` reads the
-  user's playlists, `browse/search` the catalog, `browse/add_to_queue` plays it — see
-  `src/devices/qobuz.js`), **AVR: set up the receiver** (power, input,
+  **AVR: play a HEOS favorite** (`browse/play_preset`), **AVR: play from Qobuz** (a playlist,
+  an album, the latest album of an artist, an artist or a track, by name, with the replace /
+  play next / add to the end modes (`aid` 4/2/3): `browse/get_music_sources` finds Qobuz by name
+  (else sid 30), `browse/browse` reads the user's playlists and the artist pages,
+  `browse/search` the catalog, `browse/add_to_queue` (container, or track with `mid`) or
+  `browse/play_stream` (station) plays it; returns `played`, `artist`, `type` and the `method`
+  that found it — see `src/devices/qobuz.js` and "Qobuz" in the docs), **AVR: set up the receiver** (power, input,
   sound mode and volume in one card, each optional — power on first with the wake-up pause,
   standby alone) and **AVR: read the receiver state** (outputs: power, volume, input code and
   name, sound mode, Quick Select, playing, title, artist — what the core's "Continue only if"
   needs to test a text value). Triggers: **AVR: input changed** (filterable by receiver and new
   input) and **AVR: track changed** (title/artist/album as variables), never fired on the first
   value seen after a (re)connect.
+- **Music player** (Gladys >=5.3.0, manifest `music: { browse, search, queue, append }`,
+  `src/devices/music.js`): the core's Music box and its "Play music on a speaker" scene action
+  browse a catalog (root: HEOS Favorites sid 1028, HEOS Playlists sid 1025, Qobuz), search Qobuz
+  (artist, album, playlist, track criteria picked by name; a matching artist also offers a
+  "latest album" entry resolved at play time, so a saved scene keeps playing the newest one;
+  "dernier album de X" / "latest album by X" is recognized), play with the replace / next /
+  append modes, read the queue (`player/get_queue`, pages of 100, current item by the playing
+  `qid`) and jump in it (`player/play_queue`). MediaItem ids are `heos:` query strings carrying
+  sid/cid/mid/name (`src/heos/media.js`), so nothing is looked up again to play. The now playing
+  goes out through the SDK's `publishNowPlaying` as four new read-only music features (title,
+  artist, album, artwork key; the SDK serves the artwork) — a Discovery "Update" adds them to an
+  existing device. A search over every kind stops starting HEOS searches after 6 s (the core
+  waits 10 s per music command).
 - **Per-device connection badge** (`src/devices/transport.js`, `publishTransports()`): each AVR
   shows its own _local_ / _unreachable_ badge, with an orange "degraded" dot and its reason when
   HEOS lists no player at the receiver's IP ("Speak on a speaker" cannot work) or when only HEOS
@@ -471,7 +487,10 @@ notes Dependabot links in the PR body) and merge it like any other PR once CI is
 │  │  ├─ control.js                  # controls shared by commands, scenes and widgets
 │  │  ├─ commands.js                 # onSetValue routing (Telnet vs HEOS)
 │  │  ├─ announcements.js            # "Speak on a speaker": volume, end, restore
-│  │  ├─ qobuz.js                    # Qobuz through HEOS: source, playlists, search, play
+│  │  ├─ qobuz.js                    # Qobuz through HEOS: source, playlists, search, latest
+│  │  │                              #   album, artist (radio/top tracks), track, play modes
+│  │  ├─ qobuz-check.js              # "Qobuz: check" diagnostics logged (no account, no images)
+│  │  ├─ music.js                    # Gladys music player: browse/search/play/queue, now playing
 │  │  ├─ actions.js                  # Configuration-screen actions (test, select input, Qobuz check)
 │  │  └─ index.js                    # composes SSDP discovery + the manual host fallback
 │  ├─ widgets/                       # dashboard widgets (Gladys >=5.1.0)
@@ -490,7 +509,9 @@ notes Dependabot links in the PR body) and merge it like any other PR once CI is
 │  │  └─ discovery.js                # SSDP scan + UPnP description.xml parsing
 │  ├─ heos/
 │  │  ├─ protocol.js                 # PURE: parse HEOS CLI JSON lines, build heos:// commands
-│  │  ├─ qobuz.js                    # PURE: find Qobuz among the sources, match names, criteria
+│  │  ├─ qobuz.js                    # PURE: find Qobuz among the sources, match names, criteria,
+│  │  │                              #   latest-album and artist-page rules, log redaction
+│  │  ├─ media.js                    # PURE: music player media ids <-> HEOS, MediaItems
 │  │  └─ client.js                   # thin wrapper of denon/telnet.js for the HEOS CLI socket
 │  ├─ adbreak/                       # radio ad-break detection (opt-in)
 │  │  ├─ index.js                    # per-receiver controller: station, feed, volume ducking
@@ -584,7 +605,9 @@ while the manifest still points at the last released version/image — run the R
 (any release type; nothing else forces `package.json`'s version to match how many PRs merged
 since) whenever you want those changes to actually reach users.
 
-`gladys_version` is pinned to `>=5.1.0`: the manifest declares `widgets`, `scene_actions` and
+`gladys_version` is pinned to `>=5.3.0` since the `music` field (music player: catalog, search,
+queue, now playing), which only the 5.3.0 validator accepts (store schema, `music: '5.3.0'`).
+Before that it was `>=5.1.0`: the manifest declares `widgets`, `scene_actions` and
 `scene_triggers`, which only the 5.1.0 validator accepts — an older core "rejects unknown manifest
 fields" outright (checked against the store's `manifest.schema.json` and the Gladys tags: 5.0.4
 has neither), so a Gladys 4.86/5.0 user stays on the last release of this integration that
@@ -602,11 +625,13 @@ speaker" above, with an announcement volume and a return to the previous state),
 metadata, Setup-menu remote-control keys (cursor pad, Enter/Return/Info/Menu, relative Volume
 Up/Down), zone selection (main zone by default, or Zone 2/3 — one zone per integration, not
 several zones side by side), SSDP discovery, five dashboard widgets, five scene actions (Qobuz
-playlists and albums by name among them), two scene triggers, a per-device connection badge.
+playlists, albums, latest album, artist and tracks among them), two scene triggers, a Gladys
+music player (Gladys >=5.3.0: HEOS favorites, HEOS playlists and Qobuz browsed and searched,
+play modes, queue, now playing with artwork), a per-device connection badge.
 Deliberately out of scope for now: controlling several zones at once (one device per zone),
-HEOS-specific features beyond play/pause/next/previous, favorites by number and Qobuz playlists
-and albums by name (grouping, queue or favorites browsing, other services, single tracks,
-volume-per-player...), resuming what HEOS played before an announcement,
+HEOS grouping, other HEOS services in the catalog (TIDAL, Deezer, TuneIn), duration/position,
+shuffle/repeat, adding to HEOS favorites or a Qobuz library, volume-per-player, resuming what
+HEOS played before an announcement,
 and an HTTP fallback control channel — see the design notes at the top of
 [`src/devices/avr.js`](./src/devices/avr.js) and
 [`src/denon/discovery.js`](./src/denon/discovery.js).
@@ -704,6 +729,14 @@ Honest status, so it's clear what "it works" actually rests on:
     as North America only) — but none of it has run against a real receiver and a real Gladys
     5.1 yet. The cover art in particular depends on the container reaching the HEOS `image_url`
     host (usually an Internet CDN) and on the cover fitting 300 KB.
+  - **Qobuz and the music player**: never run against a receiver showing Qobuz, nor a real Gladys
+    5.3 Music box. Qobuz is not in the HEOS CLI spec; its source id 30, the "Library >
+    Playlists" tree and its playlists listed `playable: no` come from third-party captures and a
+    Home Assistant report, and the search criteria are assumed to be TIDAL's. HEOS gives no
+    release date: "latest album" is a documented heuristic (`method` says which rule fired). The
+    tests run against a fake HEOS CLI built from the spec and real TIDAL/Deezer captures
+    (`test-fixtures/qobuzReceiver.js`). "Qobuz: check" (with an artist) logs what a real receiver
+    answers, without the account name nor image URLs, to replace the guesses.
   - **Radio ad breaks**: the detection rules, the OUI FM feed and the jingle recognition were
     tuned by ear with [`scripts/debug-adbreak.js`](./scripts/debug-adbreak.js) against a real
     receiver, outside Gladys. Their run inside the integration (the switch, opt-in setting,

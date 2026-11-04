@@ -52,6 +52,12 @@ export const FEATURE = {
   PREVIOUS: 'previous',
   PLAYBACK_STATE: 'playback_state',
   NOW_PLAYING: 'now_playing',
+  // The now playing as Gladys music features (Gladys >= 5.3.0, the music
+  // player box): published by publishNowPlaying (src/devices/music.js).
+  MUSIC_TITLE: 'title',
+  MUSIC_ARTIST: 'artist',
+  MUSIC_ALBUM: 'album',
+  MUSIC_ARTWORK: 'artwork',
   PLAY_NOTIFICATION: 'play_notification',
   AD_BREAK: 'ad_break',
   AD_WINDOW: 'ad_window',
@@ -224,6 +230,10 @@ export const HEOS_SPEAKER_FEATURES = new Set([
   FEATURE.NEXT,
   FEATURE.PLAYBACK_STATE,
   FEATURE.NOW_PLAYING,
+  FEATURE.MUSIC_TITLE,
+  FEATURE.MUSIC_ARTIST,
+  FEATURE.MUSIC_ALBUM,
+  FEATURE.MUSIC_ARTWORK,
   FEATURE.PLAY_NOTIFICATION,
   FEATURE.AD_BREAK,
   FEATURE.AD_WINDOW,
@@ -470,6 +480,26 @@ function buildAvrFeatures(deviceExternalId, sourceOverrides) {
       read_only: true,
       has_feedback: false,
     },
+    // The now playing of the Gladys music player box (Gladys >= 5.3.0):
+    // string states the core keeps without history, the artwork being an
+    // image key served by the SDK (never a URL). See startNowPlaying() in
+    // ./music.js.
+    ...[
+      ['Title', FEATURE.MUSIC_TITLE, DEVICE_FEATURE_TYPES.MUSIC.TITLE],
+      ['Artist', FEATURE.MUSIC_ARTIST, DEVICE_FEATURE_TYPES.MUSIC.ARTIST],
+      ['Album', FEATURE.MUSIC_ALBUM, DEVICE_FEATURE_TYPES.MUSIC.ALBUM],
+      ['Artwork', FEATURE.MUSIC_ARTWORK, DEVICE_FEATURE_TYPES.MUSIC.ARTWORK],
+    ].map(([name, key, type]) => ({
+      name,
+      external_id: featureExternalId(deviceExternalId, key),
+      category: DEVICE_FEATURE_CATEGORIES.MUSIC,
+      type,
+      min: 0,
+      max: 1,
+      read_only: true,
+      has_feedback: false,
+      keep_history: false,
+    })),
     {
       // Backs Gladys' generic "Speak on a speaker" scene action
       // (device_feature_category MUSIC + device_feature_type

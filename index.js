@@ -32,6 +32,8 @@ import {
 } from './src/devices/avr.js';
 import { registerWidgets } from './src/widgets/index.js';
 import { registerSceneActions } from './src/scenes/actions.js';
+import { registerMusic, startNowPlaying } from './src/devices/music.js';
+import { getState } from './src/devices/registry.js';
 import { startSceneTriggers } from './src/scenes/triggers.js';
 
 const gladys = new GladysIntegration();
@@ -84,6 +86,12 @@ const getConfig = () => config;
 const stopWidgets = registerWidgets(gladys, getConfig);
 registerSceneActions(gladys, getConfig);
 const stopSceneTriggers = startSceneTriggers(gladys, getConfig);
+
+// --- Music player (Gladys >= 5.3.0) ------------------------------------------
+// Catalog (HEOS favorites and playlists, Qobuz), search, play, queue, and the
+// now playing as music features (src/devices/music.js).
+registerMusic(gladys, getConfig);
+const stopNowPlaying = startNowPlaying(gladys, getState);
 
 // --- Device lifecycle: open/close the Telnet session as devices come and go -
 gladys.onDeviceCreated(async (device) => {
@@ -185,6 +193,7 @@ gladys.handleShutdown((signal) => {
   logger.info(`Received ${signal} -> graceful shutdown`);
   stopWidgets();
   stopSceneTriggers();
+  stopNowPlaying();
   disconnectAllDevices();
 });
 

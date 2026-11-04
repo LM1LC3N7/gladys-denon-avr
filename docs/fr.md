@@ -213,8 +213,12 @@ Depuis Gladys 5.1, l'éditeur de scènes propose les actions et déclencheurs de
 - **Ampli : rappeler un Quick Select** — Quick Select 1 à 5 (Smart Select chez Marantz).
 - **Ampli : jouer un favori HEOS** — la n-ième entrée des favoris de l'application HEOS (une
   radio, une playlist…), sur la zone configurée, allumée et basculée sur HEOS si besoin.
-- **Ampli : jouer depuis Qobuz** — une playlist (les vôtres d'abord, puis le catalogue) ou un
-  album, par son nom, via HEOS ; voir « Qobuz » plus bas.
+- **Ampli : jouer depuis Qobuz** — une playlist, un album, le dernier album d'un artiste, un
+  artiste (radio ou titres populaires) ou un titre, par son nom, via HEOS ; en remplaçant la
+  file, ou à jouer ensuite, ou à la fin ; voir « Qobuz » plus bas.
+- **Lancer une musique sur une enceinte** (action de Gladys 5.3, catégorie Musique) — un média
+  choisi dans le catalogue de l'ampli (favoris HEOS, playlists HEOS, Qobuz) ; voir « Lecteur de
+  musique Gladys » plus bas.
 - **Ampli : régler l'ampli** — alimentation, entrée, mode son et volume en une seule action ; un
   champ laissé vide n'est pas modifié. Idéal pour une scène « Film » ou « Musique ».
 - **Ampli : lire l'état de l'ampli** — renvoie l'alimentation, le volume, l'entrée (code et nom),
@@ -270,36 +274,86 @@ que ce soit corrigé.
 
 ## Qobuz
 
-Depuis 2025, Qobuz est intégré directement dans l'application HEOS. L'action de scène **Ampli :
-jouer depuis Qobuz** s'en sert pour lancer vos playlists ou un album depuis Gladys, sans
-téléphone : au réveil, en rentrant, au lancement d'une scène « Dîner ».
+Depuis 2025 (HEOS 37.1), Qobuz est intégré directement dans l'application HEOS. L'intégration
+s'en sert pour lancer de la musique Qobuz depuis Gladys, sans téléphone : au réveil, en rentrant,
+au lancement d'une scène « Dîner ».
 
 **Prérequis**, une seule fois :
 
 1. Dans l'application HEOS, ajoutez Qobuz (accueil → Services de musique → les trois points →
    Modifier → Ajouter des services) et connectez votre compte Qobuz.
-2. Dans Gladys, cliquez sur **Qobuz : vérifier et lister mes playlists** (écran Configuration),
-   en choisissant l'ampli. La réponse dit si HEOS voit Qobuz et liste vos playlists. Si vous
-   venez d'ajouter Qobuz dans l'application, redémarrez d'abord l'intégration : HEOS ne montre un
-   service ajouté qu'à une nouvelle connexion.
+2. Redémarrez l'intégration : HEOS ne montre un service ajouté qu'à une nouvelle connexion.
+3. Dans Gladys, cliquez sur **Qobuz : vérifier et lister mes playlists** (écran Configuration),
+   en choisissant l'ampli. Vous pouvez y taper un artiste (par exemple « Céline Dion ») : la
+   réponse dit alors aussi quel album serait joué comme « dernier album » et comment l'artiste
+   serait joué, sans rien lancer.
 
-**Ce que fait l'action** : vous choisissez **Playlist** ou **Album** et tapez un nom. Une
-playlist est cherchée d'abord dans **vos** playlists Qobuz, puis dans le catalogue ; un album
-dans le catalogue. Majuscules, accents et ponctuation sont ignorés, et un nom partiel suffit
-(« jazz matin » trouve « Jazz du matin »). La zone configurée est allumée et basculée sur HEOS si
-besoin, puis la file de lecture est remplacée par la playlist ou l'album. Le nom joué (et
-l'artiste d'un album) est renvoyé aux actions suivantes de la scène.
+**L'action de scène « Ampli : jouer depuis Qobuz »** :
+
+| Quoi jouer                 | Ce que fait l'action                                                                            |
+| -------------------------- | ----------------------------------------------------------------------------------------------- |
+| Playlist                   | cherche d'abord dans **vos** playlists Qobuz, puis dans le catalogue                            |
+| Album                      | cherche dans le catalogue ; le champ **Artiste** (facultatif) départage deux albums du même nom |
+| Dernier album d'un artiste | tapez l'artiste ; l'action prend sa dernière sortie (voir plus bas)                             |
+| Artiste                    | sa radio si HEOS en propose une, sinon ses titres populaires, sinon tous ses titres trouvés     |
+| Titre                      | cherche le morceau ; le champ **Artiste** choisit la bonne version                              |
+
+**File de lecture** : _Remplacer et jouer maintenant_ (par défaut), _Jouer ensuite_ ou _Ajouter à
+la fin_. Une radio joue toujours tout de suite (HEOS ne met pas une radio en file).
+
+Majuscules, accents et ponctuation sont ignorés, et un nom partiel suffit (« jazz matin » trouve
+« Jazz du matin »). La zone configurée est allumée et basculée sur HEOS si besoin. L'action
+renvoie aux actions suivantes de la scène le **nom joué**, l'**artiste**, le **type** et la
+**méthode** qui l'a trouvé.
+
+**« Dernier album »** : HEOS ne donne aucune date de sortie. L'action prend, dans l'ordre : une
+rubrique « dernière sortie » de la page de l'artiste si HEOS en montre une (méthode
+`latest_container`) ; l'album le plus récent quand une année figure dans les noms
+(`year`) ; sinon le **premier album listé** par HEOS sur la page de l'artiste (`first_listed`,
+Qobuz liste une discographie de la plus récente à la plus ancienne) ; à défaut, le premier album
+trouvé par une recherche sur le nom de l'artiste (`album_search`, moins sûr). La méthode est
+renvoyée par l'action et écrite dans les logs : vérifiez-la avec le bouton de vérification.
+
+**« Artiste »** : la méthode renvoyée dit ce qui a été joué : `artist_radio` (une radio de
+l'artiste), `top_tracks` (ses titres populaires), `artist` (sa page, quand HEOS la dit jouable),
+`created_station` (une station créée par HEOS, seulement si Qobuz le propose), `searched_tracks`
+(tous les titres trouvés par son nom).
 
 Gladys ne voit jamais vos identifiants Qobuz : c'est l'ampli qui parle à Qobuz, avec le compte
 connecté dans l'application HEOS. La liste de vos playlists est relue toutes les 5 minutes au
 plus.
 
-**Limites** : construit d'après le protocole HEOS (les autres services y suivent la même forme)
-mais sans ampli montrant Qobuz sous la main ; si le bouton de vérification ne trouve pas vos
-playlists, sa réponse (et la ligne « Qobuz check » des logs) montre ce que HEOS renvoie : merci
-de la signaler pour ajuster la recherche. Pas de morceau seul ni d'artiste pour l'instant, et une
-session lancée depuis l'application Qobuz (Qobuz Connect) reste pilotable avec les boutons
-Lecture/Pause/Suivant/Précédent, comme avant.
+**Limites** : Qobuz n'est pas dans la documentation du protocole HEOS ; tout a été construit
+d'après les autres services et des retours d'utilisateurs, sans ampli montrant Qobuz sous la
+main. Les playlists Qobuz que HEOS dit « non jouables » sont mises en file quand même (un défaut
+connu de HEOS). Si quelque chose n'est pas trouvé, la réponse du bouton de vérification et les
+lignes « Qobuz check » des logs montrent ce que l'ampli renvoie (sans votre nom de compte ni les
+images) : merci de les envoyer pour ajuster la recherche. Une session lancée depuis
+l'application Qobuz (Qobuz Connect) reste pilotable avec les boutons Lecture/Pause/Suivant/
+Précédent, comme avant.
+
+## Lecteur de musique Gladys
+
+Avec Gladys 5.3 ou plus récent, l'ampli est un vrai lecteur de musique dans la boîte **Musique**
+du tableau de bord :
+
+- **Lecture en cours** : titre, artiste, album et pochette. Pour un ampli déjà ajouté, relancez
+  un scan **Découverte** et cliquez sur **Mettre à jour** : les quatre fonctionnalités Titre,
+  Artiste, Album et Pochette apparaissent alors.
+- **Catalogue** : _HEOS Favorites_ (vos favoris HEOS), _HEOS Playlists_ et _Qobuz_ (si Qobuz est
+  connecté), à parcourir comme dans l'application HEOS.
+- **Recherche** dans Qobuz : artistes, albums, playlists, titres. Un artiste trouvé propose aussi
+  « Dernier album · Latest album », choisi au moment de jouer : une scène qui l'enregistre jouera
+  toujours la dernière sortie. Taper « dernier album de Céline Dion » le propose en premier.
+- **Lecture** : remplacer, jouer ensuite ou ajouter à la fin ; un artiste se joue comme dans
+  l'action « Artiste » ci-dessus.
+- **File d'attente** de l'ampli, avec le morceau en cours ; un appui saute à un morceau.
+
+L'action de scène de Gladys **Lancer une musique sur une enceinte** utilise ce catalogue : on y
+choisit un média en parcourant ou en cherchant.
+
+**Limites** : pas de durée ni de position, ni d'aléatoire ou de répétition pour l'instant ; le
+catalogue ne montre que Qobuz et les listes HEOS.
 
 ## Coupures pub des radios
 
@@ -464,8 +518,9 @@ dossier de données de l'intégration (`/data/ad-breaks.json`, `/data/ad-jingles
 
 ## Prérequis
 
-- **Gladys 5.1.0 ou plus récent** (widgets et actions/déclencheurs de scène propres à
-  l'intégration).
+- **Gladys 5.3.0 ou plus récent** (lecteur de musique ; widgets et actions/déclencheurs de
+  scène propres à l'intégration). Sur une version plus ancienne, Gladys garde la dernière
+  version de l'intégration qui la supporte (1.2.3).
 - Un ampli-tuner Denon ou Marantz avec une connexion réseau (Ethernet/Wi-Fi).
 - La **veille réseau** (parfois appelée veille « ECO ») activée dans le menu de configuration de
   l'ampli. Sans cela, l'ampli disparaît complètement du réseau une fois éteint et Gladys ne peut

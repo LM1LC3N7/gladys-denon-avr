@@ -69,6 +69,8 @@ const DEFAULT_TIMING = Object.freeze({
   volumeGapMs: 60,
   // How often Telnet is retried on a HEOS-only speaker (./speaker.js).
   heosOnlyTelnetRetryMs: 5 * 60_000,
+  // The now-playing music features are published once per burst of changes.
+  nowPlayingBatchMs: 50,
 });
 
 export const timing = { ...DEFAULT_TIMING };

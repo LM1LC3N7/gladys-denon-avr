@@ -10,6 +10,40 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+### Added
+
+- Gladys music player (requires Gladys 5.3.0 or newer, which this version now needs). The
+  receiver works in the dashboard Music box and in Gladys' "Play music on a speaker" scene
+  action:
+  - catalog: HEOS favorites, HEOS playlists and Qobuz, browsed as in the HEOS app;
+  - search in Qobuz: artists, albums, playlists and tracks. An artist also offers its "latest
+    album", picked when it is played. Typing "dernier album de Céline Dion" offers it first;
+  - play with replace, play next or add to the end;
+  - the queue, with the current track; a tap jumps to a track;
+  - now playing: title, artist, album and artwork, as four new music features. For a receiver
+    already added, run a Discovery scan and click Update to get them.
+- Scene action "AVR: play from Qobuz": besides a playlist or an album, it now plays the latest
+  album of an artist, an artist (its radio, else its popular tracks, else every track found by
+  its name) or a track. An optional Artist field narrows an album or a track down. A queue mode
+  replaces the queue, plays next or adds to the end. The action also returns the type played
+  and how it was found. Existing scenes keep working unchanged.
+- "Qobuz: check": an optional artist to test. The integration logs (lines "Qobuz check") show
+  what the receiver really answers: sources, first level and its options, the playlist
+  containers, the search criteria and, with an artist, the artist search, the artist page and
+  what "latest album" and "artist" would play. Nothing is played. The account name and the
+  image URLs are never logged.
+
+### Fixed
+
+- Qobuz playlists that HEOS lists as not playable (a known HEOS behaviour) are now found and
+  queued. A playlist is no longer opened as if it were a folder.
+- Qobuz is also recognized by its usual HEOS source id (30) when HEOS gives it no name.
+
+### Changed
+
+- Gladys 5.3.0 or newer is required (the music player). On an older Gladys, version 1.2.3 stays
+  installed.
+
 ## [1.2.3] - 2026-11-03
 
 ### Fixed

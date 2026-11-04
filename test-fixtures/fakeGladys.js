@@ -11,6 +11,8 @@
 //   - onSceneAction / onWidgetGet / onWidgetGetImage / onWidgetAction
 //                                    -> keep the handlers in `handlers`
 //   - requestWidgetRefresh           -> record the widget keys nudged
+//   - artworkKey / publishNowPlaying -> SDK-shaped key, calls recorded
+//   - onMusic*                       -> keep the handlers in `handlers.music`
 // This lets us test the pure "wiring" logic (discovery payloads, dispatch)
 // without a running Gladys server or a real WebSocket.
 // -----------------------------------------------------------------------------
@@ -22,7 +24,14 @@ export function createFakeGladys() {
   const connectionStatuses = [];
   const sceneEvents = [];
   const widgetRefreshes = [];
-  const handlers = { sceneActions: {}, widgetGet: {}, widgetAction: {}, widgetGetImage: null };
+  const nowPlaying = [];
+  const handlers = {
+    sceneActions: {},
+    widgetGet: {},
+    widgetAction: {},
+    widgetGetImage: null,
+    music: {},
+  };
 
   return {
     published,
@@ -31,6 +40,7 @@ export function createFakeGladys() {
     connectionStatuses,
     sceneEvents,
     widgetRefreshes,
+    nowPlaying,
     handlers,
 
     externalIds(type, platformId) {
@@ -86,6 +96,37 @@ export function createFakeGladys() {
 
     requestWidgetRefresh(key) {
       widgetRefreshes.push(key);
+    },
+
+    // Music players: the SDK's artworkKey shape (`art-` + 12 hex), the
+    // now-playing calls recorded, the handlers kept.
+    artworkKey(url) {
+      let hash = 0;
+      for (const char of String(url)) {
+        hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+      }
+      return `art-${hash.toString(16).padStart(12, '0').slice(-12)}`;
+    },
+
+    async publishNowPlaying(deviceExternalId, values, options) {
+      nowPlaying.push({ deviceExternalId, values, options });
+      return { success: true };
+    },
+
+    onMusicBrowse(callback) {
+      handlers.music.browse = callback;
+    },
+    onMusicSearch(callback) {
+      handlers.music.search = callback;
+    },
+    onMusicPlay(callback) {
+      handlers.music.play = callback;
+    },
+    onMusicQueueGet(callback) {
+      handlers.music.queueGet = callback;
+    },
+    onMusicQueuePlay(callback) {
+      handlers.music.queuePlay = callback;
     },
   };
 }

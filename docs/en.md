@@ -193,8 +193,11 @@ Since Gladys 5.1, the scene editor offers this integration's own actions and tri
 - **AVR: recall a Quick Select** — Quick Select 1-5 (Smart Select on Marantz).
 - **AVR: play a HEOS favorite** — the n-th entry of the HEOS app favorites (a radio, a
   playlist…), on the configured zone, switched on and to HEOS when needed.
-- **AVR: play from Qobuz** — a playlist (yours first, then the catalog) or an album, by name,
-  through HEOS; see "Qobuz" below.
+- **AVR: play from Qobuz** — a playlist, an album, the latest album of an artist, an artist
+  (radio or popular tracks) or a track, by name, through HEOS; replacing the queue, played next or
+  added at the end; see "Qobuz" below.
+- **Play music on a speaker** (a Gladys 5.3 action, Music category) — a media picked from the
+  receiver's catalog (HEOS favorites, HEOS playlists, Qobuz); see "Gladys music player" below.
 - **AVR: set up the receiver** — power, input, sound mode and volume in a single action; a field
   left empty is not changed. Made for a "Movie" or "Music" scene.
 - **AVR: read the receiver state** — returns power, volume, input (code and name), sound mode,
@@ -244,34 +247,80 @@ reachable, please report it (with the logs mentioned below) so it can be fixed.
 
 ## Qobuz
 
-Since 2025, Qobuz is built into the HEOS app. The scene action **AVR: play from Qobuz** uses it
-to start your playlists or an album from Gladys, without a phone: at wake-up, when you come home,
-when a "Dinner" scene starts.
+Since 2025 (HEOS 37.1), Qobuz is built into the HEOS app. The integration uses it to start Qobuz
+music from Gladys, without a phone: at wake-up, when you come home, when a "Dinner" scene starts.
 
 **Requirements**, once:
 
 1. In the HEOS app, add Qobuz (home → Music services → the three dots → Edit → Add more music)
    and sign in to your Qobuz account.
-2. In Gladys, press **Qobuz: check and list my playlists** (Configuration screen) and pick the
-   receiver. The answer says whether HEOS sees Qobuz and lists your playlists. If you have just
-   added Qobuz in the app, restart the integration first: HEOS only shows a newly added service
-   to a new connection.
+2. Restart the integration: HEOS only shows a newly added service to a new connection.
+3. In Gladys, press **Qobuz: check and list my playlists** (Configuration screen) and pick the
+   receiver. You may type an artist there (e.g. "Céline Dion"): the answer then also says which
+   album would play as the "latest album" and how the artist would play, without playing
+   anything.
 
-**What the action does**: pick **Playlist** or **Album** and type a name. A playlist is looked up
-first in **your** Qobuz playlists, then in the catalog; an album in the catalog. Case, accents
-and punctuation are ignored, and part of the name is enough ("morning jazz" finds "Morning jazz
-2024"). The configured zone is switched on and to HEOS when needed, then the queue is replaced by
-the playlist or album. The name played (and the artist of an album) is handed to the following
-actions of the scene.
+**The scene action "AVR: play from Qobuz"**:
+
+| What to play              | What the action does                                                                        |
+| ------------------------- | ------------------------------------------------------------------------------------------- |
+| Playlist                  | looks first in **your** Qobuz playlists, then in the catalog                                |
+| Album                     | looks in the catalog; the optional **Artist** field tells two albums of the same name apart |
+| Latest album of an artist | type the artist; the action takes its latest release (see below)                            |
+| Artist                    | its radio when HEOS offers one, else its popular tracks, else every track found by its name |
+| Track                     | looks for the track; the **Artist** field picks the right version                           |
+
+**Queue**: _Replace and play now_ (default), _Play next_ or _Add to the end_. A radio always
+plays at once (HEOS does not queue a radio).
+
+Case, accents and punctuation are ignored, and part of the name is enough ("morning jazz" finds
+"Morning jazz 2024"). The configured zone is switched on and to HEOS when needed. The action
+hands the following actions of the scene the **name played**, the **artist**, the **type** and
+the **method** that found it.
+
+**"Latest album"**: HEOS gives no release date. The action takes, in this order: a "latest
+release" entry of the artist's page when HEOS shows one (method `latest_container`); the most
+recent album when a year is in the names (`year`); else the **first album listed** by HEOS on the
+artist's page (`first_listed`, Qobuz lists a discography newest first); failing that, the first
+album found by a search on the artist's name (`album_search`, less reliable). The method is
+returned by the action and logged: check it with the check button.
+
+**"Artist"**: the returned method says what played: `artist_radio` (a radio of the artist),
+`top_tracks` (its popular tracks), `artist` (its page, when HEOS calls it playable),
+`created_station` (a station HEOS created, only when Qobuz offers it), `searched_tracks` (every
+track found by its name).
 
 Gladys never sees your Qobuz credentials: the receiver talks to Qobuz, with the account signed in
 in the HEOS app. The list of your playlists is read again at most every 5 minutes.
 
-**Limits**: built from the HEOS protocol (the other services follow the same shape there) but
-without a receiver showing Qobuz at hand; if the check button does not find your playlists, its
-answer (and the "Qobuz check" line of the logs) shows what HEOS returns: please report it so the
-lookup can be adjusted. No single track nor artist for now, and a session started from the Qobuz
-app (Qobuz Connect) stays controllable with the Play/Pause/Next/Previous buttons, as before.
+**Limits**: Qobuz is not in the HEOS protocol documentation; all of this was built from the other
+services and user reports, without a receiver showing Qobuz at hand. Qobuz playlists HEOS calls
+"not playable" are queued anyway (a known HEOS defect). When something is not found, the check
+button's answer and the "Qobuz check" lines of the logs show what the receiver returns (without
+your account name nor the images): please send them so the lookup can be adjusted. A session
+started from the Qobuz app (Qobuz Connect) stays controllable with the Play/Pause/Next/Previous
+buttons, as before.
+
+## Gladys music player
+
+With Gladys 5.3 or newer, the receiver is a real music player in the dashboard **Music** box:
+
+- **Now playing**: title, artist, album and artwork. For a receiver already added, run a
+  **Discovery** scan and click **Update**: the four Title, Artist, Album and Artwork features then
+  appear.
+- **Catalog**: _HEOS Favorites_, _HEOS Playlists_ and _Qobuz_ (when Qobuz is signed in), browsed
+  as in the HEOS app.
+- **Search** in Qobuz: artists, albums, playlists, tracks. An artist found also offers "Dernier
+  album · Latest album", picked when played: a scene saving it always plays the latest release.
+  Typing "latest album by Céline Dion" offers it first.
+- **Play**: replace, play next or add to the end; an artist plays as the "Artist" action above.
+- The receiver's **queue**, with the current track; a tap jumps to a track.
+
+Gladys' own scene action **Play music on a speaker** uses this catalog: the media is picked by
+browsing or searching.
+
+**Limits**: no duration nor position, no shuffle nor repeat for now; the catalog shows only Qobuz
+and the HEOS lists.
 
 ## Radio ad breaks
 
@@ -433,7 +482,9 @@ integration's data folder (`/data/ad-breaks.json`, `/data/ad-jingles/`).
 
 ## Prerequisites
 
-- **Gladys 5.1.0 or newer** (the integration's own widgets and scene actions/triggers).
+- **Gladys 5.3.0 or newer** (music player; the integration's own widgets and scene
+  actions/triggers). On an older version, Gladys keeps the last release of the integration that
+  supports it (1.2.3).
 - A Denon or Marantz AV receiver with a network (Ethernet/Wi-Fi) connection.
 - **Network Standby** (sometimes labelled "ECO" standby) enabled in the receiver's setup menu.
   Without it, the receiver drops off the network entirely when powered off and Gladys cannot

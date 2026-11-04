@@ -12,6 +12,21 @@
 - Widget Vol −/+: 2 dB per tap accepted by the reporter (post 39); "L'action a échoué" still at
   times, see "Open after 1.2.1".
 
+## Qobuz and the music player (after 1.2.3, not tested on hardware)
+
+Plan: `~/code/integrations/_lots/hors-lot/qobuz/denon-qobuz-plan.md`. Waiting for Louis' "Qobuz:
+check" output with an artist (lines "Qobuz check" of the logs) to replace the guesses:
+
+- [ ] Qobuz search criteria (assumed TIDAL's: Artist 1, Album 2, Track 3 with
+      `SEARCHED_TRACKS-`, Playlist 6) and the `cid` a searched track is queued with.
+- [ ] The names of the Qobuz tree ("Library" > "Playlists" assumed) and of an artist page
+      ("Albums", "Top Tracks", a "latest release" or "radio" entry?).
+- [ ] The order of an artist's albums ("latest album" = first listed is an assumption) and any
+      date or year field.
+- [ ] Whether add_to_queue really accepts a Qobuz playlist listed `playable: no`.
+- [ ] Next: duration and position (`event/player_now_playing_progress`), other HEOS services in
+      the catalog (TIDAL, Deezer, TuneIn).
+
 ## Decisions
 
 - 2026-11-03 (1.2.3, review denon-123 r1 I1), which gaps judge an active jingle (`recordBreak()`,

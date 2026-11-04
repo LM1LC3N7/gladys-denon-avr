@@ -8,7 +8,7 @@
   },
   "version": "1.2.3",
   "docker_image": "ghcr.io/lm1lc3n7/gladys-denon-avr:1.2.3",
-  "gladys_version": ">=5.1.0",
+  "gladys_version": ">=5.3.0",
   "categories": ["multimedia"],
   "transports": ["local"],
   "cover_image": "https://raw.githubusercontent.com/lm1lc3n7/gladys-denon-avr/main/cover.jpg",
@@ -519,6 +519,23 @@
             "fr": "Ampli"
           },
           "required": true
+        },
+        {
+          "key": "artist",
+          "type": "string",
+          "label": {
+            "en": "Artist to test (optional)",
+            "fr": "Artiste à tester (facultatif)"
+          },
+          "description": {
+            "en": "Also logs what HEOS shows for this artist and what \"latest album\" and \"artist\" would play, without playing anything.",
+            "fr": "Journalise aussi ce que HEOS montre pour cet artiste et ce que « dernier album » et « artiste » joueraient, sans rien jouer."
+          },
+          "required": false,
+          "placeholder": {
+            "en": "e.g. Céline Dion",
+            "fr": "ex. Céline Dion"
+          }
         }
       ]
     }
@@ -2579,8 +2596,8 @@
         "fr": "Ampli : jouer depuis Qobuz"
       },
       "description": {
-        "en": "A Qobuz playlist (yours first, then the catalog) or album, by name, through HEOS. Qobuz must be added in the HEOS app.",
-        "fr": "Une playlist Qobuz (les vôtres d'abord, puis le catalogue) ou un album, par son nom, via HEOS. Qobuz doit être ajouté dans l'application HEOS."
+        "en": "A playlist, an album, the latest album of an artist, an artist (radio or popular tracks) or a track, by name, through HEOS. Qobuz must be added in the HEOS app.",
+        "fr": "Une playlist, un album, le dernier album d'un artiste, un artiste (radio ou titres populaires) ou un titre, par son nom, via HEOS. Qobuz doit être ajouté dans l'application HEOS."
       },
       "timeout_seconds": 60,
       "fields": [
@@ -2617,6 +2634,27 @@
                 "en": "Album",
                 "fr": "Album"
               }
+            },
+            {
+              "value": "latest_album",
+              "label": {
+                "en": "Latest album of an artist",
+                "fr": "Dernier album d'un artiste"
+              }
+            },
+            {
+              "value": "artist",
+              "label": {
+                "en": "Artist (radio or popular tracks)",
+                "fr": "Artiste (radio ou titres populaires)"
+              }
+            },
+            {
+              "value": "track",
+              "label": {
+                "en": "Track",
+                "fr": "Titre"
+              }
             }
           ]
         },
@@ -2624,14 +2662,60 @@
           "key": "name",
           "type": "string",
           "label": {
-            "en": "Name",
-            "fr": "Nom"
+            "en": "Name (playlist, album, artist or track)",
+            "fr": "Nom (playlist, album, artiste ou titre)"
           },
           "required": true,
           "placeholder": {
-            "en": "e.g. Morning jazz",
-            "fr": "ex. Jazz du matin"
+            "en": "e.g. Morning jazz, Céline Dion",
+            "fr": "ex. Jazz du matin, Céline Dion"
           }
+        },
+        {
+          "key": "artist",
+          "type": "string",
+          "label": {
+            "en": "Artist (album or track, optional)",
+            "fr": "Artiste (album ou titre, facultatif)"
+          },
+          "description": {
+            "en": "Narrows an album or a track down to this artist.",
+            "fr": "Limite l'album ou le titre à cet artiste."
+          },
+          "required": false
+        },
+        {
+          "key": "mode",
+          "type": "select",
+          "label": {
+            "en": "Queue",
+            "fr": "File de lecture"
+          },
+          "required": false,
+          "default": "replace",
+          "options": [
+            {
+              "value": "replace",
+              "label": {
+                "en": "Replace and play now",
+                "fr": "Remplacer et jouer maintenant"
+              }
+            },
+            {
+              "value": "next",
+              "label": {
+                "en": "Play next",
+                "fr": "Jouer ensuite"
+              }
+            },
+            {
+              "value": "append",
+              "label": {
+                "en": "Add to the end",
+                "fr": "Ajouter à la fin"
+              }
+            }
+          ]
         }
       ],
       "outputs": [
@@ -2639,16 +2723,32 @@
           "key": "played",
           "type": "string",
           "label": {
-            "en": "Playlist or album played",
-            "fr": "Playlist ou album joué"
+            "en": "Media played (name)",
+            "fr": "Média joué (nom)"
           }
         },
         {
           "key": "artist",
           "type": "string",
           "label": {
-            "en": "Artist (album)",
-            "fr": "Artiste (album)"
+            "en": "Artist",
+            "fr": "Artiste"
+          }
+        },
+        {
+          "key": "type",
+          "type": "string",
+          "label": {
+            "en": "Type played (playlist, album, artist, track)",
+            "fr": "Type joué (playlist, album, artist, track)"
+          }
+        },
+        {
+          "key": "method",
+          "type": "string",
+          "label": {
+            "en": "How it was found",
+            "fr": "Comment il a été trouvé"
           }
         }
       ]
@@ -3383,5 +3483,11 @@
         }
       ]
     }
-  ]
+  ],
+  "music": {
+    "browse": true,
+    "search": true,
+    "queue": true,
+    "append": true
+  }
 }
