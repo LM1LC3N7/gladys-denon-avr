@@ -149,3 +149,14 @@ check" output with an artist (lines "Qobuz check" of the logs) to replace the gu
 - [ ] Tests on the end-range bounds (4 mutants survive): end jingle 158 s before the next song (heard), 5 s after it (heard), 12 s after it (missed).
 - [ ] Code comments that overstate: `src/adbreak/index.js:228-232` and `src/adbreak/jingles.js:778-780` say host talk "never" makes a jingle look missed. It can, when the window rule takes the talk for a break or after a mistaken press. Same wording issue at `src/adbreak/detector.js:52`.
 - [ ] Limits for step 2 and the bench: start-jingle recall is biased upwards outside the windows (only breaks it opened are judged). "74/74" is a precision, not a recall: the end jingle's real recall will show in the 1.2.3 widget. Simulated demotion rate: 1 per 140 judged breaks at 80 % recall, 1 per 62 at 74 %.
+
+## Next patch (review of the music player, relecture-r2, minors)
+
+- m1: Amazon connected but refused by HEOS gives the raw error without the service name; a failed
+  `get_music_sources` fails the whole catalog root, HEOS favorites included (keep favorites and playlists).
+- m2: multi-service search is bounded in time only (about 15 requests per keystroke for 3 services).
+- m3: "Artwork left out of the widget (<URL>)" logs the image URL: drop the URL.
+- m4: a small "what each service can do" table in docs/en.md and docs/fr.md (README and this file have it).
+- m5: "Preferred service" setting misses Amazon, Pandora, SiriusXM.
+- m6: 1 s or less left for the acting step when the zone wakes from standby.
+- m7: the check button has no per-service deadline.
