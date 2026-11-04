@@ -65,6 +65,10 @@ export const DEFAULT_CONFIG = {
   // Give back the volume, input and power state the receiver had before an
   // announcement, once it is over (src/devices/announcements.js).
   announcement_restore: true,
+  // The music service the Gladys music player searches (src/devices/music.js):
+  // `auto` (Qobuz when it is signed in, else every service that can search),
+  // `all`, or a service key of src/heos/services.js (`tidal`, `deezer`…).
+  music_search_service: 'auto',
 };
 
 /** A whole volume level within [min, 100]; `fallback` when not a number. */
@@ -122,6 +126,10 @@ export function normalizeConfig(raw = {}) {
       Math.max(0, Math.min(100, Number(raw.announcement_volume ?? 0) || 0)),
     ),
     announcement_restore: raw.announcement_restore !== false,
+    music_search_service:
+      typeof raw.music_search_service === 'string' && raw.music_search_service.trim()
+        ? raw.music_search_service.trim().toLowerCase()
+        : DEFAULT_CONFIG.music_search_service,
     sourceOverrides: parseSourceOverrides(
       typeof raw.source_overrides === 'string'
         ? raw.source_overrides

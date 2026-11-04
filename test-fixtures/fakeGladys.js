@@ -100,12 +100,15 @@ export function createFakeGladys() {
 
     // Music players: the SDK's artworkKey shape (`art-` + 12 hex), the
     // now-playing calls recorded, the handlers kept.
+    artworkUrls: new Map(),
     artworkKey(url) {
       let hash = 0;
       for (const char of String(url)) {
         hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
       }
-      return `art-${hash.toString(16).padStart(12, '0').slice(-12)}`;
+      const key = `art-${hash.toString(16).padStart(12, '0').slice(-12)}`;
+      this.artworkUrls.set(key, url);
+      return key;
     },
 
     async publishNowPlaying(deviceExternalId, values, options) {
@@ -127,6 +130,9 @@ export function createFakeGladys() {
     },
     onMusicQueuePlay(callback) {
       handlers.music.queuePlay = callback;
+    },
+    onMusicGetArtwork(callback) {
+      handlers.music.getArtwork = callback;
     },
   };
 }

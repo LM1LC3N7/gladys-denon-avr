@@ -8,10 +8,13 @@
 // `heos:` URL query string. Two kinds are the module's own, resolved when
 // played: `latest` (the latest album of an artist, so a scene keeps playing
 // the newest one) and `artist` (an artist's radio or popular tracks).
+// Kinds: `source` (a service, a media server, an AUX player: its top level),
+// `container`, `artist`, `track`, `station`, `input` (play_input), `queue`,
+// `latest`.
 // -----------------------------------------------------------------------------
 
 import { MUSIC_MEDIA_TYPES } from '@gladysassistant/integration-sdk';
-import { isQueueableContainer, isStation, isTrack } from './qobuz.js';
+import { isInput, isQueueableContainer, isStation, isTrack } from './qobuz.js';
 
 const PREFIX = 'heos:';
 const MAX_ID_LENGTH = 512;
@@ -83,15 +86,34 @@ const TYPE = {
 /**
  * A normalized HEOS item (browseItems() of ./qobuz.js) as a Gladys
  * MediaItem, or null when it can be neither browsed nor played.
- * `context.cid` is the container it was browsed or searched in (what a track
- * is queued with); `artworkKey(url)` the SDK's key of an image URL.
+ * `context.cid` is the container it was browsed in (what a station is played
+ * with), `context.trackCid` the one a track is queued with (a search's
+ * `SEARCHED_TRACKS-…`, else `cid`); `service` is appended to the subtitle
+ * (a search over several services); `artworkKey(url)` the SDK's key of an
+ * image URL.
  */
-export function toMediaItem(item, sid, { cid = null, artworkKey } = {}) {
+export function toMediaItem(item, sid, { cid = null, trackCid, service = '', artworkKey } = {}) {
   let kind;
   let type;
   let browsable = false;
   let playable;
-  if (isTrack(item)) {
+  let itemSid = sid;
+  if (item.sid !== null && item.sid !== undefined && item.cid === null && item.mid === null) {
+    // A sub-source (a media server under Local Music, a player under AUX).
+    kind = 'source';
+    type = MUSIC_MEDIA_TYPES.FOLDER;
+    browsable = true;
+    playable = false;
+    itemSid = Number(item.sid);
+    if (!Number.isFinite(itemSid)) {
+      return null;
+    }
+  } else if (isInput(item)) {
+    // An input of the player browsed (its sid): played with play_input.
+    kind = 'input';
+    type = MUSIC_MEDIA_TYPES.RADIO;
+    playable = true;
+  } else if (isTrack(item)) {
     kind = 'track';
     type = MUSIC_MEDIA_TYPES.TRACK;
     playable = true;
@@ -108,18 +130,21 @@ export function toMediaItem(item, sid, { cid = null, artworkKey } = {}) {
   } else {
     return null;
   }
+  const containerId = { track: trackCid ?? cid, station: cid, input: null }[kind];
   const id = encodeMediaId({
     kind,
-    sid,
-    cid: kind === 'track' ? cid : item.cid,
-    mid: kind === 'track' || kind === 'station' ? item.mid : null,
+    sid: itemSid,
+    cid: containerId === undefined ? item.cid : containerId,
+    mid: ['track', 'station', 'input'].includes(kind) ? item.mid : null,
     name: item.name,
   });
   if (!id || !item.name) {
     return null;
   }
   const media = { id, type, title: item.name, browsable, playable };
-  const subtitle = [item.artist, kind === 'track' ? item.album : ''].filter(Boolean).join(' · ');
+  const subtitle = [item.artist, kind === 'track' ? item.album : '', service]
+    .filter(Boolean)
+    .join(' · ');
   if (subtitle) {
     media.subtitle = subtitle;
   }
@@ -135,16 +160,19 @@ const LATEST_TITLE = {
   both: (artist) => `Dernier album · Latest album : ${artist}`,
 };
 
-/** The "latest album of <artist>" entry, resolved when played; `lang` fr, en or both. */
-export function latestAlbumMediaItem(sid, artist, lang = 'both') {
-  const id = encodeMediaId({ kind: 'latest', sid, artist });
+/**
+ * The "latest album of <artist>" entry, resolved when played; `lang` fr, en
+ * or both; `service` named in the title when several services are searched.
+ */
+export function latestAlbumMediaItem(sid, artist, lang = 'both', service = '', sourceName = '') {
+  const id = encodeMediaId({ kind: 'latest', sid, artist, name: sourceName });
   if (!id || !String(artist ?? '').trim()) {
     return null;
   }
   return {
     id,
     type: MUSIC_MEDIA_TYPES.ALBUM,
-    title: (LATEST_TITLE[lang] ?? LATEST_TITLE.both)(artist),
+    title: (LATEST_TITLE[lang] ?? LATEST_TITLE.both)(artist) + (service ? ` (${service})` : ''),
     subtitle: artist,
     browsable: false,
     playable: true,

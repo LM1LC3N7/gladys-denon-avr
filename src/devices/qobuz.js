@@ -1,8 +1,9 @@
 // -----------------------------------------------------------------------------
-// Qobuz on one receiver, through its HEOS session: find the Qobuz source,
+// Qobuz — and every other HEOS music service (TIDAL, Deezer, Amazon,
+// TuneIn…) — on one receiver, through its HEOS session: find the service,
 // list the user's playlists, search the catalog, and play a playlist, an
-// album, the latest album of an artist, an artist (radio or popular tracks)
-// or a track. Every call goes through heos.request() (./heos-session.js):
+// album, the latest album of an artist, an artist (radio or popular tracks),
+// a track or a radio station. Every call goes through heos.request() (./heos-session.js):
 // one command at a time, each awaited for its answer.
 //
 // Nothing here talks to Qobuz itself: the receiver does, with the Qobuz
@@ -22,9 +23,11 @@ import {
   buildCreateStationCommand,
   buildGetMusicSourcesCommand,
   buildGetSearchCriteriaCommand,
+  buildPlayInputCommand,
   buildPlayStationCommand,
   buildSearchCommand,
 } from '../heos/protocol.js';
+import { findService, isSpotify, serviceLabel, sourceList } from '../heos/services.js';
 import {
   OPTION_CREATE_STATION,
   accountNames,
@@ -33,7 +36,6 @@ import {
   criteriaOf,
   findAlbumsContainer,
   findLatestContainer,
-  findQobuzSource,
   findRadio,
   findTopTracks,
   fold,
@@ -47,10 +49,10 @@ import {
   parseOptions,
   pickByName,
   pickLatestAlbum,
-  sourceNames,
 } from '../heos/qobuz.js';
 import { ensureZoneReadyForHeos, requireHeos } from './control.js';
 import { registerResetHook, timing } from './registry.js';
+import { DeadlineError, assertTimeLeft } from './deadline.js';
 
 // A page of a browse: the CLI spec caps most services at 50 or 100 items.
 const PAGE_SIZE = 50;
@@ -69,22 +71,30 @@ const MAX_SEARCH_TEXT = 128;
 const SEARCHED_TRACKS = 'SEARCHED_TRACKS-';
 
 export const QOBUZ_KINDS = Object.freeze(['playlist', 'album', 'latest_album', 'artist', 'track']);
+// What a generic service can play (a TuneIn radio by name, for one).
+export const SERVICE_KINDS = Object.freeze([...QOBUZ_KINDS, 'radio']);
 
-/** Qobuz is missing from HEOS, or signed out: `reason` is `missing` | `signed_out`. */
-export class QobuzUnavailableError extends Error {
-  constructor(reason, sources = []) {
+/**
+ * A service is missing from HEOS, or signed out: `reason` is `missing` |
+ * `signed_out`, `service` its label, `sources` the names HEOS lists.
+ */
+export class ServiceUnavailableError extends Error {
+  constructor(reason, sources = [], service = 'Qobuz') {
     super(
       reason === 'signed_out'
-        ? 'Qobuz is listed by HEOS but not signed in: sign in to Qobuz in the HEOS app'
-        : `HEOS lists no Qobuz source (sources: ${sources.join(', ') || 'none'}): add Qobuz in the HEOS app (Music services)`,
+        ? `${service} is listed by HEOS but not signed in: sign in to ${service} in the HEOS app`
+        : `HEOS lists no ${service} source (sources: ${sources.join(', ') || 'none'}): add ${service} in the HEOS app (Music services)`,
     );
-    this.name = 'QobuzUnavailableError';
+    this.name = 'ServiceUnavailableError';
     this.reason = reason;
     this.sources = sources;
+    this.service = service;
   }
 }
+// The name of 1.2.x, kept for the callers that test for it.
+export const QobuzUnavailableError = ServiceUnavailableError;
 
-/** Nothing matched in Qobuz: the message says what was looked for. */
+/** Nothing matched in a service: the message says what was looked for. */
 export class QobuzNotFoundError extends Error {
   constructor(message) {
     super(message);
@@ -118,28 +128,51 @@ async function cached(cache, key, refresh, load) {
 }
 
 /**
- * The Qobuz source of one receiver: `{ sid, name, available, sources, hidden }`
- * (`hidden`: the account names HEOS lists, never to be logged). Throws
- * QobuzUnavailableError when HEOS does not list it or it is signed out.
+ * Every source HEOS lists on one receiver (cached): `{ list, names, hidden }`
+ * — `list` normalized (../heos/services.js), `names` for the messages,
+ * `hidden` the account names HEOS lists, never to be logged.
  */
-export async function qobuzSource(externalId, { refresh = false } = {}) {
-  const heos = requireHeos(externalId, 'use Qobuz');
-  const entry = sourceCache.get(externalId);
-  if (!refresh && fresh(entry)) {
-    return entry.value;
-  }
-  const answer = await heos.request(buildGetMusicSourcesCommand());
-  const source = findQobuzSource(answer.payload);
-  const sources = sourceNames(answer.payload);
+export async function heosSources(externalId, { refresh = false } = {}) {
+  const heos = requireHeos(externalId, 'use the HEOS music services');
+  return cached(sourceCache, externalId, refresh, async () => {
+    const answer = await heos.request(buildGetMusicSourcesCommand());
+    return {
+      list: sourceList(answer.payload),
+      names: Array.isArray(answer.payload)
+        ? answer.payload.map((entry) => String(entry?.name ?? '?'))
+        : [],
+      hidden: accountNames(answer.payload),
+    };
+  });
+}
+
+/**
+ * The source of a service (`qobuz`, `tidal`… or a name) on one receiver:
+ * `{ sid, name, available, sources, hidden, label }`. Throws
+ * ServiceUnavailableError when HEOS does not list it or it is signed out.
+ */
+export async function serviceSource(externalId, service, { refresh = false } = {}) {
+  const label = serviceLabel(service);
+  requireHeos(externalId, `use ${label}`);
+  const { list, names, hidden } = await heosSources(externalId, { refresh });
+  const source = findService(list, service);
   if (!source) {
-    throw new QobuzUnavailableError('missing', sources);
+    throw new ServiceUnavailableError('missing', names, label);
+  }
+  if (isSpotify(source)) {
+    throw new Error(
+      'Spotify is Spotify Connect only in HEOS: start it from the Spotify app, it cannot be browsed nor searched',
+    );
   }
   if (!source.available) {
-    throw new QobuzUnavailableError('signed_out', sources);
+    throw new ServiceUnavailableError('signed_out', names, label);
   }
-  const value = { ...source, sources, hidden: accountNames(answer.payload) };
-  sourceCache.set(externalId, { value, at: Date.now() });
-  return value;
+  return { ...source, name: source.name || label, label, sources: names, hidden };
+}
+
+/** The Qobuz source of one receiver (see serviceSource()). */
+export function qobuzSource(externalId, options) {
+  return serviceSource(externalId, 'qobuz', options);
 }
 
 /**
@@ -187,16 +220,17 @@ export async function topLevel(externalId, heos, sid, { refresh = false } = {}) 
 }
 
 /**
- * The user's Qobuz playlists, as HEOS shows them: `{ source, topLevel, opened, playlists }`.
+ * The user's playlists of a service, as HEOS shows them: `{ source, topLevel, opened, playlists }`.
  * `topLevel` (the names of the first level) is for the diagnostics.
  */
-export async function listQobuzPlaylists(externalId, { refresh = false } = {}) {
-  const source = await qobuzSource(externalId, { refresh });
-  const entry = playlistCache.get(externalId);
+export async function listServicePlaylists(externalId, service, { refresh = false } = {}) {
+  const source = await serviceSource(externalId, service, { refresh });
+  const key = `${externalId}|${source.sid}`;
+  const entry = playlistCache.get(key);
   if (!refresh && fresh(entry)) {
     return entry.value;
   }
-  const heos = requireHeos(externalId, 'use Qobuz');
+  const heos = requireHeos(externalId, `use ${source.label}`);
   const top = (await topLevel(externalId, heos, source.sid, { refresh })).items;
   const playlists = top.filter(isQueueableContainer).filter((item) => item.type === 'playlist');
   const opened = [];
@@ -224,8 +258,28 @@ export async function listQobuzPlaylists(externalId, { refresh = false } = {}) {
     opened,
     playlists: unique.slice(0, MAX_PLAYLISTS),
   };
-  playlistCache.set(externalId, { value, at: Date.now() });
+  playlistCache.set(key, { value, at: Date.now() });
   return value;
+}
+
+/** The user's Qobuz playlists (see listServicePlaylists()). */
+export function listQobuzPlaylists(externalId, options) {
+  return listServicePlaylists(externalId, 'qobuz', options);
+}
+
+/**
+ * The search criteria of a source, or none when HEOS refuses (a service
+ * that cannot search). A deadline passed is thrown, never taken for "none".
+ */
+export async function searchCriteriaOrNone(externalId, heos, sid) {
+  try {
+    return await searchCriteria(externalId, heos, sid);
+  } catch (err) {
+    if (err instanceof DeadlineError) {
+      throw err;
+    }
+    return [];
+  }
 }
 
 /** The raw search criteria of a source (cached). */
@@ -274,7 +328,10 @@ export async function findArtist(externalId, heos, sid, name) {
 async function artistChildren(heos, sid, artist) {
   try {
     return await browseAll(heos, sid, artist.cid, ARTIST_CHILDREN);
-  } catch {
+  } catch (err) {
+    if (err instanceof DeadlineError) {
+      throw err;
+    }
     return [];
   }
 }
@@ -283,7 +340,13 @@ async function artistChildren(heos, sid, artist) {
  * The latest album of an artist: `{ album, artist, method }`, or throws
  * QobuzNotFoundError. See pickLatestAlbum() for what "latest" can mean.
  */
-export async function resolveLatestAlbum(externalId, heos, sid, artistName) {
+export async function resolveLatestAlbum(
+  externalId,
+  heos,
+  sid,
+  artistName,
+  { label = 'Qobuz' } = {},
+) {
   const wanted = String(artistName ?? '').trim();
   if (!wanted) {
     throw new Error('An artist name is required');
@@ -323,7 +386,7 @@ export async function resolveLatestAlbum(externalId, heos, sid, artistName) {
       method: picked.method === 'year' ? 'album_search_year' : 'album_search',
     };
   }
-  throw new QobuzNotFoundError(`No Qobuz album found for the artist "${wanted}"`);
+  throw new QobuzNotFoundError(`No ${label} album found for the artist "${wanted}"`);
 }
 
 /**
@@ -357,7 +420,12 @@ export async function resolveArtist(externalId, heos, sid, artistName, { artist 
       return { play: { cid: found.cid }, method: 'artist', name };
     }
   }
-  const { options } = await topLevel(externalId, heos, sid).catch(() => ({ options: [] }));
+  const { options } = await topLevel(externalId, heos, sid).catch((err) => {
+    if (err instanceof DeadlineError) {
+      throw err;
+    }
+    return { options: [] };
+  });
   const artistCriteria = criteriaOf(await searchCriteria(externalId, heos, sid), 'artist');
   if (artistCriteria && options.some((option) => option.id === OPTION_CREATE_STATION)) {
     try {
@@ -366,11 +434,14 @@ export async function resolveArtist(externalId, heos, sid, artistName, { artist 
       if (station) {
         return { play: { station }, method: 'created_station', name };
       }
-    } catch {
+    } catch (err) {
+      if (err instanceof DeadlineError) {
+        throw err;
+      }
       // Not offered after all: the searched tracks below.
     }
   }
-  const tracks = criteriaOf(await searchCriteria(externalId, heos, sid), 'track');
+  const tracks = criteriaOf(await searchCriteriaOrNone(externalId, heos, sid), 'track');
   if (tracks?.playable) {
     return {
       play: { cid: `${tracks.cid ?? SEARCHED_TRACKS}${searchText(name)}` },
@@ -398,6 +469,11 @@ export function playStation(heos, sid, cid, mid, name) {
   return heos.request(buildPlayStationCommand(heos.pid, sid, cid, mid, name));
 }
 
+/** Play an input (`inputs/…`) of the player `spid` (an AUX entry). */
+export function playInput(heos, input, spid) {
+  return heos.request(buildPlayInputCommand(heos.pid, input, spid));
+}
+
 /** Play what resolveArtist() found. */
 export function playArtistPlan(heos, sid, plan, mode) {
   return plan.play.station
@@ -418,35 +494,37 @@ async function findByName(externalId, heos, sid, kind, name, artist) {
 }
 
 /**
- * Play from Qobuz on the configured zone (switched on and to HEOS first, as
- * for a HEOS favorite). `kind`:
+ * Play from a HEOS music service (`service`: `qobuz`, `tidal`… or a name) on
+ * the configured zone (switched on and to HEOS first, as for a HEOS
+ * favorite). `kind`:
  * - `playlist`: by name, the user's own first, then the catalog;
  * - `album`: by name, `artist` narrowing it down;
  * - `latest_album`: the latest album of the artist named `name`;
  * - `artist`: the artist named `name`, its radio or popular tracks;
- * - `track`: by name, `artist` narrowing it down.
+ * - `track`: by name, `artist` narrowing it down;
+ * - `radio`: a station by name (TuneIn, iHeartRadio…).
  * `mode` `replace` (default), `next` or `append` (a station always plays now).
- * Resolves `{ played, artist, type, method }`; throws when nothing matches.
+ * Resolves `{ played, artist, type, method, service }`; throws when nothing matches.
  */
-export async function playQobuz(
+export async function playFromService(
   externalId,
-  { kind = 'playlist', name, artist = '', mode = 'replace' },
+  { service = 'qobuz', kind = 'playlist', name, artist = '', mode = 'replace' },
   zone,
 ) {
   const wanted = String(name ?? '').trim();
   if (!wanted) {
-    throw new Error('A name is required (playlist, album, artist or track)');
+    throw new Error('A name is required (playlist, album, artist, track or radio)');
   }
-  if (!QOBUZ_KINDS.includes(kind)) {
-    throw new Error(`Unknown Qobuz kind "${kind}" (${QOBUZ_KINDS.join(', ')})`);
+  if (!SERVICE_KINDS.includes(kind)) {
+    throw new Error(`Unknown kind "${kind}" (${SERVICE_KINDS.join(', ')})`);
   }
-  const source = await qobuzSource(externalId);
-  const heos = requireHeos(externalId, 'play from Qobuz');
-  const { sid } = source;
+  const source = await serviceSource(externalId, service);
+  const { sid, label } = source;
+  const heos = requireHeos(externalId, `play from ${label}`);
   let play;
   let result;
   if (kind === 'latest_album') {
-    const latest = await resolveLatestAlbum(externalId, heos, sid, wanted);
+    const latest = await resolveLatestAlbum(externalId, heos, sid, wanted, { label });
     play = () => queueContainer(heos, sid, latest.album.cid, mode);
     result = {
       played: latest.album.name,
@@ -458,8 +536,16 @@ export async function playQobuz(
     const plan = await resolveArtist(externalId, heos, sid, wanted);
     play = () => playArtistPlan(heos, sid, plan, mode);
     result = { played: plan.name, artist: plan.name, type: 'artist', method: plan.method };
+  } else if (kind === 'radio') {
+    const { items } = await searchKind(externalId, heos, sid, 'station', wanted);
+    const station = pickByName(items.filter(isStation), wanted);
+    if (!station) {
+      throw new QobuzNotFoundError(`No ${label} radio named "${wanted}"`);
+    }
+    play = () => playStation(heos, sid, null, station.mid, station.name);
+    result = { played: station.name, artist: '', type: 'radio', method: 'search' };
   } else if (kind === 'playlist') {
-    let item = pickByName((await listQobuzPlaylists(externalId)).playlists, wanted);
+    let item = pickByName((await listServicePlaylists(externalId, service)).playlists, wanted);
     let method = 'library';
     if (!item) {
       const { items } = await searchKind(externalId, heos, sid, 'playlist', wanted);
@@ -467,7 +553,7 @@ export async function playQobuz(
       method = 'search';
     }
     if (!item) {
-      throw new QobuzNotFoundError(`No Qobuz playlist named "${wanted}"`);
+      throw new QobuzNotFoundError(`No ${label} playlist named "${wanted}"`);
     }
     play = () => queueContainer(heos, sid, item.cid, mode);
     result = { played: item.name, artist: item.artist, type: 'playlist', method };
@@ -475,7 +561,7 @@ export async function playQobuz(
     const { item, trackCid } = await findByName(externalId, heos, sid, kind, wanted, artist);
     if (!item) {
       throw new QobuzNotFoundError(
-        `No Qobuz ${kind} named "${wanted}"${fold(artist) ? ` by "${artist}"` : ''}`,
+        `No ${label} ${kind} named "${wanted}"${fold(artist) ? ` by "${artist}"` : ''}`,
       );
     }
     play =
@@ -484,7 +570,23 @@ export async function playQobuz(
         : () => queueContainer(heos, sid, item.cid, mode);
     result = { played: item.name, artist: item.artist, type: kind, method: 'search' };
   }
+  // A Gladys music command past its deadline never starts the music (a
+  // scene action has no deadline: no-op there).
+  assertTimeLeft(timing.musicActReserveMs, 'before playing');
   await ensureZoneReadyForHeos(externalId, zone);
   await play();
+  return { ...result, service: source.name };
+}
+
+/**
+ * Play from Qobuz (the 1.2 scene action): playFromService() on Qobuz, the
+ * radio kind excepted. Resolves `{ played, artist, type, method }`.
+ */
+export async function playQobuz(externalId, fields, zone) {
+  if (!QOBUZ_KINDS.includes(fields?.kind ?? 'playlist')) {
+    throw new Error(`Unknown Qobuz kind "${fields.kind}" (${QOBUZ_KINDS.join(', ')})`);
+  }
+  const result = await playFromService(externalId, { ...fields, service: 'qobuz' }, zone);
+  delete result.service;
   return result;
 }

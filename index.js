@@ -32,7 +32,7 @@ import {
 } from './src/devices/avr.js';
 import { registerWidgets } from './src/widgets/index.js';
 import { registerSceneActions } from './src/scenes/actions.js';
-import { registerMusic, startNowPlaying } from './src/devices/music.js';
+import { registerMusic, republishNowPlaying, startNowPlaying } from './src/devices/music.js';
 import { getState } from './src/devices/registry.js';
 import { startSceneTriggers } from './src/scenes/triggers.js';
 
@@ -97,6 +97,7 @@ const stopNowPlaying = startNowPlaying(gladys, getState);
 gladys.onDeviceCreated(async (device) => {
   logger.info(`Device created -> connecting ${device.external_id}`);
   connectDevice(gladys, device, config);
+  republishNowPlaying(device.external_id);
 });
 
 // An "Update" from the Discovery tab can carry a new IP_ADDRESS (DHCP): the
@@ -104,6 +105,9 @@ gladys.onDeviceCreated(async (device) => {
 gladys.onDeviceUpdated(async (device) => {
   logger.info(`Device updated -> refreshing ${device.external_id}`);
   refreshDevice(gladys, device, config);
+  // The SDK forgot what it published: the new music features get the
+  // current track now, not at the next one.
+  republishNowPlaying(device.external_id);
 });
 
 gladys.onDeviceDeleted(async (device) => {

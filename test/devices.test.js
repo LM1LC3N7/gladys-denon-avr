@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { buildFeatures } from '../src/devices/features.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import net from 'node:net';
@@ -238,13 +239,14 @@ test('buildDiscoveredDevice applies source_overrides: renames one entry, hides a
 });
 
 test('every feature declares a non-null min/max (Gladys rejects a null one at "add device" time, not at publish)', () => {
-  for (const device of [
-    buildDiscoveredDevice(gladys, DISCOVERED),
-    buildManualDevice(gladys, '192.168.1.77'),
+  for (const features of [
+    buildDiscoveredDevice(gladys, DISCOVERED).features,
+    buildManualDevice(gladys, '192.168.1.77').features,
+    buildFeatures('avr:speaker', {}, { heosOnly: true }),
   ]) {
-    for (const feature of device.features) {
-      assert.notEqual(feature.min, undefined, `${feature.name}.min must be set`);
-      assert.notEqual(feature.max, undefined, `${feature.name}.max must be set`);
+    for (const feature of features) {
+      assert.ok(Number.isFinite(feature.min), `${feature.name}.min must be a number`);
+      assert.ok(Number.isFinite(feature.max), `${feature.name}.max must be a number`);
     }
   }
 });

@@ -322,6 +322,17 @@ export function buildCreateStationCommand(sid, scid, name) {
   return `browse/set_service_option?sid=${escapeHeosValue(sid)}&option=13&scid=${escapeHeosValue(scid)}&name=${escapeHeosValue(name)}`;
 }
 
+/**
+ * `heos://browse/play_input?pid[&spid]&input=inputs/…` — play an input
+ * (CLI spec "Play Input Source"); `spid` is the player that has the input,
+ * left out when it is the same one.
+ */
+export function buildPlayInputCommand(pid, input, spid) {
+  const source =
+    spid !== undefined && spid !== null && String(spid) !== String(pid) ? `&spid=${spid}` : '';
+  return `browse/play_input?pid=${pid}${source}&input=${escapeHeosValue(input)}`;
+}
+
 /** `heos://player/get_queue?pid&range=start,end` (100 items at most per answer). */
 export function buildGetQueueCommand(pid, range) {
   let command = `player/get_queue?pid=${pid}`;

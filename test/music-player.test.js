@@ -7,8 +7,13 @@ import {
   latestAlbumMediaItem,
   toMediaItem,
 } from '../src/heos/media.js';
-import { browseItems } from '../src/heos/qobuz.js';
-import { createMusicHandlers, registerMusic, startNowPlaying } from '../src/devices/music.js';
+import { browseItems, describeItem } from '../src/heos/qobuz.js';
+import {
+  createMusicHandlers,
+  registerMusic,
+  republishNowPlaying,
+  startNowPlaying,
+} from '../src/devices/music.js';
 import { FEATURE, STATE, buildFeatures } from '../src/devices/features.js';
 import { __clearConnectionsForTesting, getState, updateState } from '../src/devices/registry.js';
 import { normalizeConfig } from '../src/config.js';
@@ -126,11 +131,12 @@ test('HEOS items become MediaItems: type, browsable, playable, subtitle, artwork
 
 // --- Against a fake HEOS CLI ---------------------------------------------------
 
-test('the five music handlers are registered on the SDK', () => {
+test('the six music handlers are registered on the SDK', () => {
   const gladys = createFakeGladys();
   registerMusic(gladys, () => normalizeConfig());
   assert.deepEqual(Object.keys(gladys.handlers.music).sort(), [
     'browse',
+    'getArtwork',
     'play',
     'queueGet',
     'queuePlay',
@@ -138,7 +144,7 @@ test('the five music handlers are registered on the SDK', () => {
   ]);
 });
 
-test('the root: HEOS favorites, HEOS playlists and Qobuz', async (t) => {
+test('the root: the HEOS lists, then every signed-in browsable source, as HEOS lists them', async (t) => {
   await connectFakeHeos(t, ID, qobuzReceiver());
   const { music } = setup();
   const root = await music.browse(DEVICE, { parentId: null, offset: 0, limit: 50 });
@@ -147,10 +153,17 @@ test('the root: HEOS favorites, HEOS playlists and Qobuz', async (t) => {
     [
       ['HEOS Favorites', 1028],
       ['HEOS Playlists', 1025],
+      ['TuneIn', 3],
       ['Qobuz', QOBUZ],
+      ['Deezer', 5],
+      ['Tidal', 10],
+      ['Local Music', 1024],
+      ['History', 1026],
+      ['AUX Input', 1027],
     ],
+    'not Pandora nor Amazon (signed out), not Spotify (Spotify Connect only)',
   );
-  assert.equal(root.total, 3);
+  assert.equal(root.total, 9);
   assertValid(root.items);
   const page = await music.browse(DEVICE, { parentId: null, offset: 1, limit: 1 });
   assert.deepEqual(
@@ -159,12 +172,16 @@ test('the root: HEOS favorites, HEOS playlists and Qobuz', async (t) => {
   );
 });
 
-test('the root without Qobuz: the HEOS lists only', async (t) => {
+test('the root of a receiver listing no service: the HEOS lists only', async (t) => {
   await connectFakeHeos(
     t,
     ID,
     qobuzReceiver({
-      overrides: { 'browse/get_music_sources': () => [{ payload: [{ name: 'TuneIn', sid: 3 }] }] },
+      overrides: {
+        'browse/get_music_sources': () => [
+          { payload: [{ name: 'Spotify', sid: 4, available: 'true' }] },
+        ],
+      },
     }),
   );
   const { music } = setup();
@@ -179,7 +196,7 @@ test('Qobuz is browsed level by level down to the playlists, played whatever the
   const fake = await connectFakeHeos(t, ID, qobuzReceiver());
   const { gladys, music } = setup();
   const root = await music.browse(DEVICE, { parentId: null, offset: 0, limit: 50 });
-  const qobuz = root.items[2];
+  const qobuz = root.items.find((item) => item.title === 'Qobuz');
   const top = await music.browse(DEVICE, { parentId: qobuz.id, offset: 0, limit: 50 });
   assert.deepEqual(
     top.items.map((item) => item.title),
@@ -470,7 +487,7 @@ test('unknown media, unknown entries and a receiver without HEOS are refused', a
   const other = { external_id: 'avr:other' };
   await assert.rejects(music.browse(other, { parentId: null }), /cannot browse the music/);
   await assert.rejects(music.queueGet(other, {}), /cannot read the queue/);
-  await assert.rejects(music.search(other, { query: 'x' }), /cannot use Qobuz/);
+  await assert.rejects(music.search(other, { query: 'x' }), /cannot search the music services/);
 });
 
 // --- Now playing ---------------------------------------------------------------
@@ -538,4 +555,62 @@ test('every receiver, HEOS speakers too, has the four now-playing music features
       ],
     );
   }
+});
+
+// --- Artwork, republish, check logs (review r1 m2, m3, m6) ---------------------
+
+const PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==',
+  'base64',
+);
+
+test('artwork: served checked, an image above 300 KB is refused with a log line', async (t) => {
+  const logged = [];
+  t.mock.method(console, 'log', (...args) => logged.push(args.join(' ')));
+  const gladys = createFakeGladys();
+  const music = createMusicHandlers(gladys, () => normalizeConfig(), {
+    fetchFn: async (url) =>
+      url.includes('big')
+        ? new Response('x', { headers: { 'content-length': String(400 * 1024) } })
+        : new Response(PNG, { headers: { 'content-length': String(PNG.length) } }),
+  });
+  const small = gladys.artworkKey('https://static.qobuz.com/images/covers/small_230.png');
+  assert.equal(await music.getArtwork(small), PNG.toString('base64'));
+  const big = gladys.artworkKey('https://static.qobuz.com/images/covers/big_600.jpg');
+  await assert.rejects(music.getArtwork(big), /left out/);
+  assert.ok(logged.some((line) => /Artwork left out.*400 KB, above the 300 KB/.test(line)));
+  await assert.rejects(music.getArtwork('art-000000000000'), /Unknown artwork/);
+});
+
+test('after a Discovery "Update", the current track is published again', async () => {
+  const gladys = createFakeGladys();
+  const stop = startNowPlaying(gladys, getState);
+  try {
+    updateState(ID, { [STATE.NOW_PLAYING_TITLE]: 'Courage' });
+    await tick(80);
+    assert.equal(gladys.nowPlaying.length, 1);
+    republishNowPlaying(ID);
+    await tick(80);
+    assert.equal(gladys.nowPlaying.length, 2, 'the same values sent again');
+    assert.equal(gladys.nowPlaying[1].values.title, 'Courage');
+  } finally {
+    stop();
+  }
+  republishNowPlaying(ID);
+  await tick(80);
+  assert.equal(gladys.nowPlaying.length, 2, 'nothing once stopped');
+});
+
+test('the check logs hide nested values and any URL', () => {
+  assert.deepEqual(
+    describeItem({
+      name: 'Live',
+      url: 'http://stream.example/live.mp3?token=abc',
+      stream_url: ' https://x/y',
+      meta: { owner: 'someone' },
+      tags: ['a'],
+      count: 3,
+    }),
+    { name: 'Live', url: '(url)', stream_url: '(url)', meta: '(object)', tags: '(list)', count: 3 },
+  );
 });

@@ -180,6 +180,97 @@
       "default": ""
     },
     {
+      "key": "music_intro",
+      "type": "section",
+      "label": {
+        "en": "Music player",
+        "fr": "Lecteur de musique"
+      },
+      "description": {
+        "en": "With Gladys 5.3 or newer, the receiver is a music player in the dashboard Music box: HEOS favorites and playlists, and every music service signed in in the HEOS app (Qobuz, TIDAL, Deezer, Amazon Music, TuneIn…), browsed and searched. Spotify is Spotify Connect only in HEOS: start it from the Spotify app.",
+        "fr": "Avec Gladys 5.3 ou plus récent, l'ampli est un lecteur de musique dans la boîte Musique du tableau de bord : favoris et playlists HEOS, et tous les services de musique connectés dans l'application HEOS (Qobuz, TIDAL, Deezer, Amazon Music, TuneIn…), à parcourir et à chercher. Spotify n'est que Spotify Connect dans HEOS : lancez-le depuis l'application Spotify."
+      }
+    },
+    {
+      "key": "music_search_service",
+      "type": "select",
+      "label": {
+        "en": "Preferred music service for the search",
+        "fr": "Service de musique préféré pour la recherche"
+      },
+      "description": {
+        "en": "What the search of the Gladys music player (Music box, \"Play music on a speaker\") looks in. Automatic: Qobuz when it is signed in in the HEOS app, else every service that can search (TIDAL, Deezer, TuneIn…), within the 10 s Gladys waits. A chosen service that is not signed in falls back to every service.",
+        "fr": "Où cherche la recherche du lecteur de musique Gladys (boîte Musique, « Lancer une musique sur une enceinte »). Automatique : Qobuz s'il est connecté dans l'application HEOS, sinon tous les services qui savent chercher (TIDAL, Deezer, TuneIn…), dans les 10 s qu'attend Gladys. Un service choisi mais non connecté revient à tous les services."
+      },
+      "required": false,
+      "default": "auto",
+      "options": [
+        {
+          "value": "auto",
+          "label": {
+            "en": "Automatic (Qobuz when available)",
+            "fr": "Automatique (Qobuz s'il est là)"
+          }
+        },
+        {
+          "value": "all",
+          "label": {
+            "en": "Every service",
+            "fr": "Tous les services"
+          }
+        },
+        {
+          "value": "qobuz",
+          "label": {
+            "en": "Qobuz",
+            "fr": "Qobuz"
+          }
+        },
+        {
+          "value": "tidal",
+          "label": {
+            "en": "TIDAL",
+            "fr": "TIDAL"
+          }
+        },
+        {
+          "value": "deezer",
+          "label": {
+            "en": "Deezer",
+            "fr": "Deezer"
+          }
+        },
+        {
+          "value": "soundcloud",
+          "label": {
+            "en": "SoundCloud",
+            "fr": "SoundCloud"
+          }
+        },
+        {
+          "value": "napster",
+          "label": {
+            "en": "Napster",
+            "fr": "Napster"
+          }
+        },
+        {
+          "value": "tunein",
+          "label": {
+            "en": "TuneIn",
+            "fr": "TuneIn"
+          }
+        },
+        {
+          "value": "iheartradio",
+          "label": {
+            "en": "iHeartRadio",
+            "fr": "iHeartRadio"
+          }
+        }
+      ]
+    },
+    {
       "key": "ad_break_intro",
       "type": "section",
       "label": {
@@ -505,8 +596,8 @@
     {
       "key": "qobuz_check",
       "label": {
-        "en": "Qobuz: check and list my playlists",
-        "fr": "Qobuz : vérifier et lister mes playlists"
+        "en": "HEOS services and Qobuz: check",
+        "fr": "Services HEOS et Qobuz : vérifier"
       },
       "timeout_seconds": 60,
       "fields": [
@@ -2749,6 +2840,267 @@
           "label": {
             "en": "How it was found",
             "fr": "Comment il a été trouvé"
+          }
+        }
+      ]
+    },
+    {
+      "key": "play_heos_service",
+      "label": {
+        "en": "AVR: play from a HEOS music service",
+        "fr": "Ampli : jouer depuis un service HEOS"
+      },
+      "description": {
+        "en": "From TIDAL, Deezer, Amazon Music, Qobuz, TuneIn… signed in in the HEOS app: a playlist, an album, the latest album of an artist, an artist, a track or a radio, by name. Not Spotify (Spotify Connect only).",
+        "fr": "Depuis TIDAL, Deezer, Amazon Music, Qobuz, TuneIn… connectés dans l'application HEOS : une playlist, un album, le dernier album d'un artiste, un artiste, un titre ou une radio, par son nom. Pas Spotify (Spotify Connect seulement)."
+      },
+      "timeout_seconds": 60,
+      "fields": [
+        {
+          "key": "avr",
+          "type": "select",
+          "source": "devices",
+          "label": {
+            "en": "Receiver",
+            "fr": "Ampli"
+          },
+          "required": true
+        },
+        {
+          "key": "service",
+          "type": "select",
+          "label": {
+            "en": "Music service",
+            "fr": "Service de musique"
+          },
+          "required": true,
+          "default": "qobuz",
+          "options": [
+            {
+              "value": "qobuz",
+              "label": {
+                "en": "Qobuz",
+                "fr": "Qobuz"
+              }
+            },
+            {
+              "value": "tidal",
+              "label": {
+                "en": "TIDAL",
+                "fr": "TIDAL"
+              }
+            },
+            {
+              "value": "deezer",
+              "label": {
+                "en": "Deezer",
+                "fr": "Deezer"
+              }
+            },
+            {
+              "value": "amazon",
+              "label": {
+                "en": "Amazon Music",
+                "fr": "Amazon Music"
+              }
+            },
+            {
+              "value": "soundcloud",
+              "label": {
+                "en": "SoundCloud",
+                "fr": "SoundCloud"
+              }
+            },
+            {
+              "value": "napster",
+              "label": {
+                "en": "Napster",
+                "fr": "Napster"
+              }
+            },
+            {
+              "value": "tunein",
+              "label": {
+                "en": "TuneIn",
+                "fr": "TuneIn"
+              }
+            },
+            {
+              "value": "iheartradio",
+              "label": {
+                "en": "iHeartRadio",
+                "fr": "iHeartRadio"
+              }
+            },
+            {
+              "value": "pandora",
+              "label": {
+                "en": "Pandora",
+                "fr": "Pandora"
+              }
+            },
+            {
+              "value": "siriusxm",
+              "label": {
+                "en": "SiriusXM",
+                "fr": "SiriusXM"
+              }
+            }
+          ]
+        },
+        {
+          "key": "kind",
+          "type": "select",
+          "label": {
+            "en": "What to play",
+            "fr": "Quoi jouer"
+          },
+          "required": true,
+          "default": "playlist",
+          "options": [
+            {
+              "value": "playlist",
+              "label": {
+                "en": "Playlist",
+                "fr": "Playlist"
+              }
+            },
+            {
+              "value": "album",
+              "label": {
+                "en": "Album",
+                "fr": "Album"
+              }
+            },
+            {
+              "value": "latest_album",
+              "label": {
+                "en": "Latest album of an artist",
+                "fr": "Dernier album d'un artiste"
+              }
+            },
+            {
+              "value": "artist",
+              "label": {
+                "en": "Artist (radio or popular tracks)",
+                "fr": "Artiste (radio ou titres populaires)"
+              }
+            },
+            {
+              "value": "track",
+              "label": {
+                "en": "Track",
+                "fr": "Titre"
+              }
+            },
+            {
+              "value": "radio",
+              "label": {
+                "en": "Radio station (TuneIn, iHeartRadio…)",
+                "fr": "Radio (TuneIn, iHeartRadio…)"
+              }
+            }
+          ]
+        },
+        {
+          "key": "name",
+          "type": "string",
+          "label": {
+            "en": "Name (playlist, album, artist, track or radio)",
+            "fr": "Nom (playlist, album, artiste, titre ou radio)"
+          },
+          "required": true,
+          "placeholder": {
+            "en": "e.g. Céline Dion, FIP",
+            "fr": "ex. Céline Dion, FIP"
+          }
+        },
+        {
+          "key": "artist",
+          "type": "string",
+          "label": {
+            "en": "Artist (album or track, optional)",
+            "fr": "Artiste (album ou titre, facultatif)"
+          },
+          "description": {
+            "en": "Narrows an album or a track down to this artist.",
+            "fr": "Limite l'album ou le titre à cet artiste."
+          },
+          "required": false
+        },
+        {
+          "key": "mode",
+          "type": "select",
+          "label": {
+            "en": "Queue",
+            "fr": "File de lecture"
+          },
+          "required": false,
+          "default": "replace",
+          "options": [
+            {
+              "value": "replace",
+              "label": {
+                "en": "Replace and play now",
+                "fr": "Remplacer et jouer maintenant"
+              }
+            },
+            {
+              "value": "next",
+              "label": {
+                "en": "Play next",
+                "fr": "Jouer ensuite"
+              }
+            },
+            {
+              "value": "append",
+              "label": {
+                "en": "Add to the end",
+                "fr": "Ajouter à la fin"
+              }
+            }
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "key": "played",
+          "type": "string",
+          "label": {
+            "en": "Media played (name)",
+            "fr": "Média joué (nom)"
+          }
+        },
+        {
+          "key": "artist",
+          "type": "string",
+          "label": {
+            "en": "Artist",
+            "fr": "Artiste"
+          }
+        },
+        {
+          "key": "type",
+          "type": "string",
+          "label": {
+            "en": "Type played (playlist, album, artist, track, radio)",
+            "fr": "Type joué (playlist, album, artist, track, radio)"
+          }
+        },
+        {
+          "key": "method",
+          "type": "string",
+          "label": {
+            "en": "How it was found",
+            "fr": "Comment il a été trouvé"
+          }
+        },
+        {
+          "key": "service",
+          "type": "string",
+          "label": {
+            "en": "Service played from",
+            "fr": "Service utilisé"
           }
         }
       ]

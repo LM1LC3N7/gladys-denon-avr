@@ -27,6 +27,20 @@ the notes of the version's GitHub Release.
   its name) or a track. An optional Artist field narrows an album or a track down. A queue mode
   replaces the queue, plays next or adds to the end. The action also returns the type played
   and how it was found. Existing scenes keep working unchanged.
+- Every HEOS music service, not only Qobuz:
+  - the music player's catalog lists every service signed in in the HEOS app (TIDAL, Deezer,
+    Amazon Music, SoundCloud, TuneIn, iHeartRadio, Napster, Pandora…), the network music servers
+    and USB (Local Music), History and the inputs (AUX Input). A service not signed in is not
+    shown. Spotify is not either: in HEOS it is Spotify Connect only, started from the Spotify
+    app;
+  - the search looks in the "Preferred music service for the search" (new setting): Automatic
+    is Qobuz when it is signed in, else every service that can search, each result naming its
+    service. "Dernier album de X" works with any service that can search albums;
+  - new scene action "AVR: play from a HEOS music service": a service field, the same kinds as
+    the Qobuz action, plus a radio station by its name (TuneIn, iHeartRadio…). "AVR: play from
+    Qobuz" is unchanged for the scenes using it.
+- "HEOS services and Qobuz: check" (formerly "Qobuz: check and list my playlists") first lists
+  every service HEOS sees, signed in or not, with its search criteria.
 - "Qobuz: check": an optional artist to test. The integration logs (lines "Qobuz check") show
   what the receiver really answers: sources, first level and its options, the playlist
   containers, the search criteria and, with an artist, the artist search, the artist page and
@@ -35,6 +49,15 @@ the notes of the version's GitHub Release.
 
 ### Fixed
 
+- Music commands now end before Gladys stops waiting (10 s): after 8 s the integration stops,
+  starts nothing and says that the service did not answer in time, so the music never starts
+  after Gladys showed a failure, and a slow command no longer delays the next ones. A search
+  stops at 6 s on every service and keeps what it found. A search that found nothing because a
+  service failed now says so instead of showing no result.
+- Artwork above 300 KB, or not a PNG, JPEG or WebP, is left out with a log line.
+- After Discovery "Update", the now-playing features show the current track at once.
+- The check logs hide any URL and any nested value, and the account name even when the sources
+  step fails.
 - Qobuz playlists that HEOS lists as not playable (a known HEOS behaviour) are now found and
   queued. A playlist is no longer opened as if it were a folder.
 - Qobuz is also recognized by its usual HEOS source id (30) when HEOS gives it no name.

@@ -112,8 +112,8 @@ const idOrNull = (value) =>
   value === undefined || value === null || value === '' ? null : String(value);
 
 /**
- * The items of a browse/search payload, normalized: `{ name, cid, mid, type,
- * container, playable, artist, album, albumId, imageUrl, year }`.
+ * The items of a browse/search payload, normalized: `{ name, sid, cid, mid,
+ * type, container, playable, artist, album, albumId, imageUrl, year }`.
  */
 export function browseItems(payload) {
   if (!Array.isArray(payload)) {
@@ -123,6 +123,9 @@ export function browseItems(payload) {
     .filter((item) => item && typeof item === 'object')
     .map((item) => ({
       name: text(item.name),
+      // A sub-source (a media server under Local Music, a player under AUX
+      // inputs) carries its own source id instead of a container id.
+      sid: idOrNull(item.sid),
       cid: idOrNull(item.cid),
       mid: idOrNull(item.mid),
       type: text(item.type).toLowerCase(),
@@ -149,8 +152,12 @@ export const isQueueableContainer = (item) =>
 export const isTrack = (item) =>
   !item.container && item.mid !== null && (item.type === 'song' || item.type === 'track');
 
+/** An input (AUX, optical…) played with play_input: its media id is `inputs/…`. */
+export const isInput = (item) => !item.container && /^inputs\//.test(item.mid ?? '');
+
 /** A station played with play_stream. */
-export const isStation = (item) => !item.container && item.mid !== null && item.type === 'station';
+export const isStation = (item) =>
+  !item.container && item.mid !== null && item.type === 'station' && !isInput(item);
 
 /** An album container. */
 export const isAlbum = (item) => item.type === 'album' && item.cid !== null;
@@ -359,8 +366,8 @@ export function parseLatestAlbumQuery(query) {
 }
 
 /**
- * One item for the diagnostics log: what HEOS sent, without the image URL
- * (only whether there is one) and with every account name hidden.
+ * One item for the diagnostics log: what HEOS sent, without any URL (only
+ * whether there is one), without nested values, every account name hidden.
  */
 export function describeItem(raw, hidden = []) {
   const item = raw && typeof raw === 'object' ? raw : {};
@@ -370,6 +377,12 @@ export function describeItem(raw, hidden = []) {
       out[key] = value ? '(set)' : '';
     } else if (key === 'service_username') {
       out[key] = '(hidden)';
+    } else if (value !== null && typeof value === 'object') {
+      // Nothing nested is printed: it could hold anything.
+      out[key] = Array.isArray(value) ? '(list)' : '(object)';
+    } else if (typeof value === 'string' && /^[a-z][a-z0-9+.-]*:\/\//i.test(value.trim())) {
+      // Any URL (a stream, a link): only that there is one.
+      out[key] = '(url)';
     } else {
       out[key] = redact(typeof value === 'string' ? value.slice(0, 80) : value, hidden);
     }

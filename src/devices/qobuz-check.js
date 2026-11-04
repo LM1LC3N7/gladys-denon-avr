@@ -23,14 +23,77 @@ import {
   redact,
   sourceSummaries,
 } from '../heos/qobuz.js';
+import { HEOS_SOURCES, isBrowsable, isSpotify } from '../heos/services.js';
 import { requireHeos } from './control.js';
 import {
   browsePage,
+  heosSources,
   resolveArtist,
   resolveLatestAlbum,
   searchCriteria,
   searchKind,
 } from './qobuz.js';
+
+/**
+ * Every source HEOS lists on one receiver, with its state and its search
+ * criteria: `{ en, fr, lines }` — two short texts for the answer, and the
+ * log lines (no account name). Never throws: a failure is the answer.
+ */
+export async function servicesReport(externalId) {
+  let sources;
+  try {
+    const heos = requireHeos(externalId, 'check the HEOS services');
+    sources = await heosSources(externalId, { refresh: true });
+    const entries = [];
+    for (const source of sources.list) {
+      const entry = { sid: source.sid, name: source.name, available: source.available };
+      if (isSpotify(source)) {
+        entry.note = 'spotify_connect';
+      } else if (source.available && isBrowsable(source) && source.sid < HEOS_SOURCES.LOCAL) {
+        try {
+          const criteria = await searchCriteria(externalId, heos, source.sid, { refresh: true });
+          entry.search = criteria.map((item) => String(item?.name ?? '?'));
+        } catch (err) {
+          entry.search = [];
+          entry.searchError = err.message;
+        }
+      }
+      entries.push(entry);
+    }
+    const describe = (entry, fr) => {
+      const state = entry.available
+        ? fr
+          ? 'connecté'
+          : 'signed in'
+        : fr
+          ? 'non connecté'
+          : 'not signed in';
+      if (entry.note) {
+        return `${entry.name} (${fr ? 'Spotify Connect seulement, pas de catalogue' : 'Spotify Connect only, no catalog'})`;
+      }
+      if (!entry.search) {
+        return `${entry.name} (${state})`;
+      }
+      let search = fr ? 'pas de recherche' : 'no search';
+      if (entry.search.length) {
+        search = fr ? `recherche : ${entry.search.join('/')}` : `search: ${entry.search.join('/')}`;
+      }
+      return `${entry.name} (${state}, ${search})`;
+    };
+    return {
+      en: `HEOS services: ${entries.map((entry) => describe(entry, false)).join(', ') || '-'}.`,
+      fr: `Services HEOS : ${entries.map((entry) => describe(entry, true)).join(', ') || '-'}.`,
+      lines: [clip(redact(`services: ${JSON.stringify(entries)}`, sources.hidden))],
+    };
+  } catch (err) {
+    const message = redact(err.message, sources?.hidden ?? []);
+    return {
+      en: `HEOS services could not be read: ${message}.`,
+      fr: `Impossible de lire les services HEOS : ${message}.`,
+      lines: [clip(`services failed: ${message}`)],
+    };
+  }
+}
 
 // Items described per list, and the longest log line.
 const SHOWN_ITEMS = 30;
@@ -43,10 +106,15 @@ const clip = (text) => (text.length > MAX_LINE ? `${text.slice(0, MAX_LINE)}…`
  * log lines (already free of account names), `artist` the summary of the
  * artist test (`{ name, latest, latestMethod, playMethod, error }`) or null.
  */
-export async function qobuzDiagnostics(externalId, { sid, opened = [], artist = '' }) {
+export async function qobuzDiagnostics(
+  externalId,
+  { sid, opened = [], artist = '', hidden: known = [] },
+) {
   const heos = requireHeos(externalId, 'check Qobuz');
   const lines = [];
-  let hidden = [];
+  // The account names already known (the source lookup): hidden even when
+  // the sources step below fails.
+  let hidden = [...known];
   const log = (label, value) =>
     lines.push(clip(redact(`${label}: ${JSON.stringify(value)}`, hidden)));
   const step = async (label, run) => {
@@ -60,7 +128,7 @@ export async function qobuzDiagnostics(externalId, { sid, opened = [], artist = 
 
   await step('sources', async () => {
     const answer = await heos.request(buildGetMusicSourcesCommand());
-    hidden = accountNames(answer.payload);
+    hidden = [...new Set([...known, ...accountNames(answer.payload)])];
     log('sources', sourceSummaries(answer.payload));
   });
 

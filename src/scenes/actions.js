@@ -16,6 +16,7 @@ import {
   STATE,
   getDeviceSnapshot,
   playHeosFavorite,
+  playFromService,
   playQobuz,
   selectQuickSelect,
   setPower,
@@ -29,6 +30,7 @@ export const SCENE_ACTION = Object.freeze({
   QUICK_SELECT: 'quick_select',
   PLAY_HEOS_FAVORITE: 'play_heos_favorite',
   PLAY_QOBUZ: 'play_qobuz',
+  PLAY_HEOS_SERVICE: 'play_heos_service',
   SET_AMP: 'set_amp',
   GET_STATE: 'get_state',
 });
@@ -73,6 +75,24 @@ export function createSceneActionHandlers(getConfig) {
       return playQobuz(
         externalId,
         {
+          kind: fields.kind || 'playlist',
+          name: fields.name,
+          artist: fields.artist ?? '',
+          mode: fields.mode || 'replace',
+        },
+        normalizeZone(getConfig().zone),
+      );
+    },
+
+    // The same from any HEOS music service (TIDAL, Deezer, Amazon, TuneIn…),
+    // plus a radio station by name; what was played, how, and from which
+    // service. play_qobuz stays as it was for the scenes using it.
+    [SCENE_ACTION.PLAY_HEOS_SERVICE]: async (fields) => {
+      const { externalId } = targetAvr(fields);
+      return playFromService(
+        externalId,
+        {
+          service: fields.service || 'qobuz',
           kind: fields.kind || 'playlist',
           name: fields.name,
           artist: fields.artist ?? '',

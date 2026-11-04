@@ -24,8 +24,21 @@ check" output with an artist (lines "Qobuz check" of the logs) to replace the gu
 - [ ] The order of an artist's albums ("latest album" = first listed is an assumption) and any
       date or year field.
 - [ ] Whether add_to_queue really accepts a Qobuz playlist listed `playable: no`.
-- [ ] Next: duration and position (`event/player_now_playing_progress`), other HEOS services in
-      the catalog (TIDAL, Deezer, TuneIn).
+- [ ] The other services (TIDAL tree, TuneIn criteria names, Local Music/AUX sub-sources) are
+      shaped on the spec and TIDAL/Deezer captures: confirm from a real "check" output.
+- [ ] Next: duration and position (`event/player_now_playing_progress`), search in the local
+      music servers.
+
+### Review r1 (3a85841, 85c612d), left on purpose
+
+- m4: the queue panel reads the whole queue (up to 500, pages of 100) for any page, and
+  `total`/`currentIndex` stop at 500. Reading only the asked page needs a queue length HEOS does
+  not document (`get_queue` gives no count in the spec).
+- m7: an unknown play mode falls back to "replace" (the core only sends replace/next/append);
+  with "dernier album de X" the search's type filter is ignored (only an album makes sense); the
+  module's errors are in English, like before.
+- Mutant left alive (equivalent): an artist page whose browse runs past the deadline, taken as
+  empty, ends in the same refusal without any request sent.
 
 ## Decisions
 

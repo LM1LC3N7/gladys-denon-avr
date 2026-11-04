@@ -13,7 +13,7 @@ import { getHeos, getSession, getState, getTelnet } from './registry.js';
 import { initialQueries } from './session.js';
 import { describePowerMode, getPowerMode } from './power.js';
 import { QobuzUnavailableError, listQobuzPlaylists } from './qobuz.js';
-import { qobuzDiagnostics } from './qobuz-check.js';
+import { qobuzDiagnostics, servicesReport } from './qobuz-check.js';
 import { redact } from '../heos/qobuz.js';
 
 const logger = createLogger({ name: 'avr' });
@@ -137,14 +137,25 @@ export async function runAdBreakReportAction() {
 }
 
 /**
- * "Qobuz: check" manifest action: what HEOS shows of Qobuz on one receiver
- * (the source, the first level of its tree, the playlists found), as text,
+ * "Qobuz: check" manifest action: every music source HEOS lists on one
+ * receiver (signed in or not, its search criteria), then what HEOS shows of
+ * Qobuz (the source, the first level of its tree, the playlists found), as text,
  * and the raw structure in the logs (./qobuz-check.js, lines "Qobuz check"):
  * what a user sends back to fix the lookup rules of src/heos/qobuz.js. With
  * an artist, also what "latest album" and "artist" would play (nothing is
  * played).
  */
 export async function runQobuzCheckAction({ fields }) {
+  const services = await servicesReport(fields.device);
+  for (const line of services.lines) {
+    logger.info(`${fields.device}: Qobuz check: ${line}`);
+  }
+  const answer = await runQobuzPart(fields);
+  return { en: `${services.en} ${answer.en}`, fr: `${services.fr} ${answer.fr}` };
+}
+
+/** The Qobuz part of "Qobuz: check" (the playlists, the structure, an artist). */
+async function runQobuzPart(fields) {
   const externalId = fields.device;
   const artist = String(fields.artist ?? '').trim();
   let result;
@@ -181,7 +192,12 @@ export async function runQobuzCheckAction({ fields }) {
       hidden,
     ),
   );
-  const diagnostics = await qobuzDiagnostics(externalId, { sid: source.sid, opened, artist });
+  const diagnostics = await qobuzDiagnostics(externalId, {
+    sid: source.sid,
+    opened,
+    artist,
+    hidden,
+  });
   for (const line of diagnostics.lines) {
     logger.info(`${externalId}: Qobuz check: ${line}`);
   }

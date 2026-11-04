@@ -11,6 +11,9 @@
 // issue 150334), TIDAL-like search criteria.
 // -----------------------------------------------------------------------------
 
+import { FAKE_PID } from './fakeHeos.js';
+import { otherBrowse, otherCriteria, otherSearch, otherSources } from './heosServices.js';
+
 export const QOBUZ = 30;
 export const ACCOUNT = 'louis.qobuz@example.fr';
 
@@ -108,9 +111,16 @@ function artistChildren(variant) {
 /**
  * The answers of the receiver; `overrides[command](params)` replaces one,
  * `artist` picks the artist container variant, `topOptions` the options of
- * the Qobuz first level.
+ * the Qobuz first level, `qobuz: false` leaves Qobuz out, `services: false`
+ * the other sources (./heosServices.js).
  */
-export function qobuzReceiver({ overrides = {}, artist = 'albums', topOptions } = {}) {
+export function qobuzReceiver({
+  overrides = {},
+  artist = 'albums',
+  topOptions,
+  qobuz = true,
+  services = true,
+} = {}) {
   return (command, params) => {
     if (overrides[command]) {
       const replies = overrides[command](params);
@@ -133,35 +143,48 @@ export function qobuzReceiver({ overrides = {}, artist = 'albums', topOptions } 
                 available: 'true',
                 service_username: ACCOUNT,
               },
-              {
-                name: 'Qobuz',
-                image_url:
-                  'https://production.ws.skyegloup.com:443/media/images/service/logos/qobuz.png',
-                type: 'music_service',
-                sid: QOBUZ,
-                available: 'true',
-                service_username: ACCOUNT,
-              },
+              ...(qobuz
+                ? [
+                    {
+                      name: 'Qobuz',
+                      image_url:
+                        'https://production.ws.skyegloup.com:443/media/images/service/logos/qobuz.png',
+                      type: 'music_service',
+                      sid: QOBUZ,
+                      available: 'true',
+                      service_username: ACCOUNT,
+                    },
+                  ]
+                : []),
+              ...(services ? otherSources(ACCOUNT) : []),
               { name: 'Favorites', sid: 1028, type: 'heos_service', available: 'true' },
             ],
           },
         ];
       case 'browse/browse':
-        return browse(params, artist, topOptions);
+        return otherBrowse(params, FAKE_PID) ?? browse(params, artist, topOptions);
       case 'browse/get_search_criteria':
-        return [
-          {
-            payload: [
-              { name: 'Artist', scid: 1, wildcard: 'no' },
-              { name: 'Album', scid: 2, wildcard: 'no' },
-              { name: 'Track', scid: 3, wildcard: 'no', cid: 'SEARCHED_TRACKS-', playable: 'yes' },
-              { name: 'Playlist', scid: 6, wildcard: 'no' },
-            ],
-            message: `sid=${params.sid}`,
-          },
-        ];
+        return (
+          otherCriteria(params) ?? [
+            {
+              payload: [
+                { name: 'Artist', scid: 1, wildcard: 'no' },
+                { name: 'Album', scid: 2, wildcard: 'no' },
+                {
+                  name: 'Track',
+                  scid: 3,
+                  wildcard: 'no',
+                  cid: 'SEARCHED_TRACKS-',
+                  playable: 'yes',
+                },
+                { name: 'Playlist', scid: 6, wildcard: 'no' },
+              ],
+              message: `sid=${params.sid}`,
+            },
+          ]
+        );
       case 'browse/search':
-        return search(params, artist);
+        return otherSearch(params) ?? search(params, artist);
       case 'browse/set_service_option':
         if (params.option === '13') {
           return [

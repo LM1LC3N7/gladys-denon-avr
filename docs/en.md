@@ -196,8 +196,11 @@ Since Gladys 5.1, the scene editor offers this integration's own actions and tri
 - **AVR: play from Qobuz** — a playlist, an album, the latest album of an artist, an artist
   (radio or popular tracks) or a track, by name, through HEOS; replacing the queue, played next or
   added at the end; see "Qobuz" below.
+- **AVR: play from a HEOS music service** — the same from TIDAL, Deezer, Amazon Music,
+  SoundCloud, Napster, TuneIn, iHeartRadio, Pandora, SiriusXM or Qobuz, plus a **radio by its
+  name** (TuneIn, iHeartRadio…); see "Qobuz" below, which applies to all these services.
 - **Play music on a speaker** (a Gladys 5.3 action, Music category) — a media picked from the
-  receiver's catalog (HEOS favorites, HEOS playlists, Qobuz); see "Gladys music player" below.
+  receiver's catalog (HEOS favorites, HEOS playlists, signed-in services); see "Gladys music player" below.
 - **AVR: set up the receiver** — power, input, sound mode and volume in a single action; a field
   left empty is not changed. Made for a "Movie" or "Music" scene.
 - **AVR: read the receiver state** — returns power, volume, input (code and name), sound mode,
@@ -255,12 +258,16 @@ music from Gladys, without a phone: at wake-up, when you come home, when a "Dinn
 1. In the HEOS app, add Qobuz (home → Music services → the three dots → Edit → Add more music)
    and sign in to your Qobuz account.
 2. Restart the integration: HEOS only shows a newly added service to a new connection.
-3. In Gladys, press **Qobuz: check and list my playlists** (Configuration screen) and pick the
-   receiver. You may type an artist there (e.g. "Céline Dion"): the answer then also says which
+3. In Gladys, press **HEOS services and Qobuz: check** (Configuration screen) and pick the
+   receiver. The answer first lists **every service** HEOS sees, signed in or not, with its search
+   criteria, then your Qobuz playlists. You may type an artist there (e.g. "Céline Dion"): the answer then also says which
    album would play as the "latest album" and how the artist would play, without playing
    anything.
 
-**The scene action "AVR: play from Qobuz"**:
+**The scene actions "AVR: play from Qobuz" and "AVR: play from a HEOS music service"** (the
+second has a **Service** field and one more kind, **Radio**: a station by its name, e.g. "FIP" in
+TuneIn). All that follows applies to both, and to any service that can search (TIDAL and Deezer
+follow the same shape as Qobuz):
 
 | What to play              | What the action does                                                                        |
 | ------------------------- | ------------------------------------------------------------------------------------------- |
@@ -307,20 +314,44 @@ With Gladys 5.3 or newer, the receiver is a real music player in the dashboard *
 
 - **Now playing**: title, artist, album and artwork. For a receiver already added, run a
   **Discovery** scan and click **Update**: the four Title, Artist, Album and Artwork features then
-  appear.
-- **Catalog**: _HEOS Favorites_, _HEOS Playlists_ and _Qobuz_ (when Qobuz is signed in), browsed
-  as in the HEOS app.
-- **Search** in Qobuz: artists, albums, playlists, tracks. An artist found also offers "Dernier
-  album · Latest album", picked when played: a scene saving it always plays the latest release.
-  Typing "latest album by Céline Dion" offers it first.
-- **Play**: replace, play next or add to the end; an artist plays as the "Artist" action above.
+  appear, with the current track.
+- **Catalog**: _HEOS Favorites_, _HEOS Playlists_, then **every service signed in in the HEOS
+  app**, in HEOS' order: Qobuz, TIDAL, Deezer, Amazon Music, SoundCloud, TuneIn, iHeartRadio,
+  Napster, Pandora…, the network music servers and USB (_Local Music_), _History_ and the inputs
+  (_AUX Input_, an input plays like a radio). Each is browsed as in the HEOS app. A service added
+  but **not signed in** is not shown: the "HEOS services and Qobuz: check" button lists it with its
+  state.
+- **Search**: artists, albums, playlists, tracks and radios, in the **preferred service** chosen in
+  the configuration ("Preferred music service for the search"): _Automatic_ searches Qobuz when it
+  is signed in, else every service that can search (TIDAL, Deezer, TuneIn…), each result then
+  naming its service. An artist found also offers "Dernier album · Latest album", picked when
+  played: a scene saving it always plays the latest release. Typing "latest album by Céline Dion"
+  offers it first, for any service that can search albums.
+- **Play**: replace, play next or add to the end; an artist plays as the "Artist" action above. A
+  radio (favorite, TuneIn, artist radio) and an input always play at once: HEOS does not queue them.
 - The receiver's **queue**, with the current track; a tap jumps to a track.
 
 Gladys' own scene action **Play music on a speaker** uses this catalog: the media is picked by
 browsing or searching.
 
-**Limits**: no duration nor position, no shuffle nor repeat for now; the catalog shows only Qobuz
-and the HEOS lists.
+**Spotify**: in HEOS, Spotify is **Spotify Connect** only. Start it from the Spotify app (the
+receiver shows there as a speaker); Play/Pause/Next/Previous and the now playing then work from
+Gladys. It has no catalog to browse nor search, so it is not in the player.
+
+**10 seconds at most**: Gladys waits 10 s for the answer of a music command. The integration stops
+by itself after 8 s, then starts **nothing**, and says so ("… did not answer in time"). A search
+stops at 6 s and keeps what it already found. On a slow service (Qobuz goes through its cloud,
+several requests in a row), "latest album" and "artist" may not fit in that time from the Music box:
+try again (what was read stays cached 5 minutes), or use the "AVR: play from…" scene action, which
+waits up to 60 s. If the receiver is slow to confirm the very last command (queueing, playing), the
+music may still start after the message.
+
+**Artwork**: the image comes from the address HEOS gives (the service's image server, e.g. Qobuz's);
+the integration downloads it, never your browser. An image above 300 KB, or not a PNG, JPEG or WebP,
+is left out (empty frame, an "Artwork left out" line in the logs).
+
+**Limits**: no duration nor position, no shuffle nor repeat for now; the search does not cover the
+local music servers.
 
 ## Radio ad breaks
 
@@ -512,7 +543,8 @@ integration's data folder (`/data/ad-breaks.json`, `/data/ad-jingles/`).
      (with its index, see "Source index" above)/sound mode.
    - **Select input** — pick an input from the standard list of Denon/Marantz source codes and
      switch to it.
-   - **Qobuz: check and list my playlists** — what HEOS shows of Qobuz on this receiver, see
+   - **HEOS services and Qobuz: check** — the services HEOS sees (state, search) and what it
+     shows of Qobuz on this receiver, see
      "Qobuz" above.
 5. **Rename or hide sources on the dashboard dropdown** (Configuration tab, advanced): the
    dropdown shows generic codes like `SAT/CBL` or `GAME`, not what you actually plugged in. Fill
@@ -532,6 +564,8 @@ integration's data folder (`/data/ad-breaks.json`, `/data/ad-jingles/`).
 7. **Announcements** (Configuration tab): **Announcement volume** (0 = keep the current volume)
    and **Restore the receiver after an announcement**, for the "Speak on a speaker" action — see
    "Play notification" above.
+   **Music player** (Configuration tab): **Preferred music service for the search** (Automatic by
+   default: Qobuz when signed in, else every service) — see "Gladys music player" above.
 8. **Radio ad breaks** (Configuration tab): off by default, see "Radio ad breaks" above — then
    **Update** the device from Discovery to get its **Radio ad break** switch. **Time zone**: of
    the ad-break hours (an IANA name, Europe/Paris by default). **Ad-break report**: what was

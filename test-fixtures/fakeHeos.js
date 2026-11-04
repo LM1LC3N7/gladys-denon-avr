@@ -2,7 +2,7 @@
 // A fake HEOS CLI (TCP, one JSON line per reply) and a matched HEOS session
 // of one AVR against it, registered like a real one — for the Qobuz and
 // music player tests. `respond(command, params)` returns the list of partial
-// replies to a command: `{ payload?, message?, result?, options? }`; the
+// replies to a command: `{ payload?, message?, result?, options?, delayMs? }`; the
 // message defaults to the echoed pid/sid/cid/scid/aid, as HEOS does.
 // -----------------------------------------------------------------------------
 
@@ -46,12 +46,17 @@ export async function startFakeHeos(respond) {
           command === 'player/get_players'
             ? [{ payload: [{ pid: FAKE_PID, ip: '127.0.0.1', name: 'Salon' }] }]
             : respond(command, params);
+        let delay = 0;
         for (const reply of replies ?? []) {
           const echoed = Object.entries(params)
             .filter(([key]) => ['pid', 'sid', 'cid', 'scid', 'aid'].includes(key))
             .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
             .join('&');
-          socket.write(
+          // `delayMs`: a slow receiver (or a slow cloud service behind it).
+          delay += reply.delayMs ?? 0;
+          const send = (text) => !socket.destroyed && socket.write(text);
+          const write = (text) => (delay > 0 ? setTimeout(() => send(text), delay) : send(text));
+          write(
             `${JSON.stringify({
               heos: {
                 command,

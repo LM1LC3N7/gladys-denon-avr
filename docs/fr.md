@@ -216,8 +216,11 @@ Depuis Gladys 5.1, l'éditeur de scènes propose les actions et déclencheurs de
 - **Ampli : jouer depuis Qobuz** — une playlist, un album, le dernier album d'un artiste, un
   artiste (radio ou titres populaires) ou un titre, par son nom, via HEOS ; en remplaçant la
   file, ou à jouer ensuite, ou à la fin ; voir « Qobuz » plus bas.
+- **Ampli : jouer depuis un service HEOS** — la même chose depuis TIDAL, Deezer, Amazon Music,
+  SoundCloud, Napster, TuneIn, iHeartRadio, Pandora, SiriusXM ou Qobuz, plus une **radio par son
+  nom** (TuneIn, iHeartRadio…) ; voir « Qobuz » plus bas, qui vaut pour tous ces services.
 - **Lancer une musique sur une enceinte** (action de Gladys 5.3, catégorie Musique) — un média
-  choisi dans le catalogue de l'ampli (favoris HEOS, playlists HEOS, Qobuz) ; voir « Lecteur de
+  choisi dans le catalogue de l'ampli (favoris HEOS, playlists HEOS, services connectés) ; voir « Lecteur de
   musique Gladys » plus bas.
 - **Ampli : régler l'ampli** — alimentation, entrée, mode son et volume en une seule action ; un
   champ laissé vide n'est pas modifié. Idéal pour une scène « Film » ou « Musique ».
@@ -283,12 +286,16 @@ au lancement d'une scène « Dîner ».
 1. Dans l'application HEOS, ajoutez Qobuz (accueil → Services de musique → les trois points →
    Modifier → Ajouter des services) et connectez votre compte Qobuz.
 2. Redémarrez l'intégration : HEOS ne montre un service ajouté qu'à une nouvelle connexion.
-3. Dans Gladys, cliquez sur **Qobuz : vérifier et lister mes playlists** (écran Configuration),
-   en choisissant l'ampli. Vous pouvez y taper un artiste (par exemple « Céline Dion ») : la
+3. Dans Gladys, cliquez sur **Services HEOS et Qobuz : vérifier** (écran Configuration), en
+   choisissant l'ampli. La réponse liste d'abord **tous les services** que HEOS voit, connectés ou
+   non, avec leurs critères de recherche, puis vos playlists Qobuz. Vous pouvez y taper un artiste (par exemple « Céline Dion ») : la
    réponse dit alors aussi quel album serait joué comme « dernier album » et comment l'artiste
    serait joué, sans rien lancer.
 
-**L'action de scène « Ampli : jouer depuis Qobuz »** :
+**Les actions de scène « Ampli : jouer depuis Qobuz » et « Ampli : jouer depuis un service
+HEOS »** (la seconde a un champ **Service** et un type de plus, **Radio** : une station par son nom,
+par exemple « FIP » dans TuneIn). Tout ce qui suit vaut pour les deux, et pour tout service qui
+sait chercher (TIDAL et Deezer suivent la même forme que Qobuz) :
 
 | Quoi jouer                 | Ce que fait l'action                                                                            |
 | -------------------------- | ----------------------------------------------------------------------------------------------- |
@@ -339,21 +346,50 @@ du tableau de bord :
 
 - **Lecture en cours** : titre, artiste, album et pochette. Pour un ampli déjà ajouté, relancez
   un scan **Découverte** et cliquez sur **Mettre à jour** : les quatre fonctionnalités Titre,
-  Artiste, Album et Pochette apparaissent alors.
-- **Catalogue** : _HEOS Favorites_ (vos favoris HEOS), _HEOS Playlists_ et _Qobuz_ (si Qobuz est
-  connecté), à parcourir comme dans l'application HEOS.
-- **Recherche** dans Qobuz : artistes, albums, playlists, titres. Un artiste trouvé propose aussi
-  « Dernier album · Latest album », choisi au moment de jouer : une scène qui l'enregistre jouera
-  toujours la dernière sortie. Taper « dernier album de Céline Dion » le propose en premier.
+  Artiste, Album et Pochette apparaissent alors, avec le morceau en cours.
+- **Catalogue** : _HEOS Favorites_ (vos favoris HEOS), _HEOS Playlists_, puis **tous les services
+  connectés dans l'application HEOS**, dans l'ordre de HEOS : Qobuz, TIDAL, Deezer, Amazon Music,
+  SoundCloud, TuneIn, iHeartRadio, Napster, Pandora…, les serveurs de musique du réseau et l'USB
+  (_Local Music_), l'historique (_History_) et les entrées (_AUX Input_, une entrée se lance comme
+  une radio). Chacun se parcourt comme dans l'application HEOS. Un service ajouté mais **non
+  connecté** n'apparaît pas : le bouton « Services HEOS et Qobuz : vérifier » le liste avec son
+  état.
+- **Recherche** : artistes, albums, playlists, titres et radios, dans le **service préféré** choisi
+  en Configuration (« Service de musique préféré pour la recherche ») : _Automatique_ cherche dans
+  Qobuz s'il est connecté, sinon dans tous les services qui savent chercher (TIDAL, Deezer, TuneIn…),
+  et chaque résultat dit alors de quel service il vient. Un artiste trouvé propose aussi « Dernier
+  album · Latest album », choisi au moment de jouer : une scène qui l'enregistre jouera toujours la
+  dernière sortie. Taper « dernier album de Céline Dion » le propose en premier, pour tout service
+  qui sait chercher des albums.
 - **Lecture** : remplacer, jouer ensuite ou ajouter à la fin ; un artiste se joue comme dans
-  l'action « Artiste » ci-dessus.
+  l'action « Artiste » ci-dessus. Une radio (favori, TuneIn, radio d'artiste) et une entrée jouent
+  toujours tout de suite : HEOS ne les met pas en file.
 - **File d'attente** de l'ampli, avec le morceau en cours ; un appui saute à un morceau.
 
 L'action de scène de Gladys **Lancer une musique sur une enceinte** utilise ce catalogue : on y
 choisit un média en parcourant ou en cherchant.
 
-**Limites** : pas de durée ni de position, ni d'aléatoire ou de répétition pour l'instant ; le
-catalogue ne montre que Qobuz et les listes HEOS.
+**Spotify** : dans HEOS, Spotify n'est que **Spotify Connect**. Il se lance depuis l'application
+Spotify (l'ampli y apparaît comme enceinte), puis Lecture/Pause/Suivant/Précédent et la lecture en
+cours marchent depuis Gladys. Il n'a pas de catalogue à parcourir ni à chercher, et n'apparaît donc
+pas dans le lecteur.
+
+**10 secondes au plus** : Gladys attend 10 s la réponse d'une commande de musique. L'intégration
+s'arrête d'elle-même au bout de 8 s, ne lance alors **rien**, et le dit (« … n'a pas répondu à
+temps »). Une recherche s'arrête à 6 s et garde ce qu'elle a déjà trouvé. Sur un service lent
+(Qobuz passe par son nuage, plusieurs requêtes à la suite), « dernier album » et « artiste »
+peuvent ne pas tenir dans ce délai depuis la boîte Musique : réessayez (les réponses déjà lues
+restent en cache 5 minutes), ou utilisez l'action de scène « Ampli : jouer depuis… », qui attend
+jusqu'à 60 s. Si l'ampli tarde à confirmer la toute dernière commande (mise en file, lecture), la
+musique peut tout de même démarrer après le message.
+
+**Pochettes** : l'image vient de l'adresse donnée par HEOS (le serveur d'images du service, par
+exemple celui de Qobuz) ; elle est téléchargée par l'intégration, jamais par votre navigateur. Une
+image de plus de 300 Ko, ou qui n'est ni PNG, ni JPEG, ni WebP, est écartée (cadre vide, une ligne
+« Artwork left out » dans les logs).
+
+**Limites** : pas de durée ni de position, ni d'aléatoire ou de répétition pour l'instant ; la
+recherche ne couvre pas les serveurs de musique locaux.
 
 ## Coupures pub des radios
 
@@ -550,7 +586,8 @@ dossier de données de l'intégration (`/data/ad-breaks.json`, `/data/ad-jingles
      volume, muet, source avec son index — voir « Index de source » ci-dessus —, mode sonore).
    - **Sélectionner l'entrée** — choisissez une entrée dans la liste standard des codes source
      Denon/Marantz et basculez dessus.
-   - **Qobuz : vérifier et lister mes playlists** — ce que HEOS voit de Qobuz sur cet ampli, voir
+   - **Services HEOS et Qobuz : vérifier** — les services que HEOS voit (état, recherche) et ce qu'il
+     montre de Qobuz sur cet ampli, voir
      « Qobuz » plus haut.
 5. **Renommer ou masquer des sources dans le menu déroulant** (onglet Configuration, avancé) :
    le menu montre des codes génériques comme `SAT/CBL` ou `GAME`, pas ce qui est réellement
@@ -573,6 +610,9 @@ dossier de données de l'intégration (`/data/ad-breaks.json`, `/data/ad-jingles
 7. **Annonces** (onglet Configuration) : **Volume des annonces** (0 = garder le volume actuel) et
    **Rétablir l'ampli après une annonce** pour l'action « Parler sur une enceinte » — voir
    « Diffuser une notification » plus haut.
+   **Lecteur de musique** (onglet Configuration) : **Service de musique préféré pour la recherche**
+   (Automatique par défaut : Qobuz s'il est connecté, sinon tous les services) — voir « Lecteur de
+   musique Gladys » plus haut.
 8. **Coupures pub des radios** (onglet Configuration) : désactivé par défaut, voir « Coupures pub
    des radios » plus haut — puis **Mettre à jour** l'appareil depuis la Découverte pour obtenir son
    interrupteur **Radio ad break**. **Fuseau horaire** : celui des heures de pub (nom IANA,

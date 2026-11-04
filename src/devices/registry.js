@@ -71,6 +71,12 @@ const DEFAULT_TIMING = Object.freeze({
   heosOnlyTelnetRetryMs: 5 * 60_000,
   // The now-playing music features are published once per burst of changes.
   nowPlayingBatchMs: 50,
+  // A music search stops starting HEOS searches after this (Gladys waits 10 s).
+  musicSearchBudgetMs: 6_000,
+  // Gladys waits 10 s for a music command: the module stops by this deadline,
+  // and acts (zone, queue, play) only with this much time left (src/devices/deadline.js).
+  musicDeadlineMs: 8_000,
+  musicActReserveMs: 2_500,
 });
 
 export const timing = { ...DEFAULT_TIMING };

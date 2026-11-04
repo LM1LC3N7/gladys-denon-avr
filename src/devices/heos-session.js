@@ -40,6 +40,7 @@ import {
   timing,
   updateState,
 } from './registry.js';
+import { DeadlineError, currentDeadline, deadlineError, timeLeft } from './deadline.js';
 
 const logger = createLogger({ name: 'avr' });
 
@@ -89,6 +90,16 @@ function commandParams(commandPath) {
   }
   return params;
 }
+
+// The commands that act: past the deadline, their answer may be lost while
+// the receiver still does it.
+const ACTING_COMMANDS = new Set([
+  'browse/add_to_queue',
+  'browse/play_stream',
+  'browse/play_input',
+  'browse/play_preset',
+  'player/play_queue',
+]);
 
 // The parameters a HEOS reply echoes in its `message` and that tell two
 // requests of the same command apart (two browses of the same service).
@@ -163,9 +174,20 @@ export function openHeosSession(
      * process" placeholder is skipped (the real answer follows).
      */
     request(commandPath, { timeoutMs = timing.heosRequestTimeoutMs } = {}) {
+      // The deadline of a Gladys music command (./deadline.js), taken in the
+      // caller's context: a request reached after it is never sent, and one
+      // sent waits at most what is left of it.
+      const deadline = currentDeadline();
       const run = () =>
         new Promise((resolve, reject) => {
           const command = String(commandPath).split('?')[0];
+          const left = timeLeft(deadline);
+          if (left <= 0) {
+            reject(deadlineError(deadline, command));
+            return;
+          }
+          const limitedByDeadline = left < timeoutMs;
+          const waitMs = Math.max(1, Math.min(timeoutMs, left));
           const params = commandParams(commandPath);
           const entry = {
             command,
@@ -181,9 +203,13 @@ export function openHeosSession(
             timer: setTimeout(() => {
               pending.delete(entry);
               reject(
-                new Error(`${externalId}: no HEOS answer to ${command} within ${timeoutMs} ms`),
+                limitedByDeadline
+                  ? new DeadlineError(
+                      `${deadline.label} did not answer ${command} in time${ACTING_COMMANDS.has(command) ? ': the music may still start' : ': stopped there, nothing was started'}`,
+                    )
+                  : new Error(`${externalId}: no HEOS answer to ${command} within ${timeoutMs} ms`),
               );
-            }, timeoutMs),
+            }, waitMs),
           };
           pending.add(entry);
           if (!session.client.sendCommand(commandPath)) {

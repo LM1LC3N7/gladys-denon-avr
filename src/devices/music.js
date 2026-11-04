@@ -1,44 +1,52 @@
 // -----------------------------------------------------------------------------
 // The receiver as a Gladys music player (Gladys >= 5.3.0, manifest `music`,
 // capabilities/music.md of the core): the catalog (HEOS favorites, HEOS
-// playlists, Qobuz), the search (Qobuz), play with the replace / next /
-// append modes, the queue, and the now playing (title, artist, album,
-// artwork) published with the SDK's publishNowPlaying.
+// playlists, then every source HEOS lists signed in: Qobuz, TIDAL, Deezer,
+// Amazon, TuneIn…, Local Music, AUX inputs), the search (the preferred
+// service, or every service that can search), play with the replace /
+// next / append modes, the queue, and the now playing (title, artist,
+// album, artwork) published with the SDK's publishNowPlaying.
+//
+// A service that is not signed in is left out of the catalog and of the
+// search ("Qobuz: check" lists it with its state). Spotify is left out too:
+// in HEOS it is Spotify Connect only, nothing to browse.
 //
 // Gladys awaits every music command under 10 s, at most 4 in flight per
-// integration: a search over several kinds stops starting new HEOS searches
-// once SEARCH_BUDGET_MS is spent, and answers with what it has.
+// integration: a search stops starting new HEOS searches once
+// timing.musicSearchBudgetMs (6 s) is spent, and answers with what it has.
 // -----------------------------------------------------------------------------
 
 import { MUSIC_MEDIA_TYPES, createLogger } from '@gladysassistant/integration-sdk';
 import {
-  HEOS_SOURCE,
   buildGetNowPlayingMediaCommand,
   buildGetQueueCommand,
   buildPlayQueueCommand,
 } from '../heos/protocol.js';
-import { browseItems, fold, parseLatestAlbumQuery } from '../heos/qobuz.js';
+import { browseItems, criteriaOf, fold, parseLatestAlbumQuery } from '../heos/qobuz.js';
 import { decodeMediaId, encodeMediaId, latestAlbumMediaItem, toMediaItem } from '../heos/media.js';
 import { normalizeZone } from '../denon/protocol.js';
+import { HEOS_SOURCES, findService, isBrowsable, searchableCandidates } from '../heos/services.js';
 import { FEATURE, STATE, featureExternalId } from './features.js';
 import { ensureZoneReadyForHeos, requireHeos } from './control.js';
 import { onDeviceStateChange, timing } from './registry.js';
+import { createArtworkCache } from '../widgets/artwork.js';
+import { DeadlineError, assertTimeLeft, runWithDeadline, timeLeft } from './deadline.js';
 import {
   browsePage,
+  heosSources,
   playArtistPlan,
+  playInput,
   playStation,
-  qobuzSource,
   queueContainer,
   queueTrack,
   resolveArtist,
   resolveLatestAlbum,
+  searchCriteriaOrNone,
   searchKind,
 } from './qobuz.js';
 
 const logger = createLogger({ name: 'music' });
 
-// A search over every kind stops starting new HEOS searches after this.
-const SEARCH_BUDGET_MS = 6_000;
 // The queue read at most (pages of 100, the CLI spec cap).
 const QUEUE_PAGE = 100;
 const MAX_QUEUE = 500;
@@ -72,27 +80,75 @@ const slice = (all, offset, limit) => ({
  * The music handlers, bound to the SDK (`artworkKey`) and the live config
  * (the zone switched on before playing). Exported for the tests.
  */
-export function createMusicHandlers(gladys, getConfig) {
+export function createMusicHandlers(gladys, getConfig, { fetchFn } = {}) {
+  const artworks = createArtworkCache(fetchFn ? { fetchFn } : {});
   const artworkKey = (url) => gladys.artworkKey(url);
-  const mediaItems = (items, sid, cid) =>
-    items.map((item) => toMediaItem(item, sid, { cid, artworkKey })).filter(Boolean);
+  const mediaItems = (items, sid, context = {}) =>
+    items.map((item) => toMediaItem(item, sid, { ...context, artworkKey })).filter(Boolean);
 
+  // HEOS' favorites and playlists first, then every other source HEOS lists
+  // signed in and browsable, in its order.
   async function root(externalId) {
     const items = [
-      folder(encodeMediaId({ kind: 'source', sid: HEOS_SOURCE.FAVORITES }), 'HEOS Favorites'),
-      folder(encodeMediaId({ kind: 'source', sid: HEOS_SOURCE.PLAYLISTS }), 'HEOS Playlists'),
+      folder(encodeMediaId({ kind: 'source', sid: HEOS_SOURCES.FAVORITES }), 'HEOS Favorites'),
+      folder(encodeMediaId({ kind: 'source', sid: HEOS_SOURCES.PLAYLISTS }), 'HEOS Playlists'),
     ];
-    try {
-      const source = await qobuzSource(externalId);
-      items.push(folder(encodeMediaId({ kind: 'source', sid: source.sid }), source.name));
-    } catch (err) {
-      // No Qobuz on this receiver: the HEOS lists only.
-      logger.debug(`${externalId}: no Qobuz in the catalog: ${err.message}`);
+    const { list } = await heosSources(externalId);
+    for (const source of list) {
+      if (
+        source.available &&
+        isBrowsable(source) &&
+        source.sid !== HEOS_SOURCES.FAVORITES &&
+        source.sid !== HEOS_SOURCES.PLAYLISTS
+      ) {
+        items.push(
+          folder(
+            encodeMediaId({ kind: 'source', sid: source.sid, name: source.name }),
+            source.name || `HEOS ${source.sid}`,
+          ),
+        );
+      }
     }
     return items;
   }
 
-  return {
+  /**
+   * The services a search goes through, in order: the preferred one
+   * (config `music_search_service`) when it is signed in and can search;
+   * `auto` is Qobuz when it is there; otherwise (or `all`) every service
+   * that announces search criteria.
+   */
+  async function searchTargets(externalId, heos) {
+    const { list } = await heosSources(externalId);
+    const preferred = String(getConfig().music_search_service ?? 'auto');
+    const candidates = searchableCandidates(list);
+    const canSearch = async (sources) => {
+      const out = [];
+      for (const source of sources) {
+        if ((await searchCriteriaOrNone(externalId, heos, source.sid)).length > 0) {
+          out.push(source);
+        }
+      }
+      return out;
+    };
+    if (preferred !== 'all') {
+      const wanted = findService(list, preferred === 'auto' ? 'qobuz' : preferred);
+      if (wanted && candidates.includes(wanted)) {
+        const target = await canSearch([wanted]);
+        if (target.length > 0) {
+          return target;
+        }
+      }
+      if (preferred !== 'auto') {
+        logger.info(
+          `${externalId}: preferred search service "${preferred}" is not signed in or cannot search, searching every service`,
+        );
+      }
+    }
+    return canSearch(candidates);
+  }
+
+  const handlers = {
     async browse(device, { parentId, offset = 0, limit = 50 }) {
       const externalId = device.external_id;
       requireHeos(externalId, 'browse the music');
@@ -107,13 +163,13 @@ export function createMusicHandlers(gladys, getConfig) {
       if (media.kind === 'source') {
         // The top level of a source comes whole (no paging there).
         const page = await browsePage(heos, media.sid, null);
-        return slice(mediaItems(page.items, media.sid, null), offset, limit);
+        return slice(mediaItems(page.items, media.sid), offset, limit);
       }
       if (!media.cid) {
         throw new Error(`"${media.name || parentId}" cannot be opened`);
       }
       const page = await browsePage(heos, media.sid, media.cid, offset, limit);
-      const items = mediaItems(page.items, media.sid, media.cid);
+      const items = mediaItems(page.items, media.sid, { cid: media.cid });
       // HEOS' count is 0 when unknown: a full page says there may be more.
       const total =
         page.count > 0
@@ -124,43 +180,121 @@ export function createMusicHandlers(gladys, getConfig) {
 
     async search(device, { query, type = null, limit = 20 }) {
       const externalId = device.external_id;
-      const source = await qobuzSource(externalId);
-      const heos = requireHeos(externalId, 'search Qobuz');
-      const latestArtist = parseLatestAlbumQuery(query);
-      const text = latestArtist ?? String(query ?? '').trim();
-      const kinds = latestArtist ? ['album'] : type ? (SEARCH_KINDS[type] ?? []) : ALL_KINDS;
-      const items = [];
-      if (latestArtist) {
-        const lang = /\balbum\s+(?:de|d['’]|du|des)\b/i.test(query) ? 'fr' : 'en';
-        items.push(latestAlbumMediaItem(source.sid, latestArtist, lang));
-      }
-      const perKind = kinds.length > 1 ? Math.max(3, Math.ceil(limit / kinds.length)) : limit;
-      const startedAt = Date.now();
-      for (const kind of kinds) {
-        if (Date.now() - startedAt > SEARCH_BUDGET_MS) {
-          logger.info(`${externalId}: Qobuz search "${text}" cut short before ${kind}`);
-          break;
-        }
+      const heos = requireHeos(externalId, 'search the music services');
+      // The search budget bounds every HEOS request of the search, on every
+      // service (./deadline.js): past it, the search answers what it has.
+      return runWithDeadline(timing.musicSearchBudgetMs, async () => {
+        let targets;
         try {
-          const found = await searchKind(externalId, heos, source.sid, kind, text, {
-            limit: perKind,
-          });
-          for (const media of mediaItems(found.items, source.sid, found.trackCid)) {
-            items.push(media);
-            // An artist matching the query also offers its latest album.
-            if (
-              kind === 'artist' &&
-              media.type === MUSIC_MEDIA_TYPES.ARTIST &&
-              fold(media.title) === fold(text)
-            ) {
-              items.push(latestAlbumMediaItem(source.sid, media.title));
-            }
-          }
+          targets = await searchTargets(externalId, heos);
         } catch (err) {
-          logger.warn(`${externalId}: Qobuz ${kind} search "${text}" failed: ${err.message}`);
+          if (err instanceof DeadlineError) {
+            throw new Error(
+              'HEOS did not answer the search in time (Gladys waits 10 s): try again',
+              { cause: err },
+            );
+          }
+          throw err;
         }
-      }
-      return { items: items.filter(Boolean).slice(0, limit) };
+        if (targets.length === 0) {
+          throw new Error('No signed-in HEOS music service can search on this receiver');
+        }
+        const several = targets.length > 1;
+        const latestArtist = parseLatestAlbumQuery(query);
+        const text = latestArtist ?? String(query ?? '').trim();
+        const kinds = latestArtist ? ['album'] : type ? (SEARCH_KINDS[type] ?? []) : ALL_KINDS;
+        const lang = /\balbum\s+(?:de|d['’]|du|des)\b/i.test(query) ? 'fr' : 'en';
+        const steps = targets.length * kinds.length;
+        const perStep = steps > 1 ? Math.max(3, Math.ceil(limit / steps)) : limit;
+        const items = [];
+        const failures = [];
+        let stopped = false;
+        let latestOffered = false;
+        for (const source of targets) {
+          if (stopped) {
+            break;
+          }
+          const service = several ? source.name : '';
+          await runWithDeadline(
+            Infinity,
+            async () => {
+              let criteria;
+              try {
+                criteria = await searchCriteriaOrNone(externalId, heos, source.sid);
+              } catch (err) {
+                failures.push({ source, err });
+                stopped = true;
+                return;
+              }
+              // "Latest album of X": the first service that can search albums.
+              if (latestArtist && !latestOffered && criteriaOf(criteria, 'album')) {
+                items.push(
+                  latestAlbumMediaItem(source.sid, latestArtist, lang, service, source.name),
+                );
+                latestOffered = true;
+              }
+              for (const kind of kinds) {
+                if (!criteriaOf(criteria, kind)) {
+                  continue;
+                }
+                if (timeLeft() <= 0) {
+                  stopped = true;
+                  return;
+                }
+                try {
+                  const found = await searchKind(externalId, heos, source.sid, kind, text, {
+                    limit: perStep,
+                  });
+                  const media = mediaItems(found.items, source.sid, {
+                    trackCid: found.trackCid,
+                    service,
+                  });
+                  for (const entry of media) {
+                    items.push(entry);
+                    // An artist matching the query also offers its latest album.
+                    if (
+                      kind === 'artist' &&
+                      entry.type === MUSIC_MEDIA_TYPES.ARTIST &&
+                      fold(entry.title) === fold(text) &&
+                      criteriaOf(criteria, 'album')
+                    ) {
+                      items.push(
+                        latestAlbumMediaItem(source.sid, entry.title, 'both', service, source.name),
+                      );
+                    }
+                  }
+                } catch (err) {
+                  failures.push({ source, err });
+                  logger.warn(
+                    `${externalId}: ${source.name} ${kind} search "${text}" failed: ${err.message}`,
+                  );
+                  if (err instanceof DeadlineError) {
+                    stopped = true;
+                    return;
+                  }
+                }
+              }
+            },
+            source.name,
+          );
+        }
+        const found = items.filter(Boolean);
+        if (stopped) {
+          logger.info(
+            `${externalId}: search "${text}" cut short after ${timing.musicSearchBudgetMs} ms`,
+          );
+        }
+        // Nothing found because a service failed: say so, never "no result".
+        if (found.length === 0 && failures.length > 0) {
+          const { source, err } = failures[0];
+          throw new Error(
+            err instanceof DeadlineError
+              ? `${source.name} did not answer the search "${text}" in time (Gladys waits 10 s): try again`
+              : `${source.name} could not search "${text}": ${err.message}`,
+          );
+        }
+        return { items: found.slice(0, limit) };
+      });
     },
 
     async play(device, media, mode = 'replace') {
@@ -174,10 +308,14 @@ export function createMusicHandlers(gladys, getConfig) {
       let play;
       if (kind === 'queue') {
         play = () => heos.request(buildPlayQueueCommand(heos.pid, mid));
+      } else if (kind === 'input' && mid) {
+        play = () => playInput(heos, mid, sid);
       } else if (sid === null) {
         throw new Error(`"${name || media.id}" has no HEOS source`);
       } else if (kind === 'latest') {
-        const latest = await resolveLatestAlbum(externalId, heos, sid, decoded.artist);
+        const latest = await resolveLatestAlbum(externalId, heos, sid, decoded.artist, {
+          label: name || `HEOS ${sid}`,
+        });
         logger.info(
           `${externalId}: latest album of "${decoded.artist}": "${latest.album.name}" (${latest.method})`,
         );
@@ -197,6 +335,9 @@ export function createMusicHandlers(gladys, getConfig) {
       } else {
         throw new Error(`"${name || media.id}" cannot be played`);
       }
+      // Only when enough time is left to switch the zone on and play: a
+      // command Gladys already gave up on never starts the music.
+      assertTimeLeft(timing.musicActReserveMs, 'before playing');
       await ensureZoneReadyForHeos(externalId, normalizeZone(getConfig().zone));
       await play();
     },
@@ -263,9 +404,35 @@ export function createMusicHandlers(gladys, getConfig) {
       if (qid === undefined || qid === null) {
         throw new Error(`The queue has no item ${position + 1}`);
       }
+      assertTimeLeft(timing.musicActReserveMs, 'before playing');
       await heos.request(buildPlayQueueCommand(heos.pid, qid));
     },
+
+    // The artwork bytes behind a key (now playing, catalog thumbnails): the
+    // URL HEOS gave (a service's image CDN, e.g. Qobuz's), downloaded and
+    // checked like the widget's cover — an image above 300 KB or not a
+    // PNG/JPEG/WebP is refused here with a log line, the frame stays empty.
+    async getArtwork(key) {
+      const url = gladys.artworkUrls?.get(key);
+      if (!url) {
+        throw new Error(`Unknown artwork ${key}`);
+      }
+      const prepared = await artworks.prepare(url);
+      const image = prepared ? artworks.get(prepared) : undefined;
+      if (!image) {
+        throw new Error(`Artwork ${key} left out: see the "Artwork left out" log line`);
+      }
+      return image;
+    },
   };
+  // Every command under the music deadline (./deadline.js): Gladys waits
+  // 10 s, the module stops by 8 s and says why.
+  return Object.fromEntries(
+    Object.entries(handlers).map(([name, handler]) => [
+      name,
+      (...args) => runWithDeadline(timing.musicDeadlineMs, () => handler(...args), 'HEOS'),
+    ]),
+  );
 }
 
 /** Register the music handlers on the SDK (before connect()). */
@@ -276,6 +443,7 @@ export function registerMusic(gladys, getConfig) {
   gladys.onMusicPlay(handlers.play);
   gladys.onMusicQueueGet(handlers.queueGet);
   gladys.onMusicQueuePlay(handlers.queuePlay);
+  gladys.onMusicGetArtwork(handlers.getArtwork);
 }
 
 // The now-playing states published as the music features of the device.
@@ -302,6 +470,19 @@ export function nowPlayingFeatureIds(externalId) {
  * get_now_playing_media both feed them). One batch per change burst; the
  * SDK diffs against what it published. Returns the stop function.
  */
+// Publish again the now playing of one receiver (startNowPlaying()'s
+// scheduler; nothing until it runs).
+let refreshNowPlaying = () => {};
+
+/**
+ * Publish the current now playing of one receiver again: after Discovery
+ * "Update" or a creation, the SDK forgot what it published and the new
+ * music features would stay empty until the next track.
+ */
+export function republishNowPlaying(externalId) {
+  refreshNowPlaying(externalId);
+}
+
 export function startNowPlaying(gladys, getState) {
   const timers = new Map();
   const publish = (externalId) => {
@@ -321,15 +502,22 @@ export function startNowPlaying(gladys, getState) {
       )
       .catch((err) => logger.error(`publishNowPlaying failed for ${externalId}: ${err.message}`));
   };
-  const unsubscribe = onDeviceStateChange((externalId, key) => {
-    if (NOW_PLAYING_KEYS.has(key) && !timers.has(externalId)) {
+  const schedule = (externalId) => {
+    if (!timers.has(externalId)) {
       timers.set(
         externalId,
         setTimeout(() => publish(externalId), timing.nowPlayingBatchMs),
       );
     }
+  };
+  const unsubscribe = onDeviceStateChange((externalId, key) => {
+    if (NOW_PLAYING_KEYS.has(key)) {
+      schedule(externalId);
+    }
   });
+  refreshNowPlaying = schedule;
   return () => {
+    refreshNowPlaying = () => {};
     unsubscribe();
     for (const timer of timers.values()) {
       clearTimeout(timer);

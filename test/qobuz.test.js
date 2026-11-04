@@ -582,8 +582,16 @@ test('the check lists the first level and the playlists found', async (t) => {
   t.mock.method(console, 'log', () => {});
   await connect(t, qobuzReceiver());
   const check = await runQobuzCheckAction({ fields: { device: ID } });
-  assert.equal(
+  assert.match(
     check.fr,
+    /^Services HEOS : Pandora \(non connecté\), TuneIn \(connecté, recherche : Station\), Qobuz \(connecté, recherche : Artist\/Album\/Track\/Playlist\), Spotify \(Spotify Connect seulement, pas de catalogue\), Deezer \(connecté, recherche : Artist\/Album\/Track\), Tidal \(connecté, recherche : Artist\/Album\/Track\/Playlist\), Amazon \(non connecté\), Local Music \(connecté\)/,
+  );
+  assert.match(
+    check.en,
+    /^HEOS services: Pandora \(not signed in\), TuneIn \(signed in, search: Station\)/,
+  );
+  assert.equal(
+    check.fr.slice(check.fr.indexOf('Qobuz trouvé')),
     "Qobuz trouvé (source HEOS 30). Premier niveau : Discover, Library. 2 playlists : Jazz du matin, Café & Soirée. Détails : lignes « Qobuz check » des logs de l'intégration.",
   );
 });
@@ -745,4 +753,42 @@ test('an unanswered request times out instead of blocking the next ones', async 
 
 test('HEOS not connected: Qobuz cannot be used', async () => {
   await assert.rejects(playQobuz('avr:none', { name: 'x' }, 'main'), /cannot use Qobuz/);
+});
+
+test('the account stays hidden in the check logs when the sources step fails', async (t) => {
+  const logged = [];
+  t.mock.method(console, 'log', (...args) => logged.push(args.join(' ')));
+  let calls = 0;
+  await connect(
+    t,
+    qobuzReceiver({
+      overrides: {
+        'browse/get_music_sources': () => {
+          calls += 1;
+          return calls >= 3 ? [{ result: 'fail', message: 'eid=11&text=Internal' }] : undefined;
+        },
+        'browse/browse': (params) =>
+          params.cid
+            ? undefined
+            : [
+                {
+                  payload: [
+                    {
+                      container: 'yes',
+                      type: 'container',
+                      playable: 'no',
+                      cid: 'ME',
+                      name: `${ACCOUNT} library`,
+                    },
+                  ],
+                },
+              ],
+      },
+    }),
+  );
+  await runQobuzCheckAction({ fields: { device: ID } });
+  const text = logged.filter((line) => line.includes('Qobuz check')).join('\n');
+  assert.match(text, /sources failed: HEOS refused browse\/get_music_sources/);
+  assert.ok(text.includes('(account) library'), text);
+  assert.ok(!text.includes(ACCOUNT));
 });
