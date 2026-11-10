@@ -160,6 +160,21 @@ check" output with an artist (lines "Qobuz check" of the logs) to replace the gu
   while for a late `mid` before clearing would change when the volume and input come back, which
   the 1.2.1 test is checking. Pinned by a test.
 
+## Next patch (review denon-125-r2, minors)
+
+- [ ] M1: `--test-force-exit` (script `test`) sometimes drops a result line without failing
+      (node 22.23.4: `test/protocol.test.js` alone, 1 run in 150 prints 31 results of 32; in a
+      x20 loop, 517/525 and 524/525 with exit 0). Remove it from the script (check the whole
+      suite still exits), or have `gi` compare the test count.
+- [ ] M2: an announcement started right after the previous one's standby, before the standby
+      report: the state still says on, so it takes the "recent wake" path (no ZMON), then the
+      1 -> 0 report is taken for the remote and stops it, silently (log "switched off (remote or
+      front panel)"). Fix: `wakes.delete(id)` when the announcement's own standby is sent
+      (`fromAnnouncement`), and "recent" only without a standby sent since.
+- [ ] The other ~25 fixed `await wait()` of `test/adbreak-controller.test.js` have the same shape
+      as r2 I1 (never failed so far); the `wait(100)` after `setAdBreak(false)` also flushes the
+      stats save, keep it.
+
 ## Next patch (review denon-123-r2, minors)
 
 - [ ] Tests on the end-range bounds (4 mutants survive): end jingle 158 s before the next song (heard), 5 s after it (heard), 12 s after it (missed).

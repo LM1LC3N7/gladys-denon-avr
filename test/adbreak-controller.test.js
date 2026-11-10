@@ -448,8 +448,12 @@ test('insights: the station playing, else the last one, and every station in the
   });
   controller.onNowPlayingMedia(STREAM);
   controller.onPlayState(true);
-  await wait();
-  controller.setAdBreak(true);
+  // The station is set up in the background: press until the break is taken
+  // (no fixed sleep, review denon-125-r2 I1).
+  await until(async () => {
+    controller.setAdBreak(true);
+    return (await controller.insights()).inBreak;
+  });
   const during = await controller.insights();
   assert.equal(during.inBreak, true);
   assert.ok(during.breakSince <= Date.now());

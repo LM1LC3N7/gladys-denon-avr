@@ -1,5 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   emptyStats,
   recordBreak,
@@ -579,7 +582,11 @@ test('parseIndesRadiosEvent reads the live feed lines', () => {
 });
 
 test('controller: a feed song change is applied only once the stream lag has elapsed', async (t) => {
-  process.env.AD_BREAK_STATS_FILE = `${process.env.TMPDIR || '/tmp'}/adbreak-test-${process.pid}.json`;
+  // A private folder, removed at the end (review denon-125-r2 M3: one file
+  // per run was left behind).
+  const statsDir = mkdtempSync(join(tmpdir(), 'adbreak-test-'));
+  t.after(() => rmSync(statsDir, { recursive: true, force: true }));
+  process.env.AD_BREAK_STATS_FILE = join(statsDir, 'ad-breaks.json');
   process.env.AD_BREAK_JINGLES = 'off'; // no ffmpeg/stream in unit tests
   const { createAdBreakController, __resetStoreForTesting } =
     await import('../src/adbreak/index.js');
