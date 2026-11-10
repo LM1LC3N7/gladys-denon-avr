@@ -19,6 +19,11 @@
   confirm by guim31 (AVR-S650H): volume applied, start of the message heard, TV stays off.
 - Not known: whether the S650H echoes `PWON` at once (then the 2 s pause and the volume read
   back do the real waiting) or only once awake; whether it answers `MV50` while waking.
+- Review denon-125-r1 (257485c): I1-I5 and m1-m5 fixed. Left on purpose: a volume changed with
+  the remote (not Gladys) during the ≤ 4 s read back may be overwritten (a waking receiver may
+  report its "Power On Level", which must not be taken for the user's); two mutants are
+  equivalent and marked so in `scripts/mutants.json` (the `isCurrent()` in the catch, the
+  `stopTimers` before tracking).
 - The scene action's own volume is still dropped by the core (checked in Gladys 5.3.2:
   `scene.actions.js` passes `{ volume }` to `device.setValue`, the proxy service of
   `externalIntegration.registerProxyService.js` forwards only `value`). Nothing to change here.

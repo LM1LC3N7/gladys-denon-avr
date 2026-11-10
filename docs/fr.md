@@ -100,8 +100,11 @@ Voici ce qui apparaît par ampli :
   télé) ; un lecteur réveillé plus tard par HDMI-CEC choisit de toute façon sa propre entrée.
   Depuis la veille, l'annonce attend que l'ampli se dise allumé (5 s au plus, puis elle continue
   quand même), patiente 2 s, puis attend que le volume des annonces soit relu (4 s au plus, renvoyé
-  chaque seconde) avant de lancer le message ; l'action de scène reçoit sa réponse au bout de 3 s
-  au plus pendant que la suite se déroule. Ce que HEOS
+  chaque seconde, à un pas près, ou le volume maximum de l'ampli s'il est plus bas) avant de lancer
+  le message ; l'action de scène reçoit sa réponse au bout de 3 s au plus pendant que la suite se
+  déroule. Éteindre l'ampli pendant ce temps (depuis Gladys ou sa télécommande) arrête l'annonce,
+  et rien n'est rétabli ; un volume réglé depuis Gladys pendant ce temps est gardé. Un volume changé
+  à la télécommande pendant ces quelques secondes peut encore être remplacé par celui de l'annonce. Ce que HEOS
   jouait avant l'annonce (une radio, une playlist, un flux envoyé par une autre application en UPnP
   ou AirPlay, Lyrion par exemple) ne reprend pas tout seul : cette application doit relancer la
   lecture. Une fois l'annonce finie et si rien d'autre ne joue, la file d'attente HEOS est vidée,

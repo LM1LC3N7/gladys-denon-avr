@@ -68,6 +68,11 @@ async function tempDir() {
   return fs.mkdtemp(path.join(os.tmpdir(), 'adbreak-jingles-'));
 }
 
+// The four tests that decode seconds of audio: 13 s alone, more on a loaded
+// machine (review denon-125-r1 M4); the default 60 s is not theirs. Named
+// `it` so Prettier keeps the usual test layout.
+const it = (name, fn) => test(name, { timeout: 120_000 }, fn);
+
 test('stationFile keeps short keys readable and hashes long ones under the name limit', () => {
   assert.equal(stationFile('/d', 'tunein:s6586'), path.join('/d', 'tunein_s6586.json'));
   const long = `url:https://example.com/${'x'.repeat(400)}`;
@@ -88,7 +93,7 @@ test('findSharedJingleInWorker runs the search off the main thread', async () =>
   await assert.rejects(findSharedJingleInWorker([{ anchor: 0 }]));
 });
 
-test('a station jingle is learned from its breaks, observed, activated, saved, then dropped', async (t) => {
+it('a station jingle is learned from its breaks, observed, activated, saved, then dropped', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
   const storeDir = await tempDir();
   const { spawnImpl, children } = fakeSpawn();
@@ -390,7 +395,7 @@ async function recallSetUp(t, stationKey, findJingle = findInThread, records = {
   return { listener, child: children[0], counts, saved };
 }
 
-test('an active start jingle never heard: learned talk, demoted, then replaced', async (t) => {
+it('an active start jingle never heard: learned talk, demoted, then replaced', async (t) => {
   // New sounds are searched for once the jingle is demoted (a quicker test).
   let searching = false;
   const { listener, child, counts, saved } = await recallSetUp(t, 'tunein:s1', (samples) =>
@@ -439,7 +444,7 @@ test('an active start jingle never heard: learned talk, demoted, then replaced',
   assert.equal(counts.changes, 2, 'the end jingle became reliable');
 });
 
-test('a reliable start jingle keeps the 90 s wait, until it misses too often', async (t) => {
+it('a reliable start jingle keeps the 90 s wait, until it misses too often', async (t) => {
   // No new sound searched for here (a quicker test).
   const { listener, child, counts } = await recallSetUp(t, 'tunein:s2', async () => null);
   for (const [i, seed] of [41, 42, 43, 44].entries()) {
@@ -542,7 +547,7 @@ test('a saved record is read back, and misses count over the last 6 breaks only'
   assert.equal((await saved()).jingles.end.active, false);
 });
 
-test('a long gap the detector did not take for a break judges no jingle', async (t) => {
+it('a long gap the detector did not take for a break judges no jingle', async (t) => {
   // Louis's case: both jingles air in every real break. Between the breaks,
   // the host talks 200 s or more (a feature, an interview), outside the ad
   // windows or in a window already used: no break was started there.

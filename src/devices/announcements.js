@@ -45,7 +45,7 @@
 // -----------------------------------------------------------------------------
 
 import { createLogger } from '@gladysassistant/integration-sdk';
-import { normalizeZone, percentToDenonVolume } from '../denon/protocol.js';
+import { normalizeZone, percentToDenonVolume, ZONE } from '../denon/protocol.js';
 import {
   buildClearQueueCommand,
   buildGetNowPlayingMediaCommand,
@@ -53,17 +53,25 @@ import {
   buildPlayStreamCommand,
 } from '../heos/protocol.js';
 import { normalizeConfig } from '../config.js';
-import { FEATURE, HEOS_SOURCE_CODE } from './features.js';
+import { FEATURE, HEOS_SOURCE_CODE, STATE } from './features.js';
 import {
   getHeos,
   getState,
   isTelnetConnected,
   onDeviceStateChange,
   registerResetHook,
+  registerUserCommandHook,
   timing,
   waitForState,
 } from './registry.js';
-import { requireHeos, setPower, setSource, setVolume, wakeZoneForHeos } from './control.js';
+import {
+  cancelWake,
+  requireHeos,
+  setPower,
+  setSource,
+  setVolume,
+  wakeZoneForHeos,
+} from './control.js';
 import { NOW_PLAYING_MID_KEY, STREAM_RESULT_KEY } from './heos-session.js';
 
 const logger = createLogger({ name: 'avr' });
@@ -79,10 +87,12 @@ const pending = new Map();
 // call still waking the receiver stops at its next step, never sends its
 // stream after a newer one.
 const runs = new Map();
+// Every entry with live timers, pending or not: a reset stops them all.
+const timed = new Set();
 let unsubscribe = null;
 
 registerResetHook(() => {
-  for (const entry of pending.values()) {
+  for (const entry of [...pending.values(), ...timed]) {
     stopTimers(entry);
   }
   pending.clear();
@@ -94,6 +104,7 @@ function stopTimers(entry) {
   clearInterval(entry.pollTimer);
   clearTimeout(entry.startTimer);
   clearTimeout(entry.maxTimer);
+  timed.delete(entry);
 }
 
 function ensureListening() {
@@ -102,7 +113,50 @@ function ensureListening() {
   }
 }
 
-function handleStateChange(externalId, key, value) {
+/**
+ * The user switched the receiver off (device command, scene, widget, or its
+ * remote: a power report 1 -> 0) while an announcement wakes it, waits or
+ * plays (review denon-125-r1 I2): the announcement stops at once, nothing is
+ * sent after it and nothing is restored (the user wants it off).
+ */
+function stopByUser(externalId, why) {
+  const entry = pending.get(externalId);
+  if (!entry && !runs.has(externalId)) {
+    return;
+  }
+  logger.info(`${externalId}: ${why}, the announcement stops, nothing restored`);
+  cancelAnnouncement(externalId);
+  if (entry) {
+    forgetAnnouncementStream(externalId, entry);
+  }
+}
+
+registerUserCommandHook((externalId, kind) => {
+  if (kind === 'power-off') {
+    stopByUser(externalId, 'switched off by the user');
+    return;
+  }
+  const run = runs.get(externalId);
+  const entry = pending.get(externalId);
+  if (kind === 'volume') {
+    // Not overwritten by the announcement volume sent again, nor given back
+    // at the end: the user's volume stays (review denon-125-r1 M1).
+    if (run) {
+      run.userVolume = true;
+    }
+    if (entry) {
+      entry.userVolume = true;
+    }
+  } else if (kind === 'power-on' && entry) {
+    entry.snapshot.power = 1; // Switched on by the user: no standby at the end.
+  }
+});
+
+function handleStateChange(externalId, key, value, previous) {
+  if (key === FEATURE.POWER && value === 0 && previous === 1) {
+    stopByUser(externalId, 'switched off (remote or front panel)');
+    return;
+  }
   const entry = pending.get(externalId);
   if (!entry || !entry.tracking) {
     return;
@@ -179,6 +233,7 @@ async function restore(externalId, entry) {
   const state = getState(externalId);
   forgetAnnouncementStream(externalId, entry);
   if (
+    !entry.userVolume &&
     entry.announcementVolume !== undefined &&
     snapshot.volume !== undefined &&
     stillAtAnnouncementVolume(state.volume, entry.announcementVolume)
@@ -201,8 +256,13 @@ async function restore(externalId, entry) {
   ) {
     setSource(externalId, snapshot.source, zone);
   }
-  if (snapshot.power === 0 && state.power !== 0) {
-    await setPower(externalId, false, zone, 'back to standby after an announcement');
+  // `woke`: the integration sent the power command itself. A receiver that
+  // never reported it on still gets its standby (review denon-125-r1 I3);
+  // a standby on a receiver already in standby changes nothing.
+  if (snapshot.power === 0 && (state.power !== 0 || entry.woke)) {
+    await setPower(externalId, false, zone, 'back to standby after an announcement', {
+      fromAnnouncement: true,
+    });
   }
 }
 
@@ -223,11 +283,17 @@ export function finishAnnouncement(externalId, reason) {
 /** Drop the announcement of one receiver without restoring anything (device gone). */
 export function cancelAnnouncement(externalId) {
   runs.delete(externalId);
+  cancelWake(externalId);
   const entry = pending.get(externalId);
   if (entry) {
     stopTimers(entry);
     pending.delete(externalId);
   }
+}
+
+/** Announcement runs still holding their token (tests: none once over, review r1 M5). */
+export function __announcementRunsForTesting() {
+  return runs.size;
 }
 
 /** Whether an announcement is in progress on this receiver (widgets, tests). */
@@ -245,7 +311,12 @@ export async function playAnnouncement(externalId, url, config = normalizeConfig
   const heos = requireHeos(externalId, 'speak');
   const run = {};
   runs.set(externalId, run);
-  const work = runAnnouncement(externalId, url, config, heos, run);
+  // The token is dropped once this run is over (review denon-125-r1 M5).
+  const work = runAnnouncement(externalId, url, config, heos, run).finally(() => {
+    if (runs.get(externalId) === run) {
+      runs.delete(externalId);
+    }
+  });
   // A receiver waking from standby takes longer than Gladys waits for the
   // answer (5 s): past `timing.announcementAckMs` the scene action is
   // answered and the announcement goes on, its errors logged.
@@ -269,30 +340,47 @@ const LATE = Symbol('late');
  * Wait until the receiver reports the announcement volume, sending it again
  * every `timing.announcementVolumeRetryMs`, for `timing.announcementVolumeConfirmMs`
  * at most. Only after a wake from standby (a receiver already on takes it at
- * once), and only when the volume reported before differs: a read back equal
- * to it would prove nothing. Resolves whether it was read back.
+ * once), and only when the volume reported before is not already it: a read
+ * back equal to it would prove nothing. Within one unit counts (a half step,
+ * review denon-125-r1 M2), and so does the receiver's own Max Volume (MVMAX,
+ * main zone) when it is below. Stops sending as soon as the user sets a
+ * volume (M1), and when Telnet is gone (M3: the HEOS route has another
+ * scale). Resolves whether it was read back.
  */
-async function confirmAnnouncementVolume(externalId, volume, zone, target, isCurrent) {
-  if (getState(externalId).volume === target) {
+async function confirmAnnouncementVolume(externalId, volume, zone, target, run) {
+  const isCurrent = () => runs.get(externalId) === run;
+  const state = getState(externalId);
+  const max = state[STATE.VOLUME_MAX];
+  const goal =
+    zone === ZONE.MAIN && typeof max === 'number' && Number.isFinite(max)
+      ? Math.min(target, Math.floor(max))
+      : target;
+  const reached = (level) => typeof level === 'number' && Math.abs(level - goal) <= 1;
+  if (reached(state.volume)) {
     return true;
   }
   const deadline = performance.now() + timing.announcementVolumeConfirmMs;
   const retry = Math.max(10, timing.announcementVolumeRetryMs);
   for (;;) {
     const left = deadline - performance.now();
-    if (await waitForState(externalId, (state) => state.volume === target, Math.min(left, retry))) {
+    if (await waitForState(externalId, (now) => reached(now.volume), Math.min(left, retry))) {
       return true;
     }
-    if (!isCurrent() || deadline - performance.now() <= 0) {
+    if (!isCurrent() || run.userVolume) {
+      return false;
+    }
+    if (deadline - performance.now() <= 0) {
       break;
+    }
+    if (!isTelnetConnected(externalId)) {
+      logger.warn(`${externalId}: Telnet lost, the announcement volume is not sent again`);
+      return false;
     }
     setVolume(externalId, volume, zone);
   }
-  if (isCurrent()) {
-    logger.warn(
-      `${externalId}: announcement volume not read back after ${timing.announcementVolumeConfirmMs} ms, the announcement goes on`,
-    );
-  }
+  logger.warn(
+    `${externalId}: announcement volume not read back after ${timing.announcementVolumeConfirmMs} ms, the announcement goes on`,
+  );
   return false;
 }
 
@@ -325,14 +413,18 @@ async function runAnnouncement(externalId, url, config, heos, run) {
     lastMid: '',
     streamSent: false,
   });
+  // Always listening: a power-off from the remote stops the announcement,
+  // restore or not.
+  ensureListening();
   if (config.announcement_restore) {
     pending.set(externalId, entry);
-    ensureListening();
   }
 
   try {
-    const { woke } = await wakeZoneForHeos(externalId, zone);
-    if (!isCurrent()) {
+    const { woke, cancelled } = await wakeZoneForHeos(externalId, zone);
+    // The integration sent (or joined) the power command: standby at the end.
+    entry.woke = entry.woke || woke;
+    if (!isCurrent() || cancelled) {
       return; // A newer announcement took over: it sends the stream.
     }
     if (wantsVolume) {
@@ -342,13 +434,7 @@ async function runAnnouncement(externalId, url, config, heos, run) {
         ? percentToDenonVolume(volume)
         : Math.round(Math.min(100, volume));
       if (woke && isTelnetConnected(externalId)) {
-        await confirmAnnouncementVolume(
-          externalId,
-          volume,
-          zone,
-          entry.announcementVolume,
-          isCurrent,
-        );
+        await confirmAnnouncementVolume(externalId, volume, zone, entry.announcementVolume, run);
         if (!isCurrent()) {
           return;
         }
@@ -375,12 +461,13 @@ async function runAnnouncement(externalId, url, config, heos, run) {
     throw err;
   }
 
-  if (!pending.has(externalId) || pending.get(externalId) !== entry) {
+  if (pending.get(externalId) !== entry) {
     return;
   }
   // One set of timers per entry, whatever ran before: a timer overwritten
   // here would never be cleared.
   stopTimers(entry);
+  timed.add(entry);
   const startedAt = Date.now();
   entry.tracking = true;
   // HEOS pushes player_state_changed, but nothing guarantees it arrives (see
@@ -397,8 +484,10 @@ async function runAnnouncement(externalId, url, config, heos, run) {
       finishAnnouncement(externalId, 'never started');
     }
   }, timing.announcementStartTimeoutMs);
-  entry.maxTimer = setTimeout(
-    () => finishAnnouncement(externalId, 'timed out'),
-    timing.announcementMaxMs,
-  );
+  // The hard cap ends this entry's own timers whatever happened to it: no
+  // poll outlives it, even for an entry no longer pending.
+  entry.maxTimer = setTimeout(() => {
+    stopTimers(entry);
+    finishAnnouncement(externalId, 'timed out');
+  }, timing.announcementMaxMs);
 }

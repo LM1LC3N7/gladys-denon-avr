@@ -37,6 +37,7 @@ import {
   getSession,
   isHeosConnected,
   isTelnetConnected,
+  noteUserCommand,
   registerResetHook,
   settle,
   timing,
@@ -121,34 +122,83 @@ export async function ensureZoneReadyForHeos(externalId, zone) {
  * its power on (bounded by `timing.wakeConfirmMs`: past it, the
  * announcement goes on anyway), a short pause after that report, and only
  * then the input switch and its usual settling pause. Resolves
- * `{ woke, confirmed }`: `woke` when the zone was not on, `confirmed` when
- * it then reported its power on.
+ * `{ woke, confirmed, cancelled }`: `woke` when the zone was not on (or
+ * woken by an earlier announcement just before), `confirmed` when it then
+ * reported its power on, `cancelled` when cancelWake() stopped it.
  */
 export async function wakeZoneForHeos(externalId, zone) {
+  // One wake per receiver (review denon-125-r1 I1): a newer announcement
+  // joins the wake in progress, and one that comes soon after a wake (the
+  // receiver still on) counts as woken too, so it also waits for its volume.
+  const current = wakes.get(externalId);
+  if (current && !current.cancelled) {
+    if (current.endedAt === undefined) {
+      return current.promise;
+    }
+    if (
+      performance.now() - current.endedAt < timing.wakeFreshMs &&
+      getState(externalId).power === 1
+    ) {
+      return { woke: true, confirmed: current.confirmed, cancelled: false };
+    }
+  }
+  wakes.delete(externalId);
   const telnet = getTelnet(externalId);
   if (!telnet?.isConnected() || getState(externalId).power === 1) {
     await ensureZoneOn(externalId, zone, HEOS_SOURCE_CODE);
-    return { woke: false, confirmed: false };
+    return { woke: false, confirmed: false, cancelled: false };
   }
+  const wake = { cancelled: false, confirmed: false, endedAt: undefined };
+  wake.promise = (async () => {
+    try {
+      return await runWake(externalId, zone, telnet, wake);
+    } finally {
+      wake.endedAt = performance.now();
+    }
+  })();
+  wakes.set(externalId, wake);
+  return wake.promise;
+}
+
+async function runWake(externalId, zone, telnet, wake) {
   sendPower(telnet, externalId, true, zone, 'before an announcement');
-  const confirmed = await waitForState(
+  wake.confirmed = await waitForState(
     externalId,
     (state) => state.power === 1,
     timing.wakeConfirmMs,
   );
-  if (confirmed) {
+  if (wake.confirmed) {
     await settle(timing.wakeSettleMs);
   } else {
     logger.warn(
       `${externalId}: no power on reported ${timing.wakeConfirmMs} ms after the power command, the announcement goes on`,
     );
   }
+  // Stopped meanwhile (user power-off, device gone): no input switch.
+  if (wake.cancelled) {
+    return { woke: true, confirmed: wake.confirmed, cancelled: true };
+  }
   if (getState(externalId).source !== HEOS_SOURCE_CODE && telnet.isConnected()) {
     telnet.send(buildSourceCommand(HEOS_SOURCE_CODE, zone));
     await settle(timing.zoneSwitchDelayMs);
   }
-  return { woke: true, confirmed };
+  return { woke: true, confirmed: wake.confirmed, cancelled: wake.cancelled };
 }
+
+// external_id -> the wake from standby of wakeZoneForHeos():
+// { promise, confirmed, cancelled, endedAt }.
+const wakes = new Map();
+
+/** Stop the wake of one receiver (user power-off, device gone): nothing more is sent. */
+export function cancelWake(externalId) {
+  const wake = wakes.get(externalId);
+  if (wake) {
+    wake.cancelled = true;
+    wakes.delete(externalId);
+  }
+}
+
+registerResetHook(() => wakes.clear());
 
 async function ensureZoneOn(externalId, zone, sourceCode) {
   const telnet = getTelnet(externalId);
@@ -172,8 +222,21 @@ async function ensureZoneOn(externalId, zone, sourceCode) {
   return switched;
 }
 
-/** Turn the configured zone on (pausing for it to wake up) or off. */
-export async function setPower(externalId, on, zone, origin = 'scene or widget') {
+/**
+ * Turn the configured zone on (pausing for it to wake up) or off. A user's
+ * command (all but `{ fromAnnouncement: true }`) is told to the hooks first:
+ * an announcement in progress stops on a power-off (./announcements.js).
+ */
+export async function setPower(
+  externalId,
+  on,
+  zone,
+  origin = 'scene or widget',
+  { fromAnnouncement = false } = {},
+) {
+  if (!fromAnnouncement) {
+    noteUserCommand(externalId, on ? 'power-on' : 'power-off');
+  }
   if (
     !sendPower(
       requireTelnet(externalId, 'power on/off'),

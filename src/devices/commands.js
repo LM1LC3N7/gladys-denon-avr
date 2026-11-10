@@ -33,7 +33,7 @@ import {
   featureExternalId,
   visibleSourceCodes,
 } from './features.js';
-import { getHeos, getState, getTelnet } from './registry.js';
+import { getHeos, getState, getTelnet, noteUserCommand } from './registry.js';
 import { playAnnouncement } from './announcements.js';
 import { sendPower } from './power.js';
 import { heosOnlyError, isHeosOnly } from './control.js';
@@ -91,6 +91,14 @@ export async function onSetValue(gladys, { device, feature, value, config }) {
     // announcement volume and the return to the previous state.
     await playAnnouncement(device.external_id, value, config ?? normalizeConfig());
     return;
+  }
+
+  // The user's own power and volume commands: an announcement stops on a
+  // power-off and keeps the user's volume (./announcements.js).
+  if (key === FEATURE.POWER) {
+    noteUserCommand(device.external_id, Number(value) === 1 ? 'power-on' : 'power-off');
+  } else if (key === FEATURE.VOLUME || key === FEATURE.VOLUME_UP || key === FEATURE.VOLUME_DOWN) {
+    noteUserCommand(device.external_id, 'volume');
   }
 
   const telnet = getTelnet(device.external_id);

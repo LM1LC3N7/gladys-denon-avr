@@ -90,8 +90,11 @@ These show up per receiver:
   on); a player woken later by HDMI-CEC selects its own input anyway. From standby, the
   announcement waits for the receiver to report itself on (up to 5 s, then it goes on anyway),
   pauses 2 s, then waits for the announcement volume to be read back (up to 4 s, sent again every
-  second) before the message starts; the scene action is answered after 3 s at most while this
-  goes on. Whatever HEOS was playing
+  second, within one step, or the receiver's Max Volume when it is lower) before the message
+  starts; the scene action is answered after 3 s at most while this goes on. Switching the
+  receiver off meanwhile (from Gladys or its remote) stops the announcement, and nothing is
+  restored; a volume you set from Gladys meanwhile is kept. A volume changed with the remote
+  during those few seconds may still be replaced by the announcement volume. Whatever HEOS was playing
   before (a radio, a playlist, a stream sent by another app over UPnP or AirPlay, Lyrion for
   instance) does not resume on its own: that app has to play again. Once the announcement is
   over and nothing else plays, the HEOS queue is emptied, so a later Play cannot speak it again.

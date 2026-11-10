@@ -20,14 +20,14 @@
   {
     "name": "announcement volume read back taken as confirmed at once",
     "file": "src/devices/announcements.js",
-    "from": "(state) => state.volume === target",
+    "from": "(now) => reached(now.volume)",
     "to": "() => true"
   },
   {
     "name": "announcement volume never sent again",
     "file": "src/devices/announcements.js",
-    "from": "    setVolume(externalId, volume, zone);\n  }\n  if (isCurrent()) {",
-    "to": "  }\n  if (isCurrent()) {"
+    "from": "    setVolume(externalId, volume, zone);\n  }\n  logger.warn(",
+    "to": "  }\n  logger.warn("
   },
   {
     "name": "state wait without deadline",
@@ -50,8 +50,8 @@
   {
     "name": "an older announcement still waking sends its stream",
     "file": "src/devices/announcements.js",
-    "from": "    if (!isCurrent()) {\n      return; // A newer announcement took over: it sends the stream.",
-    "to": "    if (false) {\n      return; // A newer announcement took over: it sends the stream."
+    "from": "    if (!isCurrent() || cancelled) {\n      return; // A newer announcement took over: it sends the stream.",
+    "to": "    if (cancelled) {\n      return; // A newer announcement took over: it sends the stream."
   },
   {
     "name": "restore: input put back before the standby (CEC wakes the player)",
@@ -64,5 +64,147 @@
     "file": "src/devices/announcements.js",
     "from": "    snapshot.power !== 0 &&\n",
     "to": "    false &&\n"
+  },
+  {
+    "name": "r1 I4.1: cancelAnnouncement keeps the run token",
+    "file": "src/devices/announcements.js",
+    "from": "export function cancelAnnouncement(externalId) {\n  runs.delete(externalId);",
+    "to": "export function cancelAnnouncement(externalId) {"
+  },
+  {
+    "name": "r1 I4.2: no isCurrent() after the volume read back",
+    "file": "src/devices/announcements.js",
+    "from": "        await confirmAnnouncementVolume(externalId, volume, zone, entry.announcementVolume, run);\n        if (!isCurrent()) {",
+    "to": "        await confirmAnnouncementVolume(externalId, volume, zone, entry.announcementVolume, run);\n        if (false) {"
+  },
+  {
+    "name": "r1 I4.3: a stale run that throws finishes the announcement",
+    "file": "src/devices/announcements.js",
+    "from": "    if (isCurrent()) {\n      finishAnnouncement(externalId, 'failed');",
+    "to": "    if (true) {\n      finishAnnouncement(externalId, 'failed');",
+    "equivalent": true,
+    "why": "A stale run never reaches a throwing step: every step after an await checks isCurrent() first, and the shared wake rejects to both runs alike, the current one finishing the same entry once (finishAnnouncement is idempotent)."
+  },
+  {
+    "name": "r1 I4.4: late error not logged (unhandled rejection)",
+    "file": "src/devices/announcements.js",
+    "from": "      work.catch((err) => logger.error(`${externalId}: announcement failed: ${err.message}`));",
+    "to": ""
+  },
+  {
+    "name": "r1 I4.5: tracking started without its entry (restore off)",
+    "file": "src/devices/announcements.js",
+    "from": "  if (pending.get(externalId) !== entry) {",
+    "to": "  if (false) {"
+  },
+  {
+    "name": "r1 I4.6: timers not cleared before tracking",
+    "file": "src/devices/announcements.js",
+    "from": "  stopTimers(entry);\n  timed.add(entry);\n  const startedAt",
+    "to": "  timed.add(entry);\n  const startedAt",
+    "equivalent": true,
+    "why": "Defensive: with the isCurrent() guards only one run ever reaches the tracking of an entry, and a newer call clears the entry's timers before it starts; the line only matters if those guards break (it turned the I4.2-like mutant from a hang into a failure)."
+  },
+  {
+    "name": "r1 I1: no joining of a wake in progress",
+    "file": "src/devices/control.js",
+    "from": "    if (current.endedAt === undefined) {\n      return current.promise;\n    }\n",
+    "to": ""
+  },
+  {
+    "name": "r1 I1: a wake just over not counted for a newer announcement",
+    "file": "src/devices/control.js",
+    "from": "performance.now() - current.endedAt < timing.wakeFreshMs &&",
+    "to": "false &&"
+  },
+  {
+    "name": "r1 I2: cancelAnnouncement leaves the wake going",
+    "file": "src/devices/announcements.js",
+    "from": "  runs.delete(externalId);\n  cancelWake(externalId);",
+    "to": "  runs.delete(externalId);"
+  },
+  {
+    "name": "r1 I2: a cancelled wake still switches the input",
+    "file": "src/devices/control.js",
+    "from": "  if (wake.cancelled) {\n    return { woke: true, confirmed: wake.confirmed, cancelled: true };\n  }",
+    "to": ""
+  },
+  {
+    "name": "r1 I2: user power-off hook ignored",
+    "file": "src/devices/announcements.js",
+    "from": "    stopByUser(externalId, 'switched off by the user');",
+    "to": ""
+  },
+  {
+    "name": "r1 I2: setPower does not tell the user command",
+    "file": "src/devices/control.js",
+    "from": "    noteUserCommand(externalId, on ? 'power-on' : 'power-off');",
+    "to": ""
+  },
+  {
+    "name": "r1 I2: device power command does not tell the user command",
+    "file": "src/devices/commands.js",
+    "from": "    noteUserCommand(device.external_id, Number(value) === 1 ? 'power-on' : 'power-off');",
+    "to": ""
+  },
+  {
+    "name": "r1 I2: remote power-off (1 then 0) ignored",
+    "file": "src/devices/announcements.js",
+    "from": "  if (key === FEATURE.POWER && value === 0 && previous === 1) {",
+    "to": "  if (false) {"
+  },
+  {
+    "name": "r1 I3: no standby when the power on was never reported",
+    "file": "src/devices/announcements.js",
+    "from": "(state.power !== 0 || entry.woke)",
+    "to": "(state.power !== 0)"
+  },
+  {
+    "name": "r1 M1: the announcement volume sent again over a user volume",
+    "file": "src/devices/announcements.js",
+    "from": "    if (!isCurrent() || run.userVolume) {",
+    "to": "    if (!isCurrent()) {"
+  },
+  {
+    "name": "r1 M1: the volume given back over a user volume",
+    "file": "src/devices/announcements.js",
+    "from": "    !entry.userVolume &&\n",
+    "to": ""
+  },
+  {
+    "name": "r1 M1: device volume command does not tell the user command",
+    "file": "src/devices/commands.js",
+    "from": "    noteUserCommand(device.external_id, 'volume');",
+    "to": ""
+  },
+  {
+    "name": "r1 M2: strict read back (half step refused)",
+    "file": "src/devices/announcements.js",
+    "from": "Math.abs(level - goal) <= 1",
+    "to": "level === goal"
+  },
+  {
+    "name": "r1 M2: Max Volume ignored",
+    "file": "src/devices/announcements.js",
+    "from": "? Math.min(target, Math.floor(max))",
+    "to": "? target"
+  },
+  {
+    "name": "r1 M3: volume sent again over HEOS once Telnet is gone",
+    "file": "src/devices/announcements.js",
+    "from": "    if (!isTelnetConnected(externalId)) {\n      logger.warn(`${externalId}: Telnet lost",
+    "to": "    if (false) {\n      logger.warn(`${externalId}: Telnet lost"
+  },
+  {
+    "name": "r1 M5: run token kept once over",
+    "file": "src/devices/announcements.js",
+    "from": "    if (runs.get(externalId) === run) {\n      runs.delete(externalId);\n    }\n",
+    "to": ""
+  },
+  {
+    "name": "r1: a user power-on still followed by the standby",
+    "file": "src/devices/announcements.js",
+    "from": "    entry.snapshot.power = 1;",
+    "to": "    entry.snapshot.power = entry.snapshot.power;"
   }
 ]

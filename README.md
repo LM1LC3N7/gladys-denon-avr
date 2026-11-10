@@ -242,7 +242,12 @@ TuneIn...) — see "Playback controls" below.
   TV back on); from standby, the announcement waits for the power report (`timing.wakeConfirmMs`,
   5 s, then goes on), 2 s more, then the volume read back (4 s, `MV` sent again every second)
   before the stream, and the scene action is answered after 3 s at most
-  (`timing.announcementAckMs`). The volume is left alone if someone changed it during the announcement; a second
+  (`timing.announcementAckMs`). After review denon-125-r1: one wake per receiver, joined by a
+  newer announcement (and one within `timing.wakeFreshMs` of it still waits for its volume); a
+  power-off from Gladys (`setPower`, device command) or the remote (power report 1 then 0)
+  stops the announcement at once, nothing restored; the standby is sent when the integration
+  woke the receiver even without a power report; a volume set from Gladys meanwhile stops the
+  resends and is kept; ±1 or the receiver's MVMAX counts as read back. The volume is left alone if someone changed it during the announcement; a second
   announcement keeps the first one's snapshot; what HEOS was playing before is not resumed (the
   queue was cleared, see above). Since 1.2.1 (forum topic 10722, post 39, Lyrion): HEOS naming
   the announcement URL as its current media (`get_now_playing_media` `mid`, polled with the play

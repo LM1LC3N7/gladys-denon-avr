@@ -22,6 +22,13 @@ the notes of the version's GitHub Release.
   standby. Selecting an HDMI input sent an HDMI-CEC message that woke the player on it (an
   Nvidia Shield), which switched the receiver and the TV back on. The receiver now goes back to
   standby on the network input; the input is still given back when the receiver was on before.
+- Review of the above (denon-125-r1): an announcement that comes during or just after a wake
+  waits for the same wake and its volume read back; switching the receiver off (from Gladys or
+  its remote) stops the announcement at once, with nothing sent after it; a receiver that never
+  reports its power on is still put back in standby; a volume the user sets meanwhile is no
+  longer overwritten nor given back; a half step or the receiver's Max Volume counts as read
+  back; the volume is not sent over HEOS once Telnet is lost. Switched on by the user during an
+  announcement, the receiver stays on at the end.
 
 ## [1.2.4] - 2026-11-04
 

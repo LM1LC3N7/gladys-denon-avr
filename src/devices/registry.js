@@ -67,6 +67,9 @@ const DEFAULT_TIMING = Object.freeze({
   announcementVolumeConfirmMs: 4_000,
   announcementVolumeRetryMs: 1_000,
   announcementAckMs: 3_000,
+  // A zone woken this recently (and still on) counts as just woken for a
+  // newer announcement: it still waits for its volume to be read back.
+  wakeFreshMs: 10_000,
   // A HEOS request awaited for its answer (browse, search, add to queue:
   // ./qobuz.js). Browsing a music service goes through the service's cloud,
   // a few seconds on a good day: 15 s before giving up on one answer.
@@ -178,6 +181,28 @@ export function notifyStateChange(externalId, key, value, previous) {
       listener(externalId, key, value, previous);
     } catch (err) {
       logger.error(`State change listener failed: ${err.message}`);
+    }
+  }
+}
+
+// Hooks told of a power or volume command the USER gave (device command,
+// scene, widget), never one of the integration's own: an announcement stops
+// on a power-off (review denon-125-r1 I2). Registered once at import, kept
+// by the test reset.
+const userCommandHooks = new Set();
+
+/** Register `hook(externalId, kind)`, kind 'power-on' | 'power-off' | 'volume'. */
+export function registerUserCommandHook(hook) {
+  userCommandHooks.add(hook);
+}
+
+/** A power or volume command the user gave: tell the hooks (a throwing hook is logged). */
+export function noteUserCommand(externalId, kind) {
+  for (const hook of userCommandHooks) {
+    try {
+      hook(externalId, kind);
+    } catch (err) {
+      logger.error(`User command hook failed: ${err.message}`);
     }
   }
 }

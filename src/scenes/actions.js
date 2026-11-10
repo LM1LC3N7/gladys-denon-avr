@@ -25,6 +25,7 @@ import {
   setVolume,
   sourceLabel,
 } from '../devices/avr.js';
+import { noteUserCommand } from '../devices/registry.js';
 
 export const SCENE_ACTION = Object.freeze({
   QUICK_SELECT: 'quick_select',
@@ -122,6 +123,7 @@ export function createSceneActionHandlers(getConfig) {
         setSoundMode(externalId, fields.sound_mode);
       }
       if (fields.volume !== undefined && fields.volume !== null && fields.volume !== '') {
+        noteUserCommand(externalId, 'volume');
         setVolume(externalId, fields.volume, zone);
       }
     },
