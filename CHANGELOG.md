@@ -10,6 +10,8 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+## [1.2.5] - 2026-11-10
+
 ### Fixed
 
 - Announcements from standby (forum topic 10722, post 42, AVR-S650H): the announcement volume
@@ -246,7 +248,8 @@ the notes of the version's GitHub Release.
 The releases before this file was started are described by their GitHub
 Releases.
 
-[Unreleased]: https://github.com/LM1LC3N7/gladys-denon-avr/compare/v1.2.4...HEAD
+[Unreleased]: https://github.com/LM1LC3N7/gladys-denon-avr/compare/v1.2.5...HEAD
+[1.2.5]: https://github.com/LM1LC3N7/gladys-denon-avr/compare/v1.2.4...v1.2.5
 [1.2.4]: https://github.com/LM1LC3N7/gladys-denon-avr/compare/v1.2.3...v1.2.4
 [1.2.3]: https://github.com/LM1LC3N7/gladys-denon-avr/compare/v1.2.2...v1.2.3
 [1.2.2]: https://github.com/LM1LC3N7/gladys-denon-avr/compare/v1.2.1...v1.2.2
