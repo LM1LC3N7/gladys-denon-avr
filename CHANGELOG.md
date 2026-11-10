@@ -10,6 +10,19 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+### Fixed
+
+- Announcements from standby (forum topic 10722, post 42, AVR-S650H): the announcement volume
+  was ignored and the start of the message lost, as the volume and the stream went out 1.5 s
+  after the power command while the receiver takes 4-5 s to wake. The announcement now waits for
+  the receiver to report itself on (5 s at most), pauses 2 s, then waits for the announcement
+  volume to be read back (4 s at most, sent again every second) before the stream starts. Every
+  wait is bounded; the scene action is answered after 3 s at most while the rest goes on.
+- Back to standby after an announcement: the previous input is no longer selected before the
+  standby. Selecting an HDMI input sent an HDMI-CEC message that woke the player on it (an
+  Nvidia Shield), which switched the receiver and the TV back on. The receiver now goes back to
+  standby on the network input; the input is still given back when the receiver was on before.
+
 ## [1.2.4] - 2026-11-04
 
 ### Added

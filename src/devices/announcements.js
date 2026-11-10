@@ -31,6 +31,17 @@
 //     first 2 s was not trusted (it may be the music's): a short message
 //     was only seen as over by the 15 s "never started" timer. HEOS naming
 //     the announcement URL as its current media now proves it plays.
+//
+// Forum topic 10722, post 42 (Nvidia Shield -> AVR-S650H -> TV, HDMI-CEC):
+//   - from standby, the receiver takes 4-5 s to wake: the volume sent 1.5 s
+//     after PWON was ignored and the first seconds of the message lost. The
+//     announcement now waits for the receiver to report its power on, then
+//     for the announcement volume to be read back (sent again meanwhile),
+//     each wait bounded (control.js wakeZoneForHeos(), `timing.wake*`);
+//   - going back to standby no longer puts the input back first: selecting
+//     an HDMI input sends a CEC <Routing Change> that woke the player on it,
+//     which switched receiver and TV back on. The input is given back only
+//     when the receiver was on before the announcement.
 // -----------------------------------------------------------------------------
 
 import { createLogger } from '@gladysassistant/integration-sdk';
@@ -50,8 +61,9 @@ import {
   onDeviceStateChange,
   registerResetHook,
   timing,
+  waitForState,
 } from './registry.js';
-import { ensureZoneReadyForHeos, requireHeos, setPower, setSource, setVolume } from './control.js';
+import { requireHeos, setPower, setSource, setVolume, wakeZoneForHeos } from './control.js';
 import { NOW_PLAYING_MID_KEY, STREAM_RESULT_KEY } from './heos-session.js';
 
 const logger = createLogger({ name: 'avr' });
@@ -63,6 +75,10 @@ const POLL_GRACE_MS = 2_000;
 // external_id -> the announcement in progress: the state to restore, the
 // volume it was set to, its timers.
 const pending = new Map();
+// external_id -> the token of the latest playAnnouncement() call: an older
+// call still waking the receiver stops at its next step, never sends its
+// stream after a newer one.
+const runs = new Map();
 let unsubscribe = null;
 
 registerResetHook(() => {
@@ -70,6 +86,7 @@ registerResetHook(() => {
     stopTimers(entry);
   }
   pending.clear();
+  runs.clear();
   unsubscribe = null;
 });
 
@@ -171,7 +188,13 @@ async function restore(externalId, entry) {
   if (!isTelnetConnected(externalId)) {
     return; // A HEOS-only speaker: no input, no power to give back.
   }
+  // Going back to standby: the input is NOT put back (forum topic 10722,
+  // post 42). Selecting an HDMI input sends a CEC <Routing Change> to the
+  // player on it, which woke up and switched receiver and TV back on right
+  // after the standby. The receiver sleeps on the network input instead; a
+  // player woken later by CEC selects its own input anyway.
   if (
+    snapshot.power !== 0 &&
     snapshot.source &&
     snapshot.source !== HEOS_SOURCE_CODE &&
     state.source === HEOS_SOURCE_CODE
@@ -199,6 +222,7 @@ export function finishAnnouncement(externalId, reason) {
 
 /** Drop the announcement of one receiver without restoring anything (device gone). */
 export function cancelAnnouncement(externalId) {
+  runs.delete(externalId);
   const entry = pending.get(externalId);
   if (entry) {
     stopTimers(entry);
@@ -219,6 +243,61 @@ export function isAnnouncing(externalId) {
  */
 export async function playAnnouncement(externalId, url, config = normalizeConfig()) {
   const heos = requireHeos(externalId, 'speak');
+  const run = {};
+  runs.set(externalId, run);
+  const work = runAnnouncement(externalId, url, config, heos, run);
+  // A receiver waking from standby takes longer than Gladys waits for the
+  // answer (5 s): past `timing.announcementAckMs` the scene action is
+  // answered and the announcement goes on, its errors logged.
+  let budgetTimer;
+  const budget = new Promise((resolve) => {
+    budgetTimer = setTimeout(() => resolve(LATE), timing.announcementAckMs);
+  });
+  try {
+    if ((await Promise.race([work, budget])) === LATE) {
+      logger.info(`${externalId}: the receiver is still waking up, the announcement goes on`);
+      work.catch((err) => logger.error(`${externalId}: announcement failed: ${err.message}`));
+    }
+  } finally {
+    clearTimeout(budgetTimer);
+  }
+}
+
+const LATE = Symbol('late');
+
+/**
+ * Wait until the receiver reports the announcement volume, sending it again
+ * every `timing.announcementVolumeRetryMs`, for `timing.announcementVolumeConfirmMs`
+ * at most. Only after a wake from standby (a receiver already on takes it at
+ * once), and only when the volume reported before differs: a read back equal
+ * to it would prove nothing. Resolves whether it was read back.
+ */
+async function confirmAnnouncementVolume(externalId, volume, zone, target, isCurrent) {
+  if (getState(externalId).volume === target) {
+    return true;
+  }
+  const deadline = performance.now() + timing.announcementVolumeConfirmMs;
+  const retry = Math.max(10, timing.announcementVolumeRetryMs);
+  for (;;) {
+    const left = deadline - performance.now();
+    if (await waitForState(externalId, (state) => state.volume === target, Math.min(left, retry))) {
+      return true;
+    }
+    if (!isCurrent() || deadline - performance.now() <= 0) {
+      break;
+    }
+    setVolume(externalId, volume, zone);
+  }
+  if (isCurrent()) {
+    logger.warn(
+      `${externalId}: announcement volume not read back after ${timing.announcementVolumeConfirmMs} ms, the announcement goes on`,
+    );
+  }
+  return false;
+}
+
+async function runAnnouncement(externalId, url, config, heos, run) {
+  const isCurrent = () => runs.get(externalId) === run;
   const zone = normalizeZone(config.zone);
   const volume = Number(config.announcement_volume);
   const wantsVolume = Number.isFinite(volume) && volume > 0;
@@ -252,13 +331,28 @@ export async function playAnnouncement(externalId, url, config = normalizeConfig
   }
 
   try {
-    await ensureZoneReadyForHeos(externalId, zone);
+    const { woke } = await wakeZoneForHeos(externalId, zone);
+    if (!isCurrent()) {
+      return; // A newer announcement took over: it sends the stream.
+    }
     if (wantsVolume) {
       setVolume(externalId, volume, zone);
       // What the receiver will report back: 0-98 over Telnet, 0-100 on HEOS.
       entry.announcementVolume = isTelnetConnected(externalId)
         ? percentToDenonVolume(volume)
         : Math.round(Math.min(100, volume));
+      if (woke && isTelnetConnected(externalId)) {
+        await confirmAnnouncementVolume(
+          externalId,
+          volume,
+          zone,
+          entry.announcementVolume,
+          isCurrent,
+        );
+        if (!isCurrent()) {
+          return;
+        }
+      }
     }
     // Real-hardware feedback: browse/play_stream appends to the queue rather
     // than replacing it, so triggering this scene action more than once in
@@ -275,13 +369,18 @@ export async function playAnnouncement(externalId, url, config = normalizeConfig
     }
     entry.streamSent = true;
   } catch (err) {
-    finishAnnouncement(externalId, 'failed');
+    if (isCurrent()) {
+      finishAnnouncement(externalId, 'failed');
+    }
     throw err;
   }
 
-  if (!pending.has(externalId)) {
+  if (!pending.has(externalId) || pending.get(externalId) !== entry) {
     return;
   }
+  // One set of timers per entry, whatever ran before: a timer overwritten
+  // here would never be cleared.
+  stopTimers(entry);
   const startedAt = Date.now();
   entry.tracking = true;
   // HEOS pushes player_state_changed, but nothing guarantees it arrives (see

@@ -4,6 +4,7 @@ import { playAnnouncement, isAnnouncing } from '../src/devices/announcements.js'
 import { NOW_PLAYING_MID_KEY, STREAM_RESULT_KEY } from '../src/devices/heos-session.js';
 import {
   __clearConnectionsForTesting,
+  pendingStateWaits,
   __setConnectionForTesting,
   __setHeosConnectionForTesting,
   __setLastKnownStateForTesting,
@@ -33,6 +34,10 @@ test.beforeEach(() => {
     announcementPollMs: 10,
     announcementStartTimeoutMs: 200,
     announcementMaxMs: 1_000,
+    // Fake receivers report nothing back unless a test says so.
+    wakeConfirmMs: 0,
+    wakeSettleMs: 0,
+    announcementVolumeConfirmMs: 0,
   });
 });
 
@@ -40,7 +45,10 @@ test.afterEach(() => {
   __clearConnectionsForTesting();
 });
 
-test('announcement volume first, then restore volume, input and standby once HEOS stops', async () => {
+// Forum topic 10722, post 42: putting the HDMI input back before the
+// standby sent a CEC <Routing Change> that woke the player on it (Shield),
+// which switched the receiver and the TV back on.
+test('back to standby: the volume is restored, the input is NOT put back before PWSTANDBY/ZMOFF', async () => {
   const { telnet, heos } = setup({ power: 0, source: 'TV', volume: 40 });
   await playAnnouncement(ID, URL, normalizeConfig({ announcement_volume: 25 }));
 
@@ -57,7 +65,7 @@ test('announcement volume first, then restore volume, input and standby once HEO
   await tick();
 
   assert.ok(!isAnnouncing(ID));
-  assert.deepEqual(telnet.sent.slice(3), ['MV40', 'SITV', 'ZMOFF']);
+  assert.deepEqual(telnet.sent.slice(3), ['MV40', 'ZMOFF'], 'no SITV: it would wake the TV player');
 });
 
 test('the volume is left alone when someone changed it during the announcement', async () => {
@@ -316,4 +324,167 @@ test('a queue named before HEOS ever named the announcement is cleared (r4 m1, a
   await tick();
   assert.ok(!isAnnouncing(ID));
   assert.equal(clearsAfterStream(heos), 1);
+});
+
+// --- Wake from standby (forum topic 10722, post 42, AVR-S650H) ---------------
+
+// Every wait of a test is bounded: a regression fails, never hangs.
+function within(promise, ms, what) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${what}: not within ${ms} ms`)), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+/** Resolve once `check()` is true, polled every 5 ms, or reject after `ms`. */
+async function until(check, ms, what) {
+  const started = performance.now();
+  while (!check()) {
+    if (performance.now() - started > ms) {
+      throw new Error(`${what}: not within ${ms} ms`);
+    }
+    await tick(5);
+  }
+}
+
+const STREAM = `browse/play_stream?pid=9&url=${URL}`;
+
+function wakeTiming(overrides = {}) {
+  __setTimingForTesting({
+    wakeConfirmMs: 2_000,
+    wakeSettleMs: 40,
+    announcementVolumeConfirmMs: 2_000,
+    announcementVolumeRetryMs: 60,
+    announcementAckMs: 5_000,
+    ...overrides,
+  });
+}
+
+test('from standby: nothing but the power command until the receiver reports it on', async () => {
+  wakeTiming();
+  const { telnet, heos } = setup({ power: 0, source: 'TV', volume: 20 });
+  const done = playAnnouncement(ID, URL, normalizeConfig({ announcement_volume: 50 }));
+  await tick(120);
+  assert.deepEqual(telnet.sent, ['ZMON'], 'no input, no volume while it wakes');
+  assert.ok(!heos.sent.includes(STREAM), 'no stream while it wakes');
+
+  updateState(ID, { power: 1 });
+  await tick(10);
+  assert.deepEqual(telnet.sent, ['ZMON'], 'a short pause after the power report');
+  await until(() => telnet.sent.includes('MV50'), 1_000, 'volume after the pause');
+  assert.deepEqual(telnet.sent.slice(0, 3), ['ZMON', 'SINET', 'MV50']);
+  updateState(ID, { volume: 50 });
+  await within(done, 1_000, 'announcement');
+  assert.ok(heos.sent.includes(STREAM));
+});
+
+test('from standby: the stream waits for the volume read back, sent again until then', async () => {
+  wakeTiming();
+  const { telnet, heos } = setup({ power: 0, source: 'NET', volume: 20 });
+  const done = playAnnouncement(ID, URL, normalizeConfig({ announcement_volume: 50 }));
+  updateState(ID, { power: 1 });
+  await until(() => telnet.sent.includes('MV50'), 1_000, 'first volume');
+  // The waking receiver ignored it, reports its old volume.
+  updateState(ID, { volume: 21 });
+  await tick(150);
+  assert.ok(!heos.sent.includes(STREAM), 'no stream before the volume is read back');
+  assert.ok(
+    telnet.sent.filter((command) => command === 'MV50').length >= 2,
+    'the volume is sent again',
+  );
+  updateState(ID, { volume: 50 });
+  await within(done, 1_000, 'announcement');
+  assert.deepEqual(heos.sent.slice(-2), ['player/clear_queue?pid=9', STREAM]);
+});
+
+test('from standby, nothing reported back: the announcement goes on after bounded waits', async () => {
+  wakeTiming({ wakeConfirmMs: 150, announcementVolumeConfirmMs: 150 });
+  const { telnet, heos } = setup({ power: 0, source: 'NET', volume: 20 });
+  const started = performance.now();
+  await within(
+    playAnnouncement(ID, URL, normalizeConfig({ announcement_volume: 50 })),
+    2_000,
+    'announcement',
+  );
+  const elapsed = performance.now() - started;
+  assert.ok(elapsed >= 280, `fallback waits kept (${Math.round(elapsed)} ms)`);
+  assert.ok(heos.sent.includes(STREAM), 'the stream still goes out');
+  assert.equal(telnet.sent[0], 'ZMON');
+  assert.equal(pendingStateWaits(), 0, 'no wait left behind');
+});
+
+test('from standby: the scene action is answered within the ack budget, the rest goes on', async () => {
+  wakeTiming({ announcementAckMs: 50 });
+  const { heos } = setup({ power: 0, source: 'NET', volume: 20 });
+  const started = performance.now();
+  await within(
+    playAnnouncement(ID, URL, normalizeConfig({ announcement_volume: 50 })),
+    1_000,
+    'ack',
+  );
+  assert.ok(performance.now() - started < 500, 'answered before the receiver woke');
+  assert.ok(!heos.sent.includes(STREAM));
+  updateState(ID, { power: 1 });
+  updateState(ID, { volume: 50 });
+  await until(() => heos.sent.includes(STREAM), 1_000, 'stream after the ack');
+});
+
+test('from standby: a second announcement during the wake sends one stream, its own', async () => {
+  wakeTiming();
+  const { heos } = setup({ power: 0, source: 'NET', volume: 20 });
+  const config = normalizeConfig({ announcement_volume: 50 });
+  const first = playAnnouncement(ID, 'https://tts.example.com/first.mp3', config);
+  await tick(20);
+  const second = playAnnouncement(ID, URL, config);
+  updateState(ID, { power: 1 });
+  await tick(80);
+  updateState(ID, { volume: 50 });
+  await within(Promise.all([first, second]), 1_000, 'both announcements');
+  const streams = heos.sent.filter((path) => path.startsWith('browse/play_stream'));
+  assert.deepEqual(streams, [STREAM]);
+});
+
+test('from standby, no announcement volume: a second announcement during the wake sends one stream', async () => {
+  wakeTiming();
+  const { heos } = setup({ power: 0, source: 'NET', volume: 20 });
+  const first = playAnnouncement(ID, 'https://tts.example.com/first.mp3', normalizeConfig());
+  await tick(20);
+  const second = playAnnouncement(ID, URL, normalizeConfig());
+  updateState(ID, { power: 1 });
+  await within(Promise.all([first, second]), 1_000, 'both announcements');
+  const streams = heos.sent.filter((path) => path.startsWith('browse/play_stream'));
+  assert.deepEqual(streams, [STREAM]);
+});
+
+test('receiver already on: volume and stream at once, no wait for any read back', async () => {
+  wakeTiming();
+  const { telnet, heos } = setup({ power: 1, source: 'NET', volume: 20 });
+  await within(
+    playAnnouncement(ID, URL, normalizeConfig({ announcement_volume: 50 })),
+    300,
+    'announcement',
+  );
+  assert.deepEqual(telnet.sent, ['MV50']);
+  assert.ok(heos.sent.includes(STREAM));
+});
+
+test('a state wait ends at its deadline and at a reset, never later', async () => {
+  const { waitForState } = await import('../src/devices/registry.js');
+  setup({ power: 0 });
+  assert.equal(
+    await within(
+      waitForState(ID, (s) => s.power === 1, 30),
+      500,
+      'deadline',
+    ),
+    false,
+  );
+  const waiting = waitForState(ID, (s) => s.power === 1, 10_000);
+  assert.equal(pendingStateWaits(), 1);
+  __clearConnectionsForTesting();
+  assert.equal(await within(waiting, 500, 'reset'), false);
+  assert.equal(pendingStateWaits(), 0);
 });

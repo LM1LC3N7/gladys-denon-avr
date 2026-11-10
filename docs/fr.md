@@ -94,7 +94,14 @@ Voici ce qui apparaît par ampli :
   d'intégration (une limitation du cœur de Gladys). À la place, réglez **Volume des annonces**
   dans la Configuration (0 = volume actuel), et laissez **Rétablir l'ampli après une annonce**
   activé : une fois l'annonce terminée, l'ampli retrouve son volume, son entrée et sa veille
-  d'avant (le volume n'est pas touché si quelqu'un l'a changé pendant l'annonce). Ce que HEOS
+  d'avant (le volume n'est pas touché si quelqu'un l'a changé pendant l'annonce). Un ampli qui
+  était en veille y retourne sur l'entrée réseau : son entrée d'avant n'est pas remise d'abord,
+  car choisir une entrée HDMI réveille le lecteur branché dessus par HDMI-CEC (qui peut allumer la
+  télé) ; un lecteur réveillé plus tard par HDMI-CEC choisit de toute façon sa propre entrée.
+  Depuis la veille, l'annonce attend que l'ampli se dise allumé (5 s au plus, puis elle continue
+  quand même), patiente 2 s, puis attend que le volume des annonces soit relu (4 s au plus, renvoyé
+  chaque seconde) avant de lancer le message ; l'action de scène reçoit sa réponse au bout de 3 s
+  au plus pendant que la suite se déroule. Ce que HEOS
   jouait avant l'annonce (une radio, une playlist, un flux envoyé par une autre application en UPnP
   ou AirPlay, Lyrion par exemple) ne reprend pas tout seul : cette application doit relancer la
   lecture. Une fois l'annonce finie et si rien d'autre ne joue, la file d'attente HEOS est vidée,

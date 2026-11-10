@@ -236,7 +236,13 @@ TuneIn...) — see "Playback controls" below.
   (on by default) gives back the volume, the input and the standby state the receiver had before,
   once HEOS reports the stream over (its own `player_state_changed` event, or a 1 s poll of
   `get_play_state` while an announcement plays), refused by HEOS, never started (15 s) or capped
-  (3 min). The volume is left alone if someone changed it during the announcement; a second
+  (3 min). Since 1.2.5 (forum topic 10722, post 42, AVR-S650H with an Nvidia Shield over
+  HDMI-CEC): a receiver that was in standby goes back to it WITHOUT its previous input (selecting
+  an HDMI input sends a CEC `<Routing Change>` that woke the Shield, which switched receiver and
+  TV back on); from standby, the announcement waits for the power report (`timing.wakeConfirmMs`,
+  5 s, then goes on), 2 s more, then the volume read back (4 s, `MV` sent again every second)
+  before the stream, and the scene action is answered after 3 s at most
+  (`timing.announcementAckMs`). The volume is left alone if someone changed it during the announcement; a second
   announcement keeps the first one's snapshot; what HEOS was playing before is not resumed (the
   queue was cleared, see above). Since 1.2.1 (forum topic 10722, post 39, Lyrion): HEOS naming
   the announcement URL as its current media (`get_now_playing_media` `mid`, polled with the play

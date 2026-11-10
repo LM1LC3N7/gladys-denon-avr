@@ -40,6 +40,7 @@ import {
   registerResetHook,
   settle,
   timing,
+  waitForState,
 } from './registry.js';
 
 const logger = createLogger({ name: 'avr' });
@@ -110,6 +111,43 @@ export function sendHeos(externalId, command, what) {
  */
 export async function ensureZoneReadyForHeos(externalId, zone) {
   return ensureZoneOn(externalId, zone, HEOS_SOURCE_CODE);
+}
+
+/**
+ * Before an announcement: ensureZoneReadyForHeos(), but a zone in standby
+ * is given the time to really wake (forum topic 10722, post 42, AVR-S650H:
+ * 4-5 s, the volume sent 1.5 s after PWON was ignored and the start of the
+ * message lost). The power command, then a wait for the receiver to report
+ * its power on (bounded by `timing.wakeConfirmMs`: past it, the
+ * announcement goes on anyway), a short pause after that report, and only
+ * then the input switch and its usual settling pause. Resolves
+ * `{ woke, confirmed }`: `woke` when the zone was not on, `confirmed` when
+ * it then reported its power on.
+ */
+export async function wakeZoneForHeos(externalId, zone) {
+  const telnet = getTelnet(externalId);
+  if (!telnet?.isConnected() || getState(externalId).power === 1) {
+    await ensureZoneOn(externalId, zone, HEOS_SOURCE_CODE);
+    return { woke: false, confirmed: false };
+  }
+  sendPower(telnet, externalId, true, zone, 'before an announcement');
+  const confirmed = await waitForState(
+    externalId,
+    (state) => state.power === 1,
+    timing.wakeConfirmMs,
+  );
+  if (confirmed) {
+    await settle(timing.wakeSettleMs);
+  } else {
+    logger.warn(
+      `${externalId}: no power on reported ${timing.wakeConfirmMs} ms after the power command, the announcement goes on`,
+    );
+  }
+  if (getState(externalId).source !== HEOS_SOURCE_CODE && telnet.isConnected()) {
+    telnet.send(buildSourceCommand(HEOS_SOURCE_CODE, zone));
+    await settle(timing.zoneSwitchDelayMs);
+  }
+  return { woke: true, confirmed };
 }
 
 async function ensureZoneOn(externalId, zone, sourceCode) {

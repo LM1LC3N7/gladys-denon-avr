@@ -1,0 +1,68 @@
+[
+  {
+    "name": "wake: power report not awaited (taken as confirmed at once)",
+    "file": "src/devices/control.js",
+    "from": "    (state) => state.power === 1,",
+    "to": "    () => true,"
+  },
+  {
+    "name": "wake: no pause after the power report",
+    "file": "src/devices/control.js",
+    "from": "    await settle(timing.wakeSettleMs);",
+    "to": ""
+  },
+  {
+    "name": "announcement volume not confirmed after a wake",
+    "file": "src/devices/announcements.js",
+    "from": "      if (woke && isTelnetConnected(externalId)) {",
+    "to": "      if (false) {"
+  },
+  {
+    "name": "announcement volume read back taken as confirmed at once",
+    "file": "src/devices/announcements.js",
+    "from": "(state) => state.volume === target",
+    "to": "() => true"
+  },
+  {
+    "name": "announcement volume never sent again",
+    "file": "src/devices/announcements.js",
+    "from": "    setVolume(externalId, volume, zone);\n  }\n  if (isCurrent()) {",
+    "to": "  }\n  if (isCurrent()) {"
+  },
+  {
+    "name": "state wait without deadline",
+    "file": "src/devices/registry.js",
+    "from": "    const timer = setTimeout(() => waiter.end(false), ms);",
+    "to": "    const timer = undefined;"
+  },
+  {
+    "name": "state waits not ended by a reset",
+    "file": "src/devices/registry.js",
+    "from": "    waiter.end(false);\n  }\n  stateListeners.clear();",
+    "to": "  }\n  stateListeners.clear();"
+  },
+  {
+    "name": "scene action not answered within the ack budget",
+    "file": "src/devices/announcements.js",
+    "from": "resolve(LATE), timing.announcementAckMs",
+    "to": "resolve(LATE), 1e9"
+  },
+  {
+    "name": "an older announcement still waking sends its stream",
+    "file": "src/devices/announcements.js",
+    "from": "    if (!isCurrent()) {\n      return; // A newer announcement took over: it sends the stream.",
+    "to": "    if (false) {\n      return; // A newer announcement took over: it sends the stream."
+  },
+  {
+    "name": "restore: input put back before the standby (CEC wakes the player)",
+    "file": "src/devices/announcements.js",
+    "from": "    snapshot.power !== 0 &&\n",
+    "to": ""
+  },
+  {
+    "name": "restore: input never put back, even when the receiver was on",
+    "file": "src/devices/announcements.js",
+    "from": "    snapshot.power !== 0 &&\n",
+    "to": "    false &&\n"
+  }
+]

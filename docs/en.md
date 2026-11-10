@@ -84,7 +84,14 @@ These show up per receiver:
   integration (a core limitation). Instead, set **Announcement volume** in the Configuration (0 =
   current volume), and leave **Restore the receiver after an announcement** on: once the
   announcement is over, the receiver gets back its previous volume, input and standby state (the
-  volume is left alone if someone changed it during the announcement). Whatever HEOS was playing
+  volume is left alone if someone changed it during the announcement). A receiver that was in
+  standby goes back to standby on the network input: its previous input is not selected first,
+  because selecting an HDMI input wakes the player on it over HDMI-CEC (which can switch the TV
+  on); a player woken later by HDMI-CEC selects its own input anyway. From standby, the
+  announcement waits for the receiver to report itself on (up to 5 s, then it goes on anyway),
+  pauses 2 s, then waits for the announcement volume to be read back (up to 4 s, sent again every
+  second) before the message starts; the scene action is answered after 3 s at most while this
+  goes on. Whatever HEOS was playing
   before (a radio, a playlist, a stream sent by another app over UPnP or AirPlay, Lyrion for
   instance) does not resume on its own: that app has to play again. Once the announcement is
   over and nothing else plays, the HEOS queue is emptied, so a later Play cannot speak it again.

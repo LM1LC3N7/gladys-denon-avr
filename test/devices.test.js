@@ -25,6 +25,7 @@ import {
   __setLastKnownStateForTesting,
   __setHeosConnectionForTesting,
   __setHeosPollIntervalMsForTesting,
+  __setTimingForTesting,
   __setZoneSwitchDelayMsForTesting,
   __clearConnectionsForTesting,
 } from '../src/devices/avr.js';
@@ -56,6 +57,8 @@ const DISCOVERED = {
 test.beforeEach(() => {
   // The "Speak on a speaker" zone switch pause is real time otherwise.
   __setZoneSwitchDelayMsForTesting(0);
+  // Same for the wake from standby (fake receivers report nothing back).
+  __setTimingForTesting({ wakeConfirmMs: 0, wakeSettleMs: 0, announcementVolumeConfirmMs: 0 });
 });
 
 test.afterEach(() => {

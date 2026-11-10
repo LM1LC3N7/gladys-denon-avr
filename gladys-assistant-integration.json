@@ -127,8 +127,8 @@
         "fr": "Rétablir l'ampli après une annonce"
       },
       "description": {
-        "en": "Once the announcement is over, give back the volume, the input and the standby state the receiver had before.",
-        "fr": "Une fois l'annonce terminée, remet le volume, l'entrée et la veille que l'ampli avait avant."
+        "en": "Once the announcement is over, give back the volume, the input and the standby state the receiver had before. A receiver that was in standby goes back to it without its previous input (an HDMI input would wake the player on it over HDMI-CEC).",
+        "fr": "Une fois l'annonce terminée, remet le volume, l'entrée et la veille que l'ampli avait avant. Un ampli qui était en veille y retourne sans son entrée d'avant (une entrée HDMI réveillerait le lecteur branché dessus par HDMI-CEC)."
       },
       "required": false,
       "default": true

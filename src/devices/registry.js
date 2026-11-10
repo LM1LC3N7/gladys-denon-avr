@@ -54,6 +54,19 @@ const DEFAULT_TIMING = Object.freeze({
   announcementPollMs: 1_000,
   announcementStartTimeoutMs: 15_000,
   announcementMaxMs: 180_000,
+  // An announcement on a receiver in standby (forum topic 10722, post 42:
+  // an AVR-S650H takes 4-5 s to wake, ignores the volume sent 1.5 s after
+  // PWON and loses the first seconds of the message): how long the receiver
+  // has to report its power on (past it, the announcement goes on anyway:
+  // the fallback delay), the pause after that report before the next
+  // command, how long the announcement volume has to be read back (sent again
+  // every retry), and how long the scene action waits before it is answered
+  // while the rest goes on (Gladys gives up on a command after 5 s).
+  wakeConfirmMs: 5_000,
+  wakeSettleMs: 2_000,
+  announcementVolumeConfirmMs: 4_000,
+  announcementVolumeRetryMs: 1_000,
+  announcementAckMs: 3_000,
   // A HEOS request awaited for its answer (browse, search, add to queue:
   // ./qobuz.js). Browsing a music service goes through the service's cloud,
   // a few seconds on a good day: 15 s before giving up on one answer.
@@ -169,6 +182,46 @@ export function notifyStateChange(externalId, key, value, previous) {
   }
 }
 
+// Every waitForState() still waiting, so a reset ends them at once.
+const stateWaiters = new Set();
+
+/**
+ * Resolve `true` as soon as the last known state of one AVR matches
+ * `predicate` (checked now, then on every state change of that AVR), or
+ * `false` after `ms` — never later: every wait is bounded.
+ */
+export function waitForState(externalId, predicate, ms) {
+  if (predicate(getState(externalId))) {
+    return Promise.resolve(true);
+  }
+  if (!(ms > 0)) {
+    return Promise.resolve(false);
+  }
+  return new Promise((resolve) => {
+    const waiter = {
+      end(result) {
+        clearTimeout(timer);
+        stateListeners.delete(listener);
+        stateWaiters.delete(waiter);
+        resolve(result);
+      },
+    };
+    const listener = (id) => {
+      if (id === externalId && predicate(getState(externalId))) {
+        waiter.end(true);
+      }
+    };
+    const timer = setTimeout(() => waiter.end(false), ms);
+    stateListeners.add(listener);
+    stateWaiters.add(waiter);
+  });
+}
+
+/** State waits still pending (tests: none may outlive a reset). */
+export function pendingStateWaits() {
+  return stateWaiters.size;
+}
+
 /** Merge `changes` into the last known state of one AVR, then notify what moved. */
 export function updateState(externalId, changes) {
   const previous = lastKnownState.get(externalId) ?? {};
@@ -247,6 +300,9 @@ export function __clearConnectionsForTesting() {
   }
   sessions.clear();
   lastKnownState.clear();
+  for (const waiter of [...stateWaiters]) {
+    waiter.end(false);
+  }
   stateListeners.clear();
   for (const hook of resetHooks) {
     hook();
