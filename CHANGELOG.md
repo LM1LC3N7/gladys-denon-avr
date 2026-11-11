@@ -10,6 +10,8 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+## [1.2.6] - 2026-11-11
+
 ### Added
 
 - New setting **Delay after power on before an announcement (seconds)** (0 to 15, forum topic
@@ -262,7 +264,8 @@ the notes of the version's GitHub Release.
 The releases before this file was started are described by their GitHub
 Releases.
 
-[Unreleased]: https://github.com/LM1LC3N7/gladys-denon-avr/compare/v1.2.5...HEAD
+[Unreleased]: https://github.com/LM1LC3N7/gladys-denon-avr/compare/v1.2.6...HEAD
+[1.2.6]: https://github.com/LM1LC3N7/gladys-denon-avr/compare/v1.2.5...v1.2.6
 [1.2.5]: https://github.com/LM1LC3N7/gladys-denon-avr/compare/v1.2.4...v1.2.5
 [1.2.4]: https://github.com/LM1LC3N7/gladys-denon-avr/compare/v1.2.3...v1.2.4
 [1.2.3]: https://github.com/LM1LC3N7/gladys-denon-avr/compare/v1.2.2...v1.2.3
