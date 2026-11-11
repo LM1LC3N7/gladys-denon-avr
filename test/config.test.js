@@ -155,6 +155,10 @@ test('wake_delay_seconds: 4 s by default, 0-15 kept, out of bounds or unreadable
     [NaN, 4],
     [Infinity, 4],
     [true, 4],
+    ['   ', 4],
+    ['\t\n', 4],
+    [[], 4],
+    [[5], 4],
     [{}, 4],
   ]) {
     assert.equal(

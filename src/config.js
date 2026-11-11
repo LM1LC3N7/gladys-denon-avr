@@ -79,7 +79,8 @@ export const WAKE_DELAY_MAX_SECONDS = 15;
 
 /** The wake delay in seconds: within [0, 15], the default when unreadable or out of bounds. */
 function wakeDelaySeconds(raw) {
-  const value = raw === '' || raw == null || typeof raw === 'boolean' ? NaN : Number(raw);
+  const readable = typeof raw === 'number' || (typeof raw === 'string' && raw.trim() !== '');
+  const value = readable ? Number(raw) : NaN;
   return Number.isFinite(value) && value >= 0 && value <= WAKE_DELAY_MAX_SECONDS
     ? value
     : DEFAULT_CONFIG.wake_delay_seconds;

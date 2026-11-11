@@ -573,7 +573,7 @@ integration's data folder (`/data/ad-breaks.json`, `/data/ad-jingles/`).
    zone HEOS happened to use last. Pick **Zone 2**/**Zone 3** only to drive that zone instead
    (sound mode and the Setup-menu keys always act on the main zone, the only one with an on-screen
    menu). The change applies immediately, no need to re-add the device.
-7. **Announcements** (Configuration tab): **Announcement volume** (0 = keep the current volume)
+7. **Announcements** (Configuration tab): **Announcement volume** (0 = keep the current volume),
    **Delay after power on before an announcement (seconds)** (0 to 15, 4 by default: raise it if
    the start of a message from standby is cut off, since some receivers report being on before
    their audio output is ready; a value out of range or unreadable keeps the default) and
