@@ -120,6 +120,22 @@
       "max": 100
     },
     {
+      "key": "wake_delay_seconds",
+      "type": "number",
+      "label": {
+        "en": "Delay after power on before an announcement (seconds)",
+        "fr": "Délai après l'allumage avant une annonce (secondes)"
+      },
+      "description": {
+        "en": "When an announcement wakes the receiver from standby: how long to wait after it reports being on, before the volume and the message are sent. Raise it if the start of the message is cut off (some receivers report being on well before their audio output is ready). 0 to 15 seconds, 4 by default; a value out of range or unreadable keeps the default. Worst case, an announcement from standby starts about 25 seconds after the trigger; switching the receiver off meanwhile stops it at once.",
+        "fr": "Quand une annonce réveille l'ampli depuis la veille : durée d'attente après qu'il se déclare allumé, avant d'envoyer le volume et le message. À augmenter si le début du message est coupé (certains amplis se déclarent allumés bien avant que leur sortie audio soit prête). De 0 à 15 secondes, 4 par défaut ; une valeur hors bornes ou illisible garde le défaut. Au pire, une annonce depuis la veille démarre environ 25 secondes après le déclenchement ; éteindre l'ampli entre-temps l'arrête tout de suite."
+      },
+      "required": false,
+      "default": 4,
+      "min": 0,
+      "max": 15
+    },
+    {
       "key": "announcement_restore",
       "type": "boolean",
       "label": {

@@ -28,6 +28,7 @@ import {
   buildVolumeUpCommand as buildHeosVolumeUpCommand,
   buildVolumeDownCommand as buildHeosVolumeDownCommand,
 } from '../heos/protocol.js';
+import { wakeDelayMs } from '../config.js';
 import { HEOS_SOURCE_CODE, STATE, TUNER_SOURCE_CODE } from './features.js';
 import { sendPower } from './power.js';
 import {
@@ -120,13 +121,14 @@ export async function ensureZoneReadyForHeos(externalId, zone) {
  * 4-5 s, the volume sent 1.5 s after PWON was ignored and the start of the
  * message lost). The power command, then a wait for the receiver to report
  * its power on (bounded by `timing.wakeConfirmMs`: past it, the
- * announcement goes on anyway), a short pause after that report, and only
+ * announcement goes on anyway), a pause after that report (`settleMs`, the
+ * user's setting, 0-15 s), and only
  * then the input switch and its usual settling pause. Resolves
  * `{ woke, confirmed, cancelled }`: `woke` when the zone was not on (or
  * woken by an earlier announcement just before), `confirmed` when it then
  * reported its power on, `cancelled` when cancelWake() stopped it.
  */
-export async function wakeZoneForHeos(externalId, zone) {
+export async function wakeZoneForHeos(externalId, zone, settleMs = wakeDelayMs()) {
   // One wake per receiver (review denon-125-r1 I1): a newer announcement
   // joins the wake in progress, and one that comes soon after a wake (the
   // receiver still on) counts as woken too, so it also waits for its volume.
@@ -148,10 +150,10 @@ export async function wakeZoneForHeos(externalId, zone) {
     await ensureZoneOn(externalId, zone, HEOS_SOURCE_CODE);
     return { woke: false, confirmed: false, cancelled: false };
   }
-  const wake = { cancelled: false, confirmed: false, endedAt: undefined };
+  const wake = { cancelled: false, confirmed: false, endedAt: undefined, wakeUp: undefined };
   wake.promise = (async () => {
     try {
-      return await runWake(externalId, zone, telnet, wake);
+      return await runWake(externalId, zone, telnet, wake, settleMs);
     } finally {
       wake.endedAt = performance.now();
     }
@@ -160,7 +162,7 @@ export async function wakeZoneForHeos(externalId, zone) {
   return wake.promise;
 }
 
-async function runWake(externalId, zone, telnet, wake) {
+async function runWake(externalId, zone, telnet, wake, settleMs) {
   sendPower(telnet, externalId, true, zone, 'before an announcement');
   wake.confirmed = await waitForState(
     externalId,
@@ -168,7 +170,18 @@ async function runWake(externalId, zone, telnet, wake) {
     timing.wakeConfirmMs,
   );
   if (wake.confirmed) {
-    await settle(timing.wakeSettleMs);
+    // Cut short at once by cancelWake(): a power-off must not wait out a
+    // pause of up to 15 s.
+    await new Promise((resolve) => {
+      const timer = setTimeout(resolve, settleMs);
+      wake.wakeUp = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      if (wake.cancelled) {
+        wake.wakeUp();
+      }
+    });
   } else {
     logger.warn(
       `${externalId}: no power on reported ${timing.wakeConfirmMs} ms after the power command, the announcement goes on`,
@@ -194,6 +207,7 @@ export function cancelWake(externalId) {
   const wake = wakes.get(externalId);
   if (wake) {
     wake.cancelled = true;
+    wake.wakeUp?.();
     wakes.delete(externalId);
   }
 }

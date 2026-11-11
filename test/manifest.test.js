@@ -199,3 +199,23 @@ test('get_state declares exactly the outputs its handler returns', async () => {
 test('widgets and scene declarations require Gladys 5.1.0', () => {
   assert.match(manifest.gladys_version, /^>=\s*5\.(1|[2-9])\.\d+$/);
 });
+
+test('wake_delay_seconds: 0-15 number, default 4, simple trimmed fr/en texts', () => {
+  const field = manifest.config_schema.find((f) => f.key === 'wake_delay_seconds');
+  assert.equal(field.type, 'number');
+  assert.deepEqual([field.min, field.max, field.default], [0, 15, 4]);
+  assert.equal(field.label.fr, "Délai après l'allumage avant une annonce (secondes)");
+});
+
+test('every label and option label is a non-empty string without surrounding space', () => {
+  const texts = [];
+  for (const field of manifest.config_schema) {
+    texts.push(field.label, ...(field.options ?? []).map((o) => o.label));
+  }
+  for (const label of texts) {
+    for (const value of typeof label === 'string' ? [label] : Object.values(label)) {
+      assert.equal(typeof value, 'string');
+      assert.ok(value.length > 0 && value === value.trim(), `bad label "${value}"`);
+    }
+  }
+});

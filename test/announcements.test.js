@@ -23,6 +23,9 @@ import {
 import { normalizeConfig } from '../src/config.js';
 import { createFakeHeosSession, createFakeTelnetClient } from '../test-fixtures/fakeClients.js';
 
+// A 40 ms pause after the power report (the setting's default is 4 s).
+const cfg = (raw = {}) => normalizeConfig({ wake_delay_seconds: 0.04, ...raw });
+
 const ID = 'avr:abc';
 const URL = 'https://tts.example.com/a.mp3';
 const tick = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -44,7 +47,6 @@ test.beforeEach(() => {
     announcementMaxMs: 1_000,
     // Fake receivers report nothing back unless a test says so.
     wakeConfirmMs: 0,
-    wakeSettleMs: 0,
     announcementVolumeConfirmMs: 0,
   });
 });
@@ -58,7 +60,7 @@ test.afterEach(() => {
 // which switched the receiver and the TV back on.
 test('back to standby: the volume is restored, the input is NOT put back before PWSTANDBY/ZMOFF', async () => {
   const { telnet, heos } = setup({ power: 0, source: 'TV', volume: 40 });
-  await playAnnouncement(ID, URL, normalizeConfig({ announcement_volume: 25 }));
+  await playAnnouncement(ID, URL, cfg({ announcement_volume: 25 }));
 
   assert.deepEqual(telnet.sent, ['ZMON', 'SINET', 'MV25']);
   assert.deepEqual(heos.sent.slice(0, 2), [
@@ -78,7 +80,7 @@ test('back to standby: the volume is restored, the input is NOT put back before 
 
 test('the volume is left alone when someone changed it during the announcement', async () => {
   const { telnet } = setup({ power: 1, source: 'NET', volume: 40 });
-  await playAnnouncement(ID, URL, normalizeConfig({ announcement_volume: 30 }));
+  await playAnnouncement(ID, URL, cfg({ announcement_volume: 30 }));
   updateState(ID, { volume: 50, playback_state: 1 });
   updateState(ID, { playback_state: 0 });
   await tick();
@@ -87,7 +89,7 @@ test('the volume is left alone when someone changed it during the announcement',
 
 test('no announcement volume: input and power are still given back, the volume never touched', async () => {
   const { telnet } = setup({ power: 1, source: 'BD', volume: 40 });
-  await playAnnouncement(ID, URL, normalizeConfig());
+  await playAnnouncement(ID, URL, cfg());
   updateState(ID, { source: 'NET', playback_state: 1 });
   updateState(ID, { playback_state: 0 });
   await tick();
@@ -96,7 +98,7 @@ test('no announcement volume: input and power are still given back, the volume n
 
 test('a second announcement keeps the state from before the first one', async () => {
   const { telnet } = setup({ power: 1, source: 'CD', volume: 40 });
-  const config = normalizeConfig({ announcement_volume: 20 });
+  const config = cfg({ announcement_volume: 20 });
   await playAnnouncement(ID, URL, config);
   updateState(ID, { source: 'NET', volume: 20, playback_state: 1 });
   await playAnnouncement(ID, URL, config);
@@ -109,7 +111,7 @@ test('a second announcement keeps the state from before the first one', async ()
 
 test('a stream HEOS refuses restores at once', async () => {
   const { telnet } = setup({ power: 1, source: 'CD' });
-  await playAnnouncement(ID, URL, normalizeConfig());
+  await playAnnouncement(ID, URL, cfg());
   updateState(ID, { source: 'NET' });
   notifyStateChange(ID, STREAM_RESULT_KEY, 'fail');
   await tick();
@@ -119,7 +121,7 @@ test('a stream HEOS refuses restores at once', async () => {
 
 test('a stream that never starts is given up after the start timeout', async () => {
   const { telnet } = setup({ power: 1, source: 'CD' });
-  await playAnnouncement(ID, URL, normalizeConfig());
+  await playAnnouncement(ID, URL, cfg());
   updateState(ID, { source: 'NET' });
   await tick(260);
   assert.ok(!isAnnouncing(ID));
@@ -128,18 +130,14 @@ test('a stream that never starts is given up after the start timeout', async () 
 
 test('the fast poll asks HEOS for its play state while the announcement plays', async () => {
   const { heos } = setup({ power: 1, source: 'NET' });
-  await playAnnouncement(ID, URL, normalizeConfig());
+  await playAnnouncement(ID, URL, cfg());
   await tick(45);
   assert.ok(heos.sent.filter((path) => path === 'player/get_play_state?pid=9').length >= 2);
 });
 
 test('announcement_restore off: the volume is set, nothing is tracked or restored', async () => {
   const { telnet } = setup({ power: 0, source: 'CD', volume: 40 });
-  await playAnnouncement(
-    ID,
-    URL,
-    normalizeConfig({ announcement_volume: 35, announcement_restore: false }),
-  );
+  await playAnnouncement(ID, URL, cfg({ announcement_volume: 35, announcement_restore: false }));
   assert.ok(!isAnnouncing(ID));
   updateState(ID, { playback_state: 1 });
   updateState(ID, { playback_state: 0 });
@@ -151,7 +149,7 @@ test('a HEOS-only speaker: volume set and restored over HEOS, no input or power 
   const heos = createFakeHeosSession(9);
   __setHeosConnectionForTesting(ID, heos);
   __setLastKnownStateForTesting(ID, { volume: 40 });
-  await playAnnouncement(ID, URL, normalizeConfig({ announcement_volume: 60 }));
+  await playAnnouncement(ID, URL, cfg({ announcement_volume: 60 }));
   updateState(ID, { volume: 60, playback_state: 1 });
   updateState(ID, { playback_state: 0 });
   await tick();
@@ -164,12 +162,12 @@ test('a HEOS-only speaker: volume set and restored over HEOS, no input or power 
 test('a failed send restores and rethrows; no HEOS at all throws before touching anything', async () => {
   const { telnet, heos } = setup({ power: 1, source: 'CD' });
   heos.client.sendCommand = () => false;
-  await assert.rejects(() => playAnnouncement(ID, URL, normalizeConfig()), /clear the HEOS queue/);
+  await assert.rejects(() => playAnnouncement(ID, URL, cfg()), /clear the HEOS queue/);
   assert.ok(!isAnnouncing(ID));
 
   heos.setConnected(false);
   telnet.sent.length = 0;
-  await assert.rejects(() => playAnnouncement(ID, URL, normalizeConfig()), /cannot speak/);
+  await assert.rejects(() => playAnnouncement(ID, URL, cfg()), /cannot speak/);
   assert.deepEqual(telnet.sent, []);
 });
 
@@ -178,7 +176,7 @@ test('a failed send restores and rethrows; no HEOS at all throws before touching
 // again.
 test('once over and silent, the HEOS queue holding the announcement is cleared', async () => {
   const { heos } = setup({ power: 1, source: 'NET', volume: 40 });
-  await playAnnouncement(ID, URL, normalizeConfig());
+  await playAnnouncement(ID, URL, cfg());
   updateState(ID, { playback_state: 1 });
   updateState(ID, { playback_state: 0 });
   await tick();
@@ -193,7 +191,7 @@ test('once over and silent, the HEOS queue holding the announcement is cleared',
 
 test('music playing before: HEOS naming the announcement as its media proves it plays', async () => {
   const { telnet } = setup({ power: 1, source: 'NET', volume: 40, playback_state: 1 });
-  await playAnnouncement(ID, URL, normalizeConfig({ announcement_volume: 30 }));
+  await playAnnouncement(ID, URL, cfg({ announcement_volume: 30 }));
   // The music's "play" carries on into the announcement's: no state change.
   notifyStateChange(ID, NOW_PLAYING_MID_KEY, URL);
   updateState(ID, { volume: 30, playback_state: 0 });
@@ -204,7 +202,7 @@ test('music playing before: HEOS naming the announcement as its media proves it 
 
 test('another controller taking HEOS back ends the announcement; its queue is left alone', async () => {
   const { telnet, heos } = setup({ power: 1, source: 'NET', volume: 40, playback_state: 1 });
-  await playAnnouncement(ID, URL, normalizeConfig({ announcement_volume: 30 }));
+  await playAnnouncement(ID, URL, cfg({ announcement_volume: 30 }));
   notifyStateChange(ID, NOW_PLAYING_MID_KEY, encodeURIComponent(URL));
   updateState(ID, { volume: 30 });
   notifyStateChange(ID, NOW_PLAYING_MID_KEY, 'http://lyrion.lan:9000/stream.mp3');
@@ -217,7 +215,7 @@ test('another controller taking HEOS back ends the announcement; its queue is le
 
 test('a media answer that is not ours before the announcement plays changes nothing', async () => {
   setup({ power: 1, source: 'NET', playback_state: 1 });
-  await playAnnouncement(ID, URL, normalizeConfig());
+  await playAnnouncement(ID, URL, cfg());
   notifyStateChange(ID, NOW_PLAYING_MID_KEY, 'http://lyrion.lan:9000/stream.mp3');
   notifyStateChange(ID, NOW_PLAYING_MID_KEY, '');
   await tick();
@@ -226,7 +224,7 @@ test('a media answer that is not ours before the announcement plays changes noth
 
 test('the fast poll also asks HEOS what it plays', async () => {
   const { heos } = setup({ power: 1, source: 'NET' });
-  await playAnnouncement(ID, URL, normalizeConfig());
+  await playAnnouncement(ID, URL, cfg());
   await tick(45);
   assert.ok(heos.sent.includes('player/get_now_playing_media?pid=9'));
 });
@@ -238,7 +236,7 @@ const clearsAfterStream = (heos) => {
 
 test('the announcement named, then other media: that queue is never cleared (r3 m3)', async () => {
   const { heos } = setup({ power: 1, source: 'NET', volume: 40 });
-  await playAnnouncement(ID, URL, normalizeConfig());
+  await playAnnouncement(ID, URL, cfg());
   notifyStateChange(ID, NOW_PLAYING_MID_KEY, URL);
   // A queue started from the HEOS app: HEOS names it while stopped, before it plays.
   notifyStateChange(ID, NOW_PLAYING_MID_KEY, 'queue-item-from-the-heos-app');
@@ -250,7 +248,7 @@ test('the announcement named, then other media: that queue is never cleared (r3 
 
 test('a mid that is never the URL (internal id): the queue is still cleared (r4 I1)', async () => {
   const { heos } = setup({ power: 1, source: 'NET', volume: 40 });
-  await playAnnouncement(ID, URL, normalizeConfig());
+  await playAnnouncement(ID, URL, cfg());
   notifyStateChange(ID, NOW_PLAYING_MID_KEY, 'heos-internal-id-42');
   updateState(ID, { playback_state: 1 });
   updateState(ID, { playback_state: 0 });
@@ -261,7 +259,7 @@ test('a mid that is never the URL (internal id): the queue is still cleared (r4 
 
 test('only the mid of the music before seen: the queue is still cleared (r4 I1)', async () => {
   const { heos } = setup({ power: 1, source: 'NET', volume: 40 });
-  await playAnnouncement(ID, URL, normalizeConfig());
+  await playAnnouncement(ID, URL, cfg());
   notifyStateChange(ID, NOW_PLAYING_MID_KEY, 'http://lyrion.lan:9000/stream.mp3');
   updateState(ID, { playback_state: 1 });
   updateState(ID, { playback_state: 0 });
@@ -272,7 +270,7 @@ test('only the mid of the music before seen: the queue is still cleared (r4 I1)'
 
 test('announcement at 100 % over Telnet: read back as 98, still ours, volume restored (r3 m7, M12)', async () => {
   const { telnet } = setup({ power: 1, source: 'NET', volume: 40 });
-  await playAnnouncement(ID, URL, normalizeConfig({ announcement_volume: 100 }));
+  await playAnnouncement(ID, URL, cfg({ announcement_volume: 100 }));
   updateState(ID, { volume: 98, playback_state: 1 });
   updateState(ID, { playback_state: 0 });
   await tick();
@@ -281,14 +279,14 @@ test('announcement at 100 % over Telnet: read back as 98, still ours, volume res
 
 test('one unit off the announcement volume is still ours, two is the user (r3 m7, M21)', async () => {
   let { telnet } = setup({ power: 1, source: 'NET', volume: 40 });
-  await playAnnouncement(ID, URL, normalizeConfig({ announcement_volume: 30 }));
+  await playAnnouncement(ID, URL, cfg({ announcement_volume: 30 }));
   updateState(ID, { volume: 31, playback_state: 1 });
   updateState(ID, { playback_state: 0 });
   await tick();
   assert.deepEqual(telnet.sent, ['MV30', 'MV40']);
   __clearConnectionsForTesting();
   ({ telnet } = setup({ power: 1, source: 'NET', volume: 40 }));
-  await playAnnouncement(ID, URL, normalizeConfig({ announcement_volume: 30 }));
+  await playAnnouncement(ID, URL, cfg({ announcement_volume: 30 }));
   updateState(ID, { volume: 32, playback_state: 1 });
   updateState(ID, { playback_state: 0 });
   await tick();
@@ -300,7 +298,7 @@ test('one unit off the announcement volume is still ours, two is the user (r3 m7
 // named any more) is no other media: the queue is ours, cleared once.
 test('announcement named, then an empty mid, then stop: exactly one clear_queue (r5 m1)', async () => {
   const { heos } = setup({ power: 1, source: 'NET', volume: 40, playback_state: 1 });
-  await playAnnouncement(ID, URL, normalizeConfig());
+  await playAnnouncement(ID, URL, cfg());
   notifyStateChange(ID, NOW_PLAYING_MID_KEY, URL);
   notifyStateChange(ID, NOW_PLAYING_MID_KEY, '');
   assert.ok(isAnnouncing(ID), 'an empty mid does not end the announcement');
@@ -314,7 +312,7 @@ test('announcement named, then an empty mid, then stop: exactly one clear_queue 
 // (real HEOS event order not checked on hardware, TODO.md "Still open").
 test('a queue HEOS names only after the announcement "stop" is cleared (r5 m2, accepted)', async () => {
   const { heos } = setup({ power: 1, source: 'NET', volume: 40, playback_state: 1 });
-  await playAnnouncement(ID, URL, normalizeConfig());
+  await playAnnouncement(ID, URL, cfg());
   notifyStateChange(ID, NOW_PLAYING_MID_KEY, URL);
   updateState(ID, { playback_state: 0 });
   notifyStateChange(ID, NOW_PLAYING_MID_KEY, 'queue-item-from-the-heos-app');
@@ -325,7 +323,7 @@ test('a queue HEOS names only after the announcement "stop" is cleared (r5 m2, a
 
 test('a queue named before HEOS ever named the announcement is cleared (r4 m1, accepted)', async () => {
   const { heos } = setup({ power: 1, source: 'NET', volume: 40 });
-  await playAnnouncement(ID, URL, normalizeConfig());
+  await playAnnouncement(ID, URL, cfg());
   notifyStateChange(ID, NOW_PLAYING_MID_KEY, 'queue-item-from-the-heos-app');
   updateState(ID, { playback_state: 1 });
   updateState(ID, { playback_state: 0 });
@@ -363,7 +361,6 @@ const STREAM = `browse/play_stream?pid=9&url=${URL}`;
 function wakeTiming(overrides = {}) {
   __setTimingForTesting({
     wakeConfirmMs: 2_000,
-    wakeSettleMs: 40,
     announcementVolumeConfirmMs: 2_000,
     announcementVolumeRetryMs: 60,
     announcementAckMs: 5_000,
@@ -374,7 +371,7 @@ function wakeTiming(overrides = {}) {
 test('from standby: nothing but the power command until the receiver reports it on', async () => {
   wakeTiming();
   const { telnet, heos } = setup({ power: 0, source: 'TV', volume: 20 });
-  const done = playAnnouncement(ID, URL, normalizeConfig({ announcement_volume: 50 }));
+  const done = playAnnouncement(ID, URL, cfg({ announcement_volume: 50 }));
   await tick(120);
   assert.deepEqual(telnet.sent, ['ZMON'], 'no input, no volume while it wakes');
   assert.ok(!heos.sent.includes(STREAM), 'no stream while it wakes');
@@ -392,7 +389,7 @@ test('from standby: nothing but the power command until the receiver reports it 
 test('from standby: the stream waits for the volume read back, sent again until then', async () => {
   wakeTiming();
   const { telnet, heos } = setup({ power: 0, source: 'NET', volume: 20 });
-  const done = playAnnouncement(ID, URL, normalizeConfig({ announcement_volume: 50 }));
+  const done = playAnnouncement(ID, URL, cfg({ announcement_volume: 50 }));
   updateState(ID, { power: 1 });
   await until(() => telnet.sent.includes('MV50'), 1_000, 'first volume');
   // The waking receiver ignored it, reports its old volume.
@@ -412,11 +409,7 @@ test('from standby, nothing reported back: the announcement goes on after bounde
   wakeTiming({ wakeConfirmMs: 150, announcementVolumeConfirmMs: 150 });
   const { telnet, heos } = setup({ power: 0, source: 'NET', volume: 20 });
   const started = performance.now();
-  await within(
-    playAnnouncement(ID, URL, normalizeConfig({ announcement_volume: 50 })),
-    2_000,
-    'announcement',
-  );
+  await within(playAnnouncement(ID, URL, cfg({ announcement_volume: 50 })), 2_000, 'announcement');
   const elapsed = performance.now() - started;
   assert.ok(elapsed >= 280, `fallback waits kept (${Math.round(elapsed)} ms)`);
   assert.ok(heos.sent.includes(STREAM), 'the stream still goes out');
@@ -428,11 +421,7 @@ test('from standby: the scene action is answered within the ack budget, the rest
   wakeTiming({ announcementAckMs: 50 });
   const { heos } = setup({ power: 0, source: 'NET', volume: 20 });
   const started = performance.now();
-  await within(
-    playAnnouncement(ID, URL, normalizeConfig({ announcement_volume: 50 })),
-    1_000,
-    'ack',
-  );
+  await within(playAnnouncement(ID, URL, cfg({ announcement_volume: 50 })), 1_000, 'ack');
   assert.ok(performance.now() - started < 500, 'answered before the receiver woke');
   assert.ok(!heos.sent.includes(STREAM));
   updateState(ID, { power: 1 });
@@ -443,7 +432,7 @@ test('from standby: the scene action is answered within the ack budget, the rest
 test('from standby: a second announcement during the wake sends one stream, its own', async () => {
   wakeTiming();
   const { heos } = setup({ power: 0, source: 'NET', volume: 20 });
-  const config = normalizeConfig({ announcement_volume: 50 });
+  const config = cfg({ announcement_volume: 50, wake_delay_seconds: 0.15 });
   const first = playAnnouncement(ID, 'https://tts.example.com/first.mp3', config);
   await tick(20);
   const second = playAnnouncement(ID, URL, config);
@@ -458,9 +447,9 @@ test('from standby: a second announcement during the wake sends one stream, its 
 test('from standby, no announcement volume: a second announcement during the wake sends one stream', async () => {
   wakeTiming();
   const { heos } = setup({ power: 0, source: 'NET', volume: 20 });
-  const first = playAnnouncement(ID, 'https://tts.example.com/first.mp3', normalizeConfig());
+  const first = playAnnouncement(ID, 'https://tts.example.com/first.mp3', cfg());
   await tick(20);
-  const second = playAnnouncement(ID, URL, normalizeConfig());
+  const second = playAnnouncement(ID, URL, cfg());
   updateState(ID, { power: 1 });
   await within(Promise.all([first, second]), 1_000, 'both announcements');
   const streams = heos.sent.filter((path) => path.startsWith('browse/play_stream'));
@@ -470,11 +459,7 @@ test('from standby, no announcement volume: a second announcement during the wak
 test('receiver already on: volume and stream at once, no wait for any read back', async () => {
   wakeTiming();
   const { telnet, heos } = setup({ power: 1, source: 'NET', volume: 20 });
-  await within(
-    playAnnouncement(ID, URL, normalizeConfig({ announcement_volume: 50 })),
-    300,
-    'announcement',
-  );
+  await within(playAnnouncement(ID, URL, cfg({ announcement_volume: 50 })), 300, 'announcement');
   assert.deepEqual(telnet.sent, ['MV50']);
   assert.ok(heos.sent.includes(STREAM));
 });
@@ -504,9 +489,9 @@ const streams = (heos) => heos.sent.filter((path) => path.startsWith('browse/pla
 const mvs = (telnet) => telnet.sent.filter((command) => command.startsWith('MV'));
 
 test('r1 I1: a second announcement just after the power report still waits for the pause and the volume', async () => {
-  wakeTiming({ wakeSettleMs: 150 });
+  wakeTiming();
   const { telnet, heos } = setup({ power: 0, source: 'TV', volume: 20 });
-  const config = normalizeConfig({ announcement_volume: 50 });
+  const config = cfg({ announcement_volume: 50, wake_delay_seconds: 0.15 });
   const first = playAnnouncement(ID, 'https://tts.example.com/first.mp3', config);
   await tick(20);
   updateState(ID, { power: 1 });
@@ -525,14 +510,14 @@ test('r1 I1: a second announcement just after the power report still waits for t
 test('r1 I1: an announcement soon after a wake (receiver on) still waits for its volume', async () => {
   wakeTiming();
   const { telnet, heos } = setup({ power: 0, source: 'NET', volume: 20 });
-  const config = normalizeConfig({ announcement_volume: 50, announcement_restore: false });
+  const config = cfg({ announcement_volume: 50, announcement_restore: false });
   const first = playAnnouncement(ID, 'https://tts.example.com/first.mp3', config);
   updateState(ID, { power: 1 });
   await until(() => telnet.sent.includes('MV50'), 1_000, 'first volume');
   updateState(ID, { volume: 50 });
   await within(first, 1_000, 'first');
   updateState(ID, { volume: 30 }); // The receiver moved it meanwhile.
-  const second = playAnnouncement(ID, URL, normalizeConfig({ announcement_volume: 60 }));
+  const second = playAnnouncement(ID, URL, cfg({ announcement_volume: 60 }));
   await tick(30);
   assert.ok(!streams(heos).includes(ann()), 'no stream before its volume is read back');
   updateState(ID, { volume: 60 });
@@ -543,7 +528,7 @@ test('r1 I1: an announcement soon after a wake (receiver on) still waits for its
 test('r1 I2: the user switching off during the wake stops the announcement at once', async () => {
   wakeTiming();
   const { telnet, heos } = setup({ power: 0, source: 'NET', volume: 20 });
-  const done = playAnnouncement(ID, URL, normalizeConfig({ announcement_volume: 50 }));
+  const done = playAnnouncement(ID, URL, cfg({ announcement_volume: 50 }));
   await tick(20);
   await setPower(ID, false, 'main', 'scene');
   updateState(ID, { power: 1 }); // A late report of the power-on.
@@ -558,7 +543,7 @@ test('r1 I2: the user switching off during the wake stops the announcement at on
 test('r1 I2: a power-off from Gladys during the volume read back stops it too', async () => {
   wakeTiming();
   const { telnet, heos } = setup({ power: 0, source: 'NET', volume: 20 });
-  const done = playAnnouncement(ID, URL, normalizeConfig({ announcement_volume: 50 }));
+  const done = playAnnouncement(ID, URL, cfg({ announcement_volume: 50 }));
   updateState(ID, { power: 1 });
   await until(() => telnet.sent.includes('MV50'), 1_000, 'volume');
   const device = { external_id: ID, features: [] };
@@ -575,7 +560,7 @@ test('r1 I2: the remote switching off (power 1 then 0) stops it, restore off as 
   const done = playAnnouncement(
     ID,
     URL,
-    normalizeConfig({ announcement_volume: 50, announcement_restore: false }),
+    cfg({ announcement_volume: 50, announcement_restore: false }),
   );
   updateState(ID, { power: 1 });
   await until(() => telnet.sent.includes('MV50'), 1_000, 'volume');
@@ -589,11 +574,7 @@ test('r1 I2: the remote switching off (power 1 then 0) stops it, restore off as 
 test('r1 I3: a receiver that never reports its power on is still put back in standby', async () => {
   wakeTiming({ wakeConfirmMs: 60, announcementVolumeConfirmMs: 60 });
   const { telnet } = setup({ power: 0, source: 'TV', volume: 20 });
-  await within(
-    playAnnouncement(ID, URL, normalizeConfig({ announcement_volume: 50 })),
-    1_000,
-    'announcement',
-  );
+  await within(playAnnouncement(ID, URL, cfg({ announcement_volume: 50 })), 1_000, 'announcement');
   updateState(ID, { playback_state: 1 });
   updateState(ID, { playback_state: 0 });
   await tick();
@@ -605,11 +586,7 @@ test('r1 I3: a receiver that never reports its power on is still put back in sta
 test('r1 I4: a device removed during the wake (cancelAnnouncement) sends nothing more', async () => {
   wakeTiming({ announcementAckMs: 30 });
   const { telnet, heos } = setup({ power: 0, source: 'TV', volume: 20 });
-  await within(
-    playAnnouncement(ID, URL, normalizeConfig({ announcement_volume: 50 })),
-    1_000,
-    'ack',
-  );
+  await within(playAnnouncement(ID, URL, cfg({ announcement_volume: 50 })), 1_000, 'ack');
   cancelAnnouncement(ID);
   updateState(ID, { power: 1 });
   await tick(200);
@@ -622,7 +599,7 @@ test('r1 I4: a device removed during the wake (cancelAnnouncement) sends nothing
 test('r1 I4: a second announcement during the volume read back: one stream, the newer', async () => {
   wakeTiming();
   const { telnet, heos } = setup({ power: 0, source: 'NET', volume: 20 });
-  const config = normalizeConfig({ announcement_volume: 50 });
+  const config = cfg({ announcement_volume: 50 });
   const first = playAnnouncement(ID, 'https://tts.example.com/first.mp3', config);
   updateState(ID, { power: 1 });
   await until(() => telnet.sent.includes('MV50'), 1_000, 'first volume');
@@ -643,11 +620,7 @@ test('r1 I4: an error after the ack is logged, never an unhandled rejection', as
   t.after(() => process.off('unhandledRejection', onRejection));
   const { heos } = setup({ power: 0, source: 'NET', volume: 20 });
   heos.client.sendCommand = () => false;
-  await within(
-    playAnnouncement(ID, URL, normalizeConfig({ announcement_volume: 50 })),
-    1_000,
-    'ack',
-  );
+  await within(playAnnouncement(ID, URL, cfg({ announcement_volume: 50 })), 1_000, 'ack');
   updateState(ID, { power: 1 });
   updateState(ID, { volume: 50 });
   await until(() => errors.some((line) => /announcement failed/.test(line)), 1_000, 'logged');
@@ -658,7 +631,7 @@ test('r1 I4: an error after the ack is logged, never an unhandled rejection', as
 
 test('r1 I4: restore off, nothing tracked: no fast poll after the stream', async () => {
   const { heos } = setup({ power: 1, source: 'NET', volume: 20 });
-  await playAnnouncement(ID, URL, normalizeConfig({ announcement_restore: false }));
+  await playAnnouncement(ID, URL, cfg({ announcement_restore: false }));
   await tick(40);
   assert.ok(!heos.sent.some((path) => path.startsWith('player/get_play_state')));
 });
@@ -666,7 +639,7 @@ test('r1 I4: restore off, nothing tracked: no fast poll after the stream', async
 test('r1 M1: a user volume during the read back stops the resends and is kept at the end', async () => {
   wakeTiming();
   const { telnet } = setup({ power: 0, source: 'NET', volume: 20 });
-  const done = playAnnouncement(ID, URL, normalizeConfig({ announcement_volume: 50 }));
+  const done = playAnnouncement(ID, URL, cfg({ announcement_volume: 50 }));
   updateState(ID, { power: 1 });
   await until(() => telnet.sent.includes('MV50'), 1_000, 'volume');
   const device = { external_id: ID, features: [] };
@@ -683,7 +656,7 @@ test('r1 M1: a user volume during the read back stops the resends and is kept at
 test('r1 M2: a half step, or the Max Volume below the announcement volume, counts as read back', async () => {
   wakeTiming({ announcementVolumeRetryMs: 500 });
   const { telnet, heos } = setup({ power: 0, source: 'NET', volume: 20 });
-  const done = playAnnouncement(ID, URL, normalizeConfig({ announcement_volume: 50 }));
+  const done = playAnnouncement(ID, URL, cfg({ announcement_volume: 50 }));
   updateState(ID, { power: 1 });
   await until(() => telnet.sent.includes('MV50'), 1_000, 'volume');
   updateState(ID, { volume: 49.5 });
@@ -693,7 +666,7 @@ test('r1 M2: a half step, or the Max Volume below the announcement volume, count
   __clearConnectionsForTesting();
   wakeTiming({ announcementVolumeRetryMs: 500 });
   const capped = setup({ power: 0, source: 'NET', volume: 20, volume_max: 40 });
-  const second = playAnnouncement(ID, URL, normalizeConfig({ announcement_volume: 50 }));
+  const second = playAnnouncement(ID, URL, cfg({ announcement_volume: 50 }));
   updateState(ID, { power: 1 });
   await until(() => capped.telnet.sent.includes('MV50'), 1_000, 'volume');
   updateState(ID, { volume: 40 });
@@ -704,7 +677,7 @@ test('r1 M2: a half step, or the Max Volume below the announcement volume, count
 test('r1 M3: Telnet lost during the read back: the volume is not sent over HEOS', async () => {
   wakeTiming();
   const { telnet, heos } = setup({ power: 0, source: 'NET', volume: 20 });
-  const done = playAnnouncement(ID, URL, normalizeConfig({ announcement_volume: 50 }));
+  const done = playAnnouncement(ID, URL, cfg({ announcement_volume: 50 }));
   updateState(ID, { power: 1 });
   await until(() => telnet.sent.includes('MV50'), 1_000, 'volume');
   telnet.setConnected(false);
@@ -716,14 +689,14 @@ test('r1 M3: Telnet lost during the read back: the volume is not sent over HEOS'
 test('r1 M5: no run token left once an announcement is over', async () => {
   wakeTiming();
   setup({ power: 1, source: 'NET', volume: 20 });
-  await playAnnouncement(ID, URL, normalizeConfig({ announcement_restore: false }));
+  await playAnnouncement(ID, URL, cfg({ announcement_restore: false }));
   assert.equal(__announcementRunsForTesting(), 0);
 });
 
 test('r1 I2: switched off during the pause after the power report: no input switch either', async () => {
-  wakeTiming({ wakeSettleMs: 100 });
+  wakeTiming();
   const { telnet, heos } = setup({ power: 0, source: 'TV', volume: 20 });
-  const done = playAnnouncement(ID, URL, normalizeConfig({ announcement_volume: 50 }));
+  const done = playAnnouncement(ID, URL, cfg({ announcement_volume: 50, wake_delay_seconds: 0.1 }));
   updateState(ID, { power: 1 });
   await tick(30);
   await setPower(ID, false, 'main', 'widget');
@@ -736,7 +709,7 @@ test('r1 I2: switched off during the pause after the power report: no input swit
 test('r1: switched on by the user during the announcement: no standby at the end', async () => {
   wakeTiming();
   const { telnet } = setup({ power: 0, source: 'NET', volume: 20 });
-  const done = playAnnouncement(ID, URL, normalizeConfig({ announcement_volume: 50 }));
+  const done = playAnnouncement(ID, URL, cfg({ announcement_volume: 50 }));
   updateState(ID, { power: 1 });
   await until(() => telnet.sent.includes('MV50'), 1_000, 'volume');
   updateState(ID, { volume: 50 });
@@ -752,7 +725,7 @@ test('r1: switched on by the user during the announcement: no standby at the end
 
 test('r1 M1: a user volume next to the announcement one is still kept at the end', async () => {
   const { telnet } = setup({ power: 1, source: 'NET', volume: 20 });
-  await playAnnouncement(ID, URL, normalizeConfig({ announcement_volume: 50 }));
+  await playAnnouncement(ID, URL, cfg({ announcement_volume: 50 }));
   const device = { external_id: ID, features: [] };
   await onSetValue({}, { device, feature: { external_id: `${ID}:${FEATURE.VOLUME}` }, value: 51 });
   updateState(ID, { volume: 51, playback_state: 1 });
@@ -760,4 +733,56 @@ test('r1 M1: a user volume next to the announcement one is still kept at the end
   await tick();
   assert.ok(!isAnnouncing(ID));
   assert.deepEqual(mvs(telnet), ['MV50', 'MV51'], 'MV20 never sent over the user volume');
+});
+
+// --- Forum topic 10722, post 44: the pause after the power report is a setting ---
+
+test('wake delay: the configured pause is what the announcement waits after the power report', async () => {
+  wakeTiming();
+  const { telnet } = setup({ power: 0, source: 'NET', volume: 20 });
+  const done = playAnnouncement(ID, URL, cfg({ announcement_volume: 50, wake_delay_seconds: 0.3 }));
+  updateState(ID, { power: 1 });
+  const reported = performance.now();
+  await until(() => telnet.sent.includes('MV50'), 2_000, 'volume after the pause');
+  assert.ok(performance.now() - reported >= 280, 'the whole 0.3 s pause came first');
+  updateState(ID, { volume: 50 });
+  await within(done, 1_000, 'announcement');
+});
+
+test('wake delay: 0 sends the volume right after the power report', async () => {
+  wakeTiming();
+  const { telnet } = setup({ power: 0, source: 'NET', volume: 20 });
+  const done = playAnnouncement(ID, URL, cfg({ announcement_volume: 50, wake_delay_seconds: 0 }));
+  updateState(ID, { power: 1 });
+  await until(() => telnet.sent.includes('MV50'), 100, 'volume at once');
+  updateState(ID, { volume: 50 });
+  await within(done, 1_000, 'announcement');
+});
+
+test('wake delay: a power-off ends a long pause at once, nothing more is sent', async () => {
+  wakeTiming();
+  const { telnet, heos } = setup({ power: 0, source: 'TV', volume: 20 });
+  const done = playAnnouncement(ID, URL, cfg({ announcement_volume: 50, wake_delay_seconds: 15 }));
+  updateState(ID, { power: 1 });
+  await tick(30);
+  const off = performance.now();
+  await setPower(ID, false, 'main', 'widget');
+  await within(done, 500, 'announcement stopped');
+  assert.ok(performance.now() - off < 400, 'not after the 15 s pause');
+  assert.deepEqual(telnet.sent, ['ZMON', 'ZMOFF']);
+  assert.deepEqual(streams(heos), []);
+});
+
+test('wake delay: real clock, 4 s by default', async () => {
+  wakeTiming({ wakeConfirmMs: 2_000 });
+  const { telnet } = setup({ power: 0, source: 'NET', volume: 20 });
+  // The default config, as Gladys gives it: 4 s, measured on the real clock.
+  const done = playAnnouncement(ID, URL, normalizeConfig({ announcement_volume: 50 }));
+  updateState(ID, { power: 1 });
+  const reported = performance.now();
+  await until(() => telnet.sent.includes('MV50'), 8_000, 'volume after the default pause');
+  const waited = performance.now() - reported;
+  assert.ok(waited >= 3_900 && waited < 6_000, `waited ${waited} ms`);
+  updateState(ID, { volume: 50 });
+  await within(done, 1_000, 'announcement');
 });

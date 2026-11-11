@@ -99,9 +99,10 @@ Voici ce qui apparaît par ampli :
   car choisir une entrée HDMI réveille le lecteur branché dessus par HDMI-CEC (qui peut allumer la
   télé) ; un lecteur réveillé plus tard par HDMI-CEC choisit de toute façon sa propre entrée.
   Depuis la veille, l'annonce attend que l'ampli se dise allumé (5 s au plus, puis elle continue
-  quand même), patiente 2 s, puis attend que le volume des annonces soit relu (4 s au plus, renvoyé
+  quand même), patiente (**Délai après l'allumage avant une annonce**, 4 s par défaut, de 0 à 15), puis attend que le volume des annonces soit relu (4 s au plus, renvoyé
   chaque seconde, à un pas près, ou le volume maximum de l'ampli s'il est plus bas) avant de lancer
-  le message ; l'action de scène reçoit sa réponse au bout de 3 s au plus pendant que la suite se
+  le message (au pire depuis la veille : 5 s + 15 s + le changement d'entrée + 4 s, environ 25 s,
+  chaque attente est bornée) ; l'action de scène reçoit sa réponse au bout de 3 s au plus pendant que la suite se
   déroule. Éteindre l'ampli pendant ce temps (depuis Gladys ou sa télécommande) arrête l'annonce,
   et rien n'est rétabli ; un volume réglé depuis Gladys pendant ce temps est gardé. Un volume changé
   à la télécommande pendant ces quelques secondes peut encore être remplacé par celui de l'annonce. Ce que HEOS
@@ -617,7 +618,10 @@ dossier de données de l'intégration (`/data/ad-breaks.json`, `/data/ad-jingles
    mode sonore et les touches du menu de configuration agissent toujours sur la zone principale,
    la seule à avoir un menu à l'écran). Le changement s'applique immédiatement, inutile de
    rajouter l'appareil.
-7. **Annonces** (onglet Configuration) : **Volume des annonces** (0 = garder le volume actuel) et
+7. **Annonces** (onglet Configuration) : **Volume des annonces** (0 = garder le volume actuel),
+   **Délai après l'allumage avant une annonce (secondes)** (de 0 à 15, 4 par défaut : à augmenter
+   si le début d'un message depuis la veille est coupé, certains amplis se déclarant allumés avant
+   que leur sortie audio soit prête ; une valeur hors bornes ou illisible garde le défaut) et
    **Rétablir l'ampli après une annonce** pour l'action « Parler sur une enceinte » — voir
    « Diffuser une notification » plus haut.
    **Lecteur de musique** (onglet Configuration) : **Service de musique préféré pour la recherche**

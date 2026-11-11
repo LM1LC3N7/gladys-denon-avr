@@ -240,7 +240,8 @@ TuneIn...) — see "Playback controls" below.
   HDMI-CEC): a receiver that was in standby goes back to it WITHOUT its previous input (selecting
   an HDMI input sends a CEC `<Routing Change>` that woke the Shield, which switched receiver and
   TV back on); from standby, the announcement waits for the power report (`timing.wakeConfirmMs`,
-  5 s, then goes on), 2 s more, then the volume read back (4 s, `MV` sent again every second)
+  5 s, then goes on), then the `wake_delay_seconds` setting (0-15 s, 4 by default since 1.2.6, 2 s
+  before; worst case about 25 s from standby, a power-off cuts the pause at once), then the volume read back (4 s, `MV` sent again every second)
   before the stream, and the scene action is answered after 3 s at most
   (`timing.announcementAckMs`). After review denon-125-r1: one wake per receiver, joined by a
   newer announcement (and one within `timing.wakeFreshMs` of it still waits for its volume); a

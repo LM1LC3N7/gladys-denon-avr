@@ -5,6 +5,7 @@ import {
   DEFAULT_CONFIG,
   sessionConfigChanged,
   applyTimezone,
+  wakeDelayMs,
 } from '../src/config.js';
 
 test('normalizeConfig returns the defaults when called with no argument', () => {
@@ -134,4 +135,35 @@ test('ad-break levels: whole numbers within range, empty means default', () => {
   assert.equal(normalizeConfig({ ad_break_volume_drop: 0 }).ad_break_volume_drop, 1);
   assert.equal(normalizeConfig({ ad_break_min_volume: 'x' }).ad_break_min_volume, 20);
   assert.equal(normalizeConfig({ ad_break_detection: 'true' }).ad_break_detection, false);
+});
+
+test('wake_delay_seconds: 4 s by default, 0-15 kept, out of bounds or unreadable = the default', () => {
+  assert.equal(normalizeConfig().wake_delay_seconds, 4);
+  assert.equal(wakeDelayMs(normalizeConfig()), 4_000);
+  for (const [raw, seconds] of [
+    [0, 0],
+    ['0', 0],
+    [7, 7],
+    ['7.5', 7.5],
+    [15, 15],
+    [-1, 4],
+    [15.01, 4],
+    [60, 4],
+    ['abc', 4],
+    ['', 4],
+    [null, 4],
+    [NaN, 4],
+    [Infinity, 4],
+    [true, 4],
+    [{}, 4],
+  ]) {
+    assert.equal(
+      normalizeConfig({ wake_delay_seconds: raw }).wake_delay_seconds,
+      seconds,
+      `${raw}`,
+    );
+  }
+  assert.equal(wakeDelayMs({ wake_delay_seconds: 2.5 }), 2_500);
+  assert.equal(wakeDelayMs({}), 4_000);
+  assert.equal(wakeDelayMs({ wake_delay_seconds: 99 }), 4_000);
 });

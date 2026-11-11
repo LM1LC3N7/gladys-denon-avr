@@ -63,7 +63,6 @@ const DEFAULT_TIMING = Object.freeze({
   // every retry), and how long the scene action waits before it is answered
   // while the rest goes on (Gladys gives up on a command after 5 s).
   wakeConfirmMs: 5_000,
-  wakeSettleMs: 2_000,
   announcementVolumeConfirmMs: 4_000,
   announcementVolumeRetryMs: 1_000,
   announcementAckMs: 3_000,

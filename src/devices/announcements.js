@@ -38,6 +38,12 @@
 //     announcement now waits for the receiver to report its power on, then
 //     for the announcement volume to be read back (sent again meanwhile),
 //     each wait bounded (control.js wakeZoneForHeos(), `timing.wake*`);
+//   - post 44: the pause after the power report is the `wake_delay_seconds`
+//     setting (0-15 s, 4 s by default: the AVR-S650H still lost 2 s of the
+//     message after 2 s). Worst case from standby, all waits bounded: 5 s
+//     (power report) + 15 s (pause) + the input switch + 4 s (volume read
+//     back) = about 25 s before the stream; the scene action is answered
+//     after 3 s whatever happens. A power-off ends the pause at once.
 //   - going back to standby no longer puts the input back first: selecting
 //     an HDMI input sends a CEC <Routing Change> that woke the player on it,
 //     which switched receiver and TV back on. The input is given back only
@@ -52,7 +58,7 @@ import {
   buildGetPlayStateCommand,
   buildPlayStreamCommand,
 } from '../heos/protocol.js';
-import { normalizeConfig } from '../config.js';
+import { normalizeConfig, wakeDelayMs } from '../config.js';
 import { FEATURE, HEOS_SOURCE_CODE, STATE } from './features.js';
 import {
   getHeos,
@@ -421,7 +427,7 @@ async function runAnnouncement(externalId, url, config, heos, run) {
   }
 
   try {
-    const { woke, cancelled } = await wakeZoneForHeos(externalId, zone);
+    const { woke, cancelled } = await wakeZoneForHeos(externalId, zone, wakeDelayMs(config));
     // The integration sent (or joined) the power command: standby at the end.
     entry.woke = entry.woke || woke;
     if (!isCurrent() || cancelled) {

@@ -89,9 +89,11 @@ These show up per receiver:
   because selecting an HDMI input wakes the player on it over HDMI-CEC (which can switch the TV
   on); a player woken later by HDMI-CEC selects its own input anyway. From standby, the
   announcement waits for the receiver to report itself on (up to 5 s, then it goes on anyway),
-  pauses 2 s, then waits for the announcement volume to be read back (up to 4 s, sent again every
+  pauses (**Delay after power on before an announcement**, 4 s by default, 0 to 15), then waits for
+  the announcement volume to be read back (up to 4 s, sent again every
   second, within one step, or the receiver's Max Volume when it is lower) before the message
-  starts; the scene action is answered after 3 s at most while this goes on. Switching the
+  starts (worst case from standby: 5 s + 15 s + the input switch + 4 s, about 25 s, every wait
+  bounded); the scene action is answered after 3 s at most while this goes on. Switching the
   receiver off meanwhile (from Gladys or its remote) stops the announcement, and nothing is
   restored; a volume you set from Gladys meanwhile is kept. A volume changed with the remote
   during those few seconds may still be replaced by the announcement volume. Whatever HEOS was playing
@@ -572,7 +574,10 @@ integration's data folder (`/data/ad-breaks.json`, `/data/ad-jingles/`).
    (sound mode and the Setup-menu keys always act on the main zone, the only one with an on-screen
    menu). The change applies immediately, no need to re-add the device.
 7. **Announcements** (Configuration tab): **Announcement volume** (0 = keep the current volume)
-   and **Restore the receiver after an announcement**, for the "Speak on a speaker" action — see
+   **Delay after power on before an announcement (seconds)** (0 to 15, 4 by default: raise it if
+   the start of a message from standby is cut off, since some receivers report being on before
+   their audio output is ready; a value out of range or unreadable keeps the default) and
+   **Restore the receiver after an announcement**, for the "Speak on a speaker" action — see
    "Play notification" above.
    **Music player** (Configuration tab): **Preferred music service for the search** (Automatic by
    default: Qobuz when signed in, else every service) — see "Gladys music player" above.

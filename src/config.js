@@ -65,11 +65,30 @@ export const DEFAULT_CONFIG = {
   // Give back the volume, input and power state the receiver had before an
   // announcement, once it is over (src/devices/announcements.js).
   announcement_restore: true,
+  // Seconds to wait after the receiver reports its power on before an
+  // announcement goes on (forum topic 10722, post 44: an AVR-S650H reports
+  // PWON 5 s before its audio output is ready). 0-15.
+  wake_delay_seconds: 4,
   // The music service the Gladys music player searches (src/devices/music.js):
   // `auto` (Qobuz when it is signed in, else every service that can search),
   // `all`, or a service key of src/heos/services.js (`tidal`, `deezer`…).
   music_search_service: 'auto',
 };
+
+export const WAKE_DELAY_MAX_SECONDS = 15;
+
+/** The wake delay in seconds: within [0, 15], the default when unreadable or out of bounds. */
+function wakeDelaySeconds(raw) {
+  const value = raw === '' || raw == null || typeof raw === 'boolean' ? NaN : Number(raw);
+  return Number.isFinite(value) && value >= 0 && value <= WAKE_DELAY_MAX_SECONDS
+    ? value
+    : DEFAULT_CONFIG.wake_delay_seconds;
+}
+
+/** The pause after the power report, in ms (whole), from a normalized config. */
+export function wakeDelayMs(config = {}) {
+  return Math.round(wakeDelaySeconds(config?.wake_delay_seconds) * 1000);
+}
 
 /** A whole volume level within [min, 100]; `fallback` when not a number. */
 function clampLevel(raw, min, fallback) {
@@ -126,6 +145,7 @@ export function normalizeConfig(raw = {}) {
       Math.max(0, Math.min(100, Number(raw.announcement_volume ?? 0) || 0)),
     ),
     announcement_restore: raw.announcement_restore !== false,
+    wake_delay_seconds: wakeDelaySeconds(raw.wake_delay_seconds),
     music_search_service:
       typeof raw.music_search_service === 'string' && raw.music_search_service.trim()
         ? raw.music_search_service.trim().toLowerCase()

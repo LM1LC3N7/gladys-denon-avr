@@ -10,6 +10,20 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+### Added
+
+- New setting **Delay after power on before an announcement (seconds)** (0 to 15, forum topic
+  10722, post 44): how long an announcement from standby waits after the receiver reports being
+  on, before the volume and the message are sent. A value out of range or unreadable keeps the
+  default. Every wait stays bounded (worst case about 25 s from standby), and switching the
+  receiver off during the pause stops the announcement at once.
+
+### Changed
+
+- The default pause after the power report before an announcement goes from 2 s to 4 s: an
+  AVR-S650H reports being on about 5 s before its audio output is ready and still lost the start
+  of the message.
+
 ## [1.2.5] - 2026-11-10
 
 ### Fixed

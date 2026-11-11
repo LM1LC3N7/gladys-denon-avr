@@ -8,8 +8,8 @@
   {
     "name": "wake: no pause after the power report",
     "file": "src/devices/control.js",
-    "from": "    await settle(timing.wakeSettleMs);",
-    "to": ""
+    "from": "      const timer = setTimeout(resolve, settleMs);",
+    "to": "      const timer = setTimeout(resolve, 0);"
   },
   {
     "name": "announcement volume not confirmed after a wake",
@@ -206,5 +206,41 @@
     "file": "src/devices/announcements.js",
     "from": "    entry.snapshot.power = 1;",
     "to": "    entry.snapshot.power = entry.snapshot.power;"
+  },
+  {
+    "name": "wake delay: the configured delay not passed (a fixed one used)",
+    "file": "src/devices/announcements.js",
+    "from": "wakeZoneForHeos(externalId, zone, wakeDelayMs(config))",
+    "to": "wakeZoneForHeos(externalId, zone, 4_000)"
+  },
+  {
+    "name": "wake delay: a power-off does not end the pause",
+    "file": "src/devices/control.js",
+    "from": "    wake.wakeUp?.();",
+    "to": ""
+  },
+  {
+    "name": "wake delay: upper bound not enforced",
+    "file": "src/config.js",
+    "from": "value >= 0 && value <= WAKE_DELAY_MAX_SECONDS",
+    "to": "value >= 0"
+  },
+  {
+    "name": "wake delay: lower bound not enforced",
+    "file": "src/config.js",
+    "from": "value >= 0 && value <= WAKE_DELAY_MAX_SECONDS",
+    "to": "value <= WAKE_DELAY_MAX_SECONDS"
+  },
+  {
+    "name": "wake delay: an empty value read as 0",
+    "file": "src/config.js",
+    "from": "raw === '' || raw == null || typeof raw === 'boolean' ? NaN : Number(raw)",
+    "to": "Number(raw)"
+  },
+  {
+    "name": "wake delay: manifest-independent default changed",
+    "file": "src/config.js",
+    "from": "  wake_delay_seconds: 4,",
+    "to": "  wake_delay_seconds: 2,"
   }
 ]
